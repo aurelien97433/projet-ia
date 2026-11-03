@@ -83,7 +83,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 - **Règle (Rule) :** le navigateur appelle uniquement Next.js (pages, Server Actions, Route Handlers) et, pour déposer un fichier, une URL signée du Storage. Il n'appelle jamais une Edge Function, ni OpenAI. `src/app` ne contient aucune requête SQL : tout passe par `src/server`. Les Edge Functions n'importent rien de `src/`.
 - **Raison — ce qu'on évite (Prevents) :** un seul point de contrôle (session, validation, erreurs) et un seul point d'accès à l'IA.
 - **Écarté :** appel direct des Edge Functions depuis le navigateur (contrôles dispersés).
-- **Risque restant :** un intermédiaire réseau de plus pour la Recherche et l'Assistant (NFR-3), à mesurer dès la première story concernée. Les URL des Edge Functions sont publiques. Un Collaborateur connecté qui les appellerait directement avec son propre jeton n'obtiendrait rien de plus que par l'interface, car chaque fonction (a) exige un jeton valide, (b) revalide son entrée, (c) applique la RLS et le quota, et (d) ne renvoie jamais la clé. `process-document` refuse tout appel sans `PROCESS_DOCUMENT_SECRET`.
+- **Risque restant :** un intermédiaire réseau de plus pour la Recherche et l'Assistant (NFR-3), à mesurer dès la première story concernée. Les URL des Edge Functions sont publiques. Un Collaborateur connecté qui les appellerait directement avec son propre jeton n'obtiendrait rien de plus que par l'interface, car chaque fonction (a) exige un jeton valide, (b) revalide son entrée, (c) applique la RLS et le quota, et (d) ne renvoie jamais la clé. `process-document` refuse tout appel sans `PROCESS_DOCUMENT_SECRET` ; comme il n'est jamais appelé avec un jeton de Collaborateur, il est déclaré `verify_jwt = false` dans `supabase/config.toml`, et seul le secret fait foi.
 - **Exigences (Binds) :** NFR-1, NFR-2.
 
 **Chemin d'un appel à l'IA** (règle vérifiable) : navigateur → Next.js (serveur, jeton du Collaborateur) → Edge Function → `_shared/ai.ts` → OpenAI. La clé `OPENAI_API_KEY` n'existe que dans les secrets Supabase. Ni le navigateur ni Next.js ne la voient, et aucune réponse ne la contient.
@@ -112,10 +112,10 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 ### AD-5 — Traitement asynchrone dans `process-document` `[ADOPTED]`
 - **Règle (Rule) :**
   1. **Création.** Pour une Note, Next.js valide la saisie. Pour un fichier, il vérifie l'objet déjà déposé (AD-7). Il enregistre ensuite le Document avec `status = processing`, un `attempt_id` neuf et `processing_started_at = now()` : le délai de 3 min ne démarre qu'après cette vérification.
-  2. **Déclenchement.** Next.js appelle `process-document` (secret `PROCESS_DOCUMENT_SECRET`) et **attend sa réponse**. La fonction contrôle le secret et la tentative, lance le travail avec `EdgeRuntime.waitUntil(…)` et répond aussitôt `202 Accepted`. Aucun `fetch` non attendu. Si l'appel échoue ou ne répond pas en 5 s, Next.js appelle `fail_processing(temporary)` : le Document est immédiatement relançable. Il redirige ensuite vers la page Document.
+  2. **Déclenchement.** Next.js appelle `process-document` (secret `PROCESS_DOCUMENT_SECRET`) et **attend sa réponse**. La fonction contrôle le secret et la tentative, lance le travail avec `EdgeRuntime.waitUntil(…)` et répond aussitôt `202 Accepted`. Aucun `fetch` non attendu. Si l'appel échoue ou ne répond pas en 5 s, Next.js appelle `abandon_processing(document_id, attempt_id)` **avec le jeton du Collaborateur** (Next.js n'a pas la clé `service_role`, AD-20) : le Document passe *en erreur* temporaire et est immédiatement relançable. Il redirige ensuite vers la page Document.
   3. **Travail en arrière-plan.** Extraction, texte canonique, découpage, vectorisation par lots de 96.
   4. **Fin.** Une seule fonction SQL `complete_processing(document_id, attempt_id, …)` remplace les anciens Passages et passe le Document à `ready`, à condition que la tentative soit la tentative courante, *en cours*, et commencée il y a moins de 3 min. Sinon, rien n'est écrit.
-  5. **Échec.** `fail_processing(document_id, attempt_id, kind, message)`, avec `kind` = `temporary` ou `no_text`, soumis à la même condition de tentative courante.
+  5. **Échec.** `fail_processing(document_id, attempt_id, kind, message)` (`service_role`, appelé par `process-document`), avec `kind` = `temporary` ou `no_text`, soumis à la même condition de tentative courante. Côté Next.js, seul `abandon_processing(document_id, attempt_id)` existe : `security definer`, réservé à l'Auteur, accepté seulement si la tentative est la tentative courante et le Document *en cours* ; il écrit `error_kind = temporary` avec le message du catalogue. Une fin tardive de `process-document` sur cette tentative est ensuite ignorée (étape 4).
   6. **Relance.** `retry_processing` (Auteur seul) se base sur le **Statut effectif** (AD-6). Elle est permise si l'erreur est `temporary`, y compris pour un traitement expiré après 3 min. Elle crée une nouvelle tentative, avec un nouvel horodatage, et repart d'un état propre.
 - **Raison — ce qu'on évite (Prevents) :** le traitement ne bloque pas l'interface (addendum). Sur Vercel, un appel non attendu peut être interrompu à la fin de la requête ; ici, le travail continue côté Supabase. Une tentative périmée ne peut jamais remettre un Document à *prêt*.
 - **Écarté :** `after()` de Next.js ; `fetch` non attendu ; traitement immédiat dans la requête ; file de tâches dédiée (pgmq), notée comme évolution possible.
@@ -133,7 +133,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 - **Règle (Rule) :**
   1. **Contrôle avant tout envoi.** Dans l'onglet Fichier, le navigateur vérifie l'extension (`.txt`, `.md`, et `.pdf` seulement si FR-6 est livré) et la taille (1 Mo au plus pour `.txt` et `.md`, **1 Mo = 1 000 000 octets** dans tous les contrôles ; limite des PDF à arbitrer au lancement de E9) dès le choix du fichier (FR-7).
   2. **Dépôt, avant toute création de Document.** Il demande à Next.js une URL d'upload signée (`POST /api/uploads`, qui renvoie un `upload_id`) pour le chemin `{author_id}/uploads/{upload_id}`, puis y dépose le fichier.
-  3. **Vérification à « Importer ».** Next.js vérifie que l'objet existe, se trouve dans le dossier du Collaborateur et respecte la taille maximale (1 Mo pour `.txt` et `.md`). Il **déduit le type MIME de l'extension** côté serveur (`.txt` → `text/plain`, `.md` → `text/markdown`, `.pdf` → `application/pdf`) et ignore celui envoyé par le navigateur.
+  3. **Vérification à « Importer ».** Next.js vérifie, avec le jeton du Collaborateur, que l'objet existe, se trouve dans le dossier du Collaborateur et respecte la taille maximale (1 Mo pour `.txt` et `.md`). Une politique Storage de lecture des métadonnées réservée au propriétaire, limitée à `{auth.uid()}/uploads/…`, le permet ; aucun autre Collaborateur ne lit ce dossier. Il **déduit le type MIME de l'extension** côté serveur (`.txt` → `text/plain`, `.md` → `text/markdown`, `.pdf` → `application/pdf`) et ignore celui envoyé par le navigateur.
   4. **Création.** Le Document est créé (AD-5, étape 1) avec ce `storage_path`.
   5. **Bucket.** Le bucket privé `documents` est limité à 1 000 000 octets (`file_size_limit`, à relever seulement si la limite des PDF l'exige, au lancement de E9), sans restriction de type MIME au niveau du bucket, car les navigateurs déclarent mal les `.md`. Aucune URL publique. Le téléchargement (P2) passe par une URL signée courte, en pièce jointe.
 - **Raison — ce qu'on évite (Prevents) :** aucun fichier ne transite par Next.js (le corps d'une requête Vercel est limité à 4,5 Mo, ce qui laisse de la marge pour une éventuelle limite des PDF). Aucun Document n'existe pour un dépôt raté, et aucun type de fichier n'est accepté sur la seule déclaration du client.
@@ -213,7 +213,8 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
     3. Sinon : `reserve_ai_call`, puis création de la Conversation (AD-17) et de la question.
 - **Raison — ce qu'on évite (Prevents) :** NFR-4 (aucun chargement infini), pas de doublon de question ni de double décompte, et un flux non coupé par la plateforme.
 - **Écarté :** aucune borne ; dédoublonnage côté navigateur seulement ; unicité sur tous les messages (elle bloquerait l'enregistrement de la réponse).
-- **Risque restant :** les valeurs sont à ajuster après mesure. Le flux sur Vercel Hobby est vérifié dès la première story Assistant (§7).
+  - **Plan B du flux sur Vercel.** Un essai léger (story 5.0, fenêtre E3 + E4) relaie un flux factice Edge Function → Route Handler → navigateur sur un déploiement de prévisualisation, avant toute story Assistant. Si le flux est mis en tampon ou si le premier octet dépasse 5 s en médiane, on applique dans l'ordre : (B1) relais par `ReadableStream` sans transformation, en-têtes `Cache-Control: no-cache, no-transform` et `X-Accel-Buffering: no`, aucune compression ; (B2) Route Handler `app/api/chat` en environnement d'exécution Edge (`export const runtime = 'edge'`), sans changer le reste d'AD-1 ; (B3) si le flux reste impossible, l'affichage progressif est remplacé par l'état neutre puis la réponse validée d'un seul bloc. B3 ne respecte plus le critère « affichage progressif » de FR-16 : il n'est appliqué qu'après ton arbitrage, consigné ici. Aucun plan B n'autorise le navigateur à appeler une Edge Function (AD-1).
+- **Risque restant :** les valeurs sont à ajuster après mesure. Le flux sur Vercel Hobby est vérifié par l'essai de la story 5.0, puis mesuré sur le vrai flux en 5.5 (§7).
 
 **Quota selon l'issue d'une demande** (AD-14) :
 
@@ -251,14 +252,21 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 - **Exigences (Binds) :** NFR-4, NFR-5.
 
 ### AD-20 — Secrets et environnements `[ADOPTED]`
-- **Règle (Rule) :** voir le tableau des secrets (§6). `OPENAI_API_KEY` n'existe que dans les secrets Supabase. `SUPABASE_SERVICE_ROLE_KEY` n'existe que dans les secrets Supabase (Edge Functions) et dans l'environnement local du script de préchargement. Seules les variables `NEXT_PUBLIC_SUPABASE_URL` et la clé publique Supabase sont exposées au navigateur. `.env*` est ignoré par git ; un `.env.example` liste les noms, sans valeurs.
+- **Règle (Rule) :** voir le tableau des secrets (§6). `OPENAI_API_KEY` n'existe que dans les secrets Supabase : aucun script local ne la reçoit, et elle n'est jamais écrite dans un document ni dans une conversation. `SUPABASE_SERVICE_ROLE_KEY` n'existe que dans les secrets Supabase (Edge Functions) et dans l'environnement local du script de préchargement, qui reçoit aussi `PROCESS_DOCUMENT_SECRET` pour déclencher le traitement (AD-21). Seules les variables `NEXT_PUBLIC_SUPABASE_URL` et la clé publique Supabase sont exposées au navigateur. `.env*` est ignoré par git ; un `.env.example` liste les noms, sans valeurs.
 - **Raison — ce qu'on évite (Prevents) :** NFR-2.
 - **Écarté :** clé `service_role` dans Next.js.
 - **Risque restant :** une fuite par erreur de commit ; vérification de `.gitignore` dès la première story.
 - **Exigences (Binds) :** NFR-2.
 
 ### AD-21 — Hébergement et démonstration `[ADOPTED]`
-- **Règle (Rule) :** Next.js sur Vercel Hobby (URL HTTPS par défaut) ; Supabase Free, projet européen ; migrations SQL versionnées dans `supabase/migrations`. Le script `scripts/seed-demo.ts` précharge le Jeu de démonstration et deux Comptes de démo fictifs : il est relançable sans doublon (clés naturelles) et prend ses identifiants dans l'environnement. Avant le rendu : vérification du projet Supabase 48 h avant et la veille, réactivation manuelle si besoin, rejeu complet d'UJ-2 après chaque vérification, et vidéo de secours enregistrée sur l'environnement final.
+- **Règle (Rule) :**
+  - **Environnements.** Développement et tests sur Supabase local (CLI, Docker). Un seul projet Supabase distant, en Europe : c'est l'environnement de démonstration, auquel sont reliés les déploiements Vercel (production et prévisualisation). Aucun projet distant de développement séparé. Les scripts qui écrivent sur le projet distant (test de charge 2.7, mesures, tests de bout en bout) suppriment leurs données à la fin.
+  - **Région.** La région du projet Supabase est vérifiée dans son tableau de bord ; elle doit être européenne. Les fonctions Vercel sont placées dans la même zone par `vercel.json` (`"regions": ["cdg1"]` si Supabase est à Paris, `["fra1"]` si Supabase est à Francfort ; pour une autre région européenne, la région Vercel la plus proche).
+  - **Déploiement côté Supabase.** `npm run deploy:supabase` enchaîne `supabase db push` (migrations) et `supabase functions deploy` sur le projet distant. Il fait partie de la définition de « terminé » de toute story qui modifie la base ou une Edge Function, avant le déploiement Vercel. Les secrets distants (`supabase secrets set`) et les réglages d'Auth (confirmation de l'e-mail désactivée) sont posés une fois, à la main, et consignés dans `docs/environnements.md` sans aucune valeur.
+  - **Hébergement.** Next.js sur Vercel Hobby (URL HTTPS par défaut) ; Supabase Free ; migrations SQL versionnées dans `supabase/migrations`.
+  - **Préchargement.** Le script `scripts/seed-demo.ts` précharge le Jeu de démonstration, deux Comptes de démo fictifs et les Comptes de mesure. Il crée chaque Document avec la clé `service_role` (Statut *en cours*, nouvelle tentative), appelle `process-document` avec `PROCESS_DOCUMENT_SECRET`, comme Next.js, puis attend que chaque Document soit *prêt* (échec explicite après 3 min). Il n'appelle jamais OpenAI lui-même. Il est relançable sans doublon (clés naturelles) et prend ses identifiants dans l'environnement.
+  - **Comptes de mesure.** Les mesures (4.2, 5.8, 7.2) utilisent plusieurs Comptes de mesure (`MEASURE_ACCOUNT_*`), chacun soumis au quota normal de 60 appels ; le quota global n'est jamais relevé. Le plafond fournisseur (AD-15) reste la borne de coût.
+  - **Avant le rendu :** vérification du projet Supabase 48 h avant et la veille, réactivation manuelle si besoin, rejeu complet d'UJ-2 après chaque vérification, et vidéo de secours enregistrée sur l'environnement final.
 - **Raison — ce qu'on évite (Prevents) :** coût nul, PRD §9.3.
 - **Écarté :** Supabase Pro ; maintien automatique en activité.
 - **Risque restant :** pause du projet ou limite inattendue. Passage en offre payante seulement en cas de blocage réel.
@@ -296,7 +304,7 @@ sequenceDiagram
   N->>PD: déclencher (document_id, attempt_id, secret)
   PD->>PD: EdgeRuntime.waitUntil(travail)
   PD-->>N: 202 Accepted
-  Note over N,PD: pas de 202 en 5 s : fail_processing(temporary)
+  Note over N,PD: pas de 202 en 5 s : abandon_processing (jeton de l'Auteur)
   N-->>B: redirection vers la page Document
   PD->>S: lire le fichier (si Fichier importé)
   PD->>PD: décodage UTF-8 strict (repli Windows-1252), texte canonique, Passages + positions
@@ -403,7 +411,7 @@ Chaque étape a un seul composant responsable. `_shared/` ne contient que du Typ
 |---|---|---|---|---|
 | Extraction | `_shared/rag/extract.ts` | `process-document` | `.txt`/`.md` : UTF-8 strict (BOM retiré), repli Windows-1252, sinon `no_text` avec un message d'encodage (AD-8). PDF (P2) : `npm:unpdf`. Texte vide ou fait d'espaces → `no_text`. | — |
 | Normalisation | `_shared/rag/normalize.ts` | `process-document` | NFC, `\r\n` → `\n`, espaces de fin de ligne retirés. Le résultat devient `content_text`. | — |
-| Découpage | `_shared/rag/chunk.ts` | `process-document` | Paragraphes regroupés jusqu'à la taille cible, coupure en fin de phrase, sans chevauchement. Chaque Passage garde `start_offset` et `end_offset`. | Cible 800 caractères, maximum 1 200 `[ASSUMPTION]` |
+| Découpage | `_shared/rag/chunk.ts` | `process-document` | Paragraphes regroupés jusqu'à la taille cible, coupure en fin de phrase, sans chevauchement. Une phrase plus longue que le maximum est coupée au dernier espace avant le maximum (à défaut d'espace, au maximum exact). Chaque Passage garde `start_offset` et `end_offset`. | Cible 800 caractères, maximum 1 200 `[ASSUMPTION]` |
 | Vectorisation | `_shared/ai.ts` › `embed` (seul point d'appel OpenAI) + `_shared/config.ts` | `process-document` (Passages), `semantic-search` et `chat` (Requête, question) | `text-embedding-3-small`, 1 536 dimensions, lots de 96, version active `EMBEDDING_VERSION`, dimension vérifiée (AD-4). | — |
 | Stockage et index | Migration SQL (`passages`, index HNSW `vector_cosine_ops`) + `complete_processing` | `process-document` | Remplacement atomique des Passages (AD-5). | — |
 | Seuil et sélection | Fonction SQL `match_passages` + `_shared/config.ts` (`RAG_MIN_SIMILARITY`) | `semantic-search`, `chat` | Similarité cosinus ≥ seuil, Documents *prêts* seulement. Recherche : 1 Passage par Document, 5 Documents. Assistant : 8 Passages, 3 par Document. | 0,40 `[ASSUMPTION]`, à calibrer |
@@ -453,9 +461,9 @@ Unicité : (`author_id`, `client_request_id`) sur `documents` ; (`owner_id`, `cl
 | `messages` | Propriétaire seul | Propriétaire seul (par `chat`) | Propriétaire, seulement pour remplacer son propre message `kind = failure` lors d'un « Réessayer » (AD-16, AD-17) | Avec la Conversation |
 | `message_sources` | Propriétaire seul | Propriétaire seul (par `chat`) | Non. Exception système : `document_id` passe à null à la suppression du Document (contrainte `on delete set null`, FR-12) | Avec le message |
 | `ai_usage` | Propriétaire seul | Fonctions `reserve_ai_call` et `release_ai_call` | Idem | Non |
-| Storage `documents` | `service_role` (`process-document`) ; Collaborateur connecté par URL signée courte (téléchargement, P2) | Collaborateur, uniquement dans `{author_id}/uploads/…` (son propre dossier), par URL signée créée par le serveur, **avant** la création du Document (AD-7) | Non | Auteur (par le serveur, à la suppression du Document) |
+| Storage `documents` | `service_role` (`process-document`) ; propriétaire seul, métadonnées de son dossier `{author_id}/uploads/…` (vérification à « Importer », AD-7) ; Collaborateur connecté par URL signée courte (téléchargement, P2) | Collaborateur, uniquement dans `{author_id}/uploads/…` (son propre dossier), par URL signée créée par le serveur, **avant** la création du Document (AD-7) | Non | Auteur (par le serveur, à la suppression du Document) |
 | Rôle `anon` (Visiteur) | Aucun privilège sur `public` (`REVOKE ALL`) ; politiques déclarées `to authenticated` uniquement | — | — | — |
-| Edge Functions | — | Invocation : `semantic-search`, `chat`, `summarize` par jeton de Collaborateur valide (vérification JWT activée) ; `process-document` par `PROCESS_DOCUMENT_SECRET` uniquement | — | — |
+| Edge Functions | — | Invocation : `semantic-search`, `chat`, `summarize` par jeton de Collaborateur valide (vérification JWT activée) ; `process-document` par `PROCESS_DOCUMENT_SECRET` uniquement (`verify_jwt = false`) | — | — |
 
 Les vues (`documents_list`) sont créées avec `security_invoker = true` pour hériter de la RLS des tables. Les clés étrangères en `on delete set null` ou `cascade` s'appliquent sans passer par la RLS, ce qui est voulu.
 
@@ -465,6 +473,7 @@ Fonctions SQL `security definer` (vérifient `auth.uid()` ou sont réservées à
 |---|---|---|
 | `retry_processing(document_id, client_request_id)` | Next.js | Auteur seul ; Statut effectif `error` avec `error_kind = temporary`, y compris un traitement expiré après 3 min (AD-5, AD-6) ; nouvelle tentative et nouvel horodatage |
 | `complete_processing(…)`, `fail_processing(…)` | `process-document` | `service_role` ; tentative courante (AD-5) |
+| `abandon_processing(document_id, attempt_id)` | Next.js (jeton de l'Auteur), quand `process-document` ne répond pas en 5 s | Auteur seul ; tentative courante et Statut *en cours* ; passe *en erreur* temporaire (AD-5) |
 | `reserve_ai_call()`, `release_ai_call()` | `chat`, `summarize` | `auth.uid()` ; atomique (AD-14) |
 | `store_summary(document_id, text_version, points)` | `summarize` | Document *prêt*, version courante (AD-18) |
 | `match_passages(…)` | `semantic-search`, `chat` | `security invoker` : RLS appliquée |
@@ -476,8 +485,8 @@ Fonctions SQL `security definer` (vérifient `auth.uid()` ou sont réservées à
 ```text
 src/
   app/(auth)/connexion, inscription/    # E1, E2
-  app/(app)/                            # écrans protégés : tableau-de-bord, assistant/[id], recherche, bibliotheque, documents/[id], ajouter
-  app/api/                              # Route Handlers : chat (flux), documents/[id]/statut, quota, documents/upload
+  app/(app)/                            # écrans protégés : page.tsx (Tableau de bord, route `/`), assistant/[id], recherche, bibliotheque, documents/[id], ajouter
+  app/api/                              # Route Handlers : chat (flux), summarize, documents/[id]/status, quota, uploads
   components/ui/                        # shadcn/ui
   components/<domaine>/                 # composants métier (document-reader, source-chip…)
   server/<domaine>/                     # accès données et appels aux fonctions (documents, conversations, search, quota)
@@ -488,8 +497,10 @@ supabase/
   functions/process-document, semantic-search, chat, summarize/
   functions/_shared/                    # TS pur : ai.ts (seul accès OpenAI), config.ts, errors.ts, quota.ts
   functions/_shared/rag/                # extract, normalize, chunk, prompt, marker, citations
-scripts/seed-demo.ts                    # préchargement du Jeu de démonstration
+scripts/seed-demo.ts                    # préchargement du Jeu de démonstration (déclenche process-document, AD-21)
 tests/                                  # unit/, integration/ (RLS), e2e/ (Playwright)
+docs/                                   # environnements.md (sans valeurs), mesures/, journal-vibe-coding.md, demo/
+vercel.json                             # région des fonctions alignée sur Supabase (AD-21)
 ```
 
 | Sujet | Convention |
@@ -499,7 +510,7 @@ tests/                                  # unit/, integration/ (RLS), e2e/ (Playw
 | Nommage | Tables et colonnes en `snake_case` pluriel ; fichiers en `kebab-case` ; composants React en `PascalCase` ; routes de l'interface en français (celles de l'UX), routes `api/` en anglais. |
 | Identifiants et dates | `uuid` partout ; dates `timestamptz` en UTC ; affichage dans le fuseau du navigateur, en français. |
 | Mutations | Server Actions pour les formulaires (créer, supprimer, relancer) ; Route Handlers pour le flux de `chat`, l'interrogation du Statut, le quota et l'upload. Jamais d'écriture depuis un composant client vers Supabase. |
-| Validation | Un schéma `zod` par entrée dans `src/lib/schemas` (titre 1–200 caractères, Catégorie de la liste, Note non vide et de 1 Mo au plus `[ASSUMPTION]`, question de 1 à 2 000 caractères, Requête de 1 à 500 caractères `[ASSUMPTION]`), validé côté serveur. Les Edge Functions revalident leur entrée. |
+| Validation | Un schéma `zod` par entrée dans `src/lib/schemas` (titre 1–200 caractères, Catégorie de la liste, Note non vide et de 1 000 000 octets au plus, mesurés en UTF-8 comme les fichiers ; `next.config.ts` fixe `serverActions.bodySizeLimit = '2mb'` pour que la limite soit appliquée par le schéma, avec le message du catalogue, et non par la limite de 1 Mo des Server Actions, question de 1 à 2 000 caractères, Requête de 1 à 500 caractères `[ASSUMPTION]`), validé côté serveur. Les Edge Functions revalident leur entrée. |
 | Erreurs | Forme AD-19. Codes : `VALIDATION_FAILED`, `UNAUTHENTICATED`, `NOT_FOUND` (aussi pour un accès refusé, FR-22), `FORBIDDEN`, `FILE_TYPE_UNSUPPORTED`, `FILE_TOO_LARGE`, `QUOTA_EXCEEDED`, `REQUEST_IN_PROGRESS`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_BUDGET_EXHAUSTED`, `AI_OUTPUT_INVALID`, `AI_CITATIONS_INVALID`, `PROCESSING_NO_TEXT`, `PROCESSING_TEMPORARY`, `INTERNAL`. |
 | Journalisation | `console` structuré (JSON : `event`, `code`, `user_id`, `document_id`/`conversation_id`, durée), jamais de secret, de jeton ni de texte de Document. Événements : plafond atteint, citations invalides, marqueur invalide, expiration de traitement. |
 | Typographie | Une fonction `formatFr` insère les espaces insécables avant `: ; ? !` et dans les nombres (`2 000`), pour tous les textes du catalogue. |
@@ -509,23 +520,23 @@ tests/                                  # unit/, integration/ (RLS), e2e/ (Playw
 | Nom | Où | Navigateur |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Vercel | Oui (publics) |
-| `PROCESS_DOCUMENT_SECRET` | Vercel et secrets Supabase | Non |
+| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase et `.env.local` du script de préchargement | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement | Non |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase (fournie à l'exécution) ; `.env.local` du script de préchargement | Non |
 | `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
-| `DEMO_ACCOUNT_*` | `.env.local` du script de préchargement | Non |
+| `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*` | `.env.local` du script de préchargement et des scripts de mesure | Non |
 
 **Tests**
 
 | Niveau | Outil | Ce qui est couvert |
 |---|---|---|
 | Unitaires | Vitest | Découpage et positions ; normalisation ; lecture du marqueur (3 valeurs, absent, invalide) ; validation des citations (toutes valides, partiellement invalides, numéro inexistant, aucune, puis réessai réussi) ; balisage des Passages et neutralisation du titre (titre contenant `">` et une consigne) ; décodage (UTF-8 avec BOM, Windows-1252, binaire → `no_text`) ; masquage des `[P{n}]` coupés entre deux morceaux de flux ; tampon du marqueur (marqueur coupé, marqueur au-delà de 40 caractères) ; déduction du MIME par l'extension ; `formatFr` ; égalité modèle et dimension entre Passages et Requêtes (AD-4). |
-| Intégration | Vitest + Supabase local (CLI, Docker) `[ASSUMPTION]` | RLS à deux Comptes sur chaque table (SM-6) ; `match_passages` n'expose jamais un Document *en cours* ou *en erreur* ; quota : la 61ᵉ demande du jour est refusée sans appel au fournisseur (fournisseur simulé) ; tentative périmée ignorée ; `retry_processing` accepté sur un Document expiré (> 3 min), refusé sur `no_text` et pour un non-Auteur ; `process-document` sans secret refusé ; idempotence : même `client_request_id` rejoué sans nouvelle question ni quota, réessai après échec remplaçant l'échec, `REQUEST_IN_PROGRESS`, et une entrée de quota vérifiée pour chaque issue du tableau d'AD-16 ; `store_summary` concurrent (une seule écriture, une seule unité décomptée) ; le rôle `anon` ne lit rien ; `documents_list` sans `content_text`. |
-| Secrets | `scripts/check-secrets.ts`, dès la story 1.1, exécuté à chaque build Vercel (avant `next build` sur le dépôt, après sur `.next/static`) | Aucun **format de clé** dans le dépôt ni dans le code envoyé au navigateur : par exemple `\bsk-[A-Za-z0-9_-]{20,}`, un jeton JWT (`eyJ` suivi d'au moins 20 caractères puis d'un point), une clé `sb_secret_…`, ou une affectation avec valeur de `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` ou `PROCESS_DOCUMENT_SECRET` ; la simple présence de ces noms n'est pas une erreur. Test négatif sur une branche temporaire, supprimée ensuite. Aucun appel réseau du navigateur vers `api.openai.com` ni vers `/functions/v1/` pendant les tests de bout en bout (interception Playwright, dès la story 5.2). |
-| Charge | Script sur l'environnement Supabase réel | Import d'un `.txt` ou `.md` proche de 1 Mo : Document *prêt* en moins de 3 min, moins de 50 Mo ajoutés en base, base totale sous 400 Mo (80 % des 500 Mo du plan gratuit). En cas d'échec, une proposition est soumise à arbitrage, sans être appliquée. |
-| Flux sur Vercel | Déploiement de prévisualisation Vercel Hobby | Premier octet de `chat` en moins de 5 s, diffusion non mise en tampon, coupure propre à 90 s, `maxDuration` respecté. |
+| Intégration | Vitest + Supabase local (CLI, Docker) `[ASSUMPTION]` | RLS à deux Comptes sur chaque table (SM-6) ; `match_passages` n'expose jamais un Document *en cours* ou *en erreur* ; quota : la 61ᵉ demande du jour est refusée sans appel au fournisseur (fournisseur simulé) ; tentative périmée ignorée ; `abandon_processing` accepté pour l'Auteur sur sa tentative courante, refusé pour un non-Auteur ou une autre tentative ; `retry_processing` accepté sur un Document expiré (> 3 min), refusé sur `no_text` et pour un non-Auteur ; `process-document` sans secret refusé ; idempotence : même `client_request_id` rejoué sans nouvelle question ni quota, réessai après échec remplaçant l'échec, `REQUEST_IN_PROGRESS`, et une entrée de quota vérifiée pour chaque issue du tableau d'AD-16 ; `store_summary` concurrent (une seule écriture, une seule unité décomptée) ; le rôle `anon` ne lit rien ; `documents_list` sans `content_text`. |
+| Secrets | `scripts/check-secrets.ts`, dès la story 1.1, exécuté à chaque build Vercel (avant `next build` sur le dépôt, après sur `.next/static`) | Aucun **format de clé** dans le dépôt ni dans le code envoyé au navigateur : par exemple `\bsk-[A-Za-z0-9_-]{20,}`, un jeton JWT (`eyJ` suivi d'au moins 20 caractères puis d'un point), une clé `sb_secret_…`, ou une affectation avec valeur de `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` ou `PROCESS_DOCUMENT_SECRET` ; la simple présence de ces noms n'est pas une erreur. Tests négatifs sans jamais pousser de faux secret réaliste : (1) tests Vitest du détecteur, dont les fausses clés sont construites à l'exécution (aucune n'est écrite telle quelle dans le dépôt) ; (2) build local (`npm run build:ci`, même commande que Vercel) avec un fichier temporaire non suivi, qui doit échouer ; (3) pour prouver que Vercel exécute le contrôle, un motif témoin non sensible (`NEXAMIND_CANARY_DO_NOT_DEPLOY`), reconnu par le détecteur, poussé sur une branche temporaire puis supprimée. Aucun appel réseau du navigateur vers `api.openai.com` ni vers `/functions/v1/` pendant les tests de bout en bout (interception Playwright, dès la story 5.2b). |
+| Charge | Script sur le projet Supabase distant (démo) | Import d'un `.txt` ou `.md` proche de 1 Mo : Document *prêt* en moins de 3 min, moins de 50 Mo ajoutés en base, base totale sous 400 Mo (80 % des 500 Mo du plan gratuit). Les Documents de test sont supprimés à la fin, y compris en cas d'échec. En cas d'échec d'une condition, une proposition est soumise à arbitrage, sans être appliquée. |
+| Flux sur Vercel | Déploiement de prévisualisation Vercel Hobby | Essai léger avec un flux factice (story 5.0, fenêtre E3 + E4), puis mesure du vrai flux (5.5) : premier octet de `chat` en moins de 5 s, diffusion non mise en tampon, coupure propre à 90 s, `maxDuration` respecté. Plan B : AD-16. |
 | Bout en bout | Playwright + axe | UJ-1, UJ-2 (avec le `.txt` vide) et UJ-3, au clavier seul, à 1 280 px et 375 px (NFR-6, NFR-7) ; `.md` contenant du HTML et du JavaScript affiché en texte, sans exécution, avec une mise en évidence correcte. |
-| Mesures | Script sur le Jeu de démonstration | SM-1, SM-2, SM-4 (avec le fournisseur réel, dans les limites du quota). |
+| Mesures | Script sur le Jeu de démonstration | SM-1, SM-2, SM-4 (avec le fournisseur réel, réparties sur plusieurs Comptes de mesure, chacun dans la limite du quota normal, AD-21). |
 
 ## 7. Quotas, coûts, points à confirmer et stories
 
@@ -545,24 +556,25 @@ tests/                                  # unit/, integration/ (RLS), e2e/ (Playw
 | Point | Quand |
 |---|---|
 | Seuil de similarité, taille des Passages, consignes | Story de calibrage, sur le Jeu de démonstration |
+| Région du projet Supabase (européenne) et région Vercel alignée (`cdg1` ou `fra1`) | Avant la fin de la story 1.1 (prérequis) |
 | Délais d'AD-16 et NFR-3 (latence via Edge Function) | Première story Recherche et première story Assistant |
 | Extraction des PDF dans les limites des Edge Functions | Story FR-6 (P2) |
 | Import d'un `.txt` ou `.md` proche de 1 Mo (test de charge de la limite de FR-5) | Story 2.7, juste après l'import de fichiers |
 | Limite de taille des PDF | Au lancement de E9 (FR-6, P2) |
-| Diffusion de `chat` sur Vercel Hobby (`maxDuration`, absence de mise en tampon) | Première story Assistant |
-| Plafond OpenAI réellement bloquant, sinon crédit prépayé | Mise en place du projet OpenAI |
-| Supabase local (Docker) disponible pour les tests RLS | Story de socle |
+| Diffusion de `chat` sur Vercel Hobby (`maxDuration`, absence de mise en tampon) | Essai léger en 5.0 (fenêtre E3 + E4), mesure réelle en 5.5 ; plan B dans AD-16 |
+| Projet OpenAI dédié avec crédit prépayé de 10 $, sans recharge automatique (borne certaine retenue) ; accès à `gpt-5.4-mini` et `text-embedding-3-small` | Prérequis réalisé par toi pendant E1, avant la story 2.1 |
+| Supabase local (Docker) disponible pour les tests RLS | Docker validé le 2026-11-03 ; Supabase local vérifié en story 1.1 |
 | Tarifs et modèles OpenAI | Avant la démonstration |
 
 **Conséquences pour le découpage en stories**
 
-1. **Socle :** schéma, RLS, vues et fonctions SQL ; Auth (E1, E2) ; mise en page shadcn et navigation ; forme d'erreur ; `formatFr` ; `.gitignore` et `.env.example` ; tests RLS à deux Comptes.
+1. **Socle :** schéma, RLS, vues et fonctions SQL ; Auth (E1, E2) ; mise en page shadcn et navigation ; forme d'erreur ; `.gitignore` et `.env.example` ; tests RLS à deux Comptes ; `vercel.json` (région) et `deploy:supabase`. `formatFr` est livré dans une story FINITION (epics, 1.5) : s'il est coupé, les textes restent corrects mais sans espaces insécables.
 2. **Ajout et traitement :** Note → `process-document` (202 + `EdgeRuntime.waitUntil`) → Statut (E8, E7) ; puis `.txt`/`.md` avec dépôt avant création, MIME par extension, décodage strict ; expiration et relance sur le Statut effectif ; test de charge d'un fichier proche de 1 Mo.
 3. **Bibliothèque et Document :** E6, E7 (lecture, Lecteur de Document, suppression) ; Tableau de bord (E3).
 4. **Recherche :** `semantic-search`, `match_passages`, E5.
-5. **Assistant :** `chat` (tampon du marqueur, masquage des `[P{n}]`, validation des citations, quota par issue, idempotence avant réservation), E4, panneau Source, Historique ; test du flux sur Vercel Hobby.
+5. **Assistant :** essai léger du flux sur Vercel Hobby (5.0, avant l'Assistant) ; `chat` (tampon du marqueur, masquage des `[P{n}]`, validation des citations, quota par issue, idempotence avant réservation), E4, panneau Source, Historique.
 6. **Résumé :** `summarize`, bloc Résumé.
-7. **Démo et mesures :** calibrage RAG, `seed-demo`, tests de bout en bout, mesures SM, vidéo de secours.
+7. **Démo et mesures :** calibrage RAG, `seed-demo`, tests de bout en bout, mesures SM, vidéo de secours, dossier de démarche et README.
 8. **Optionnel :** P1 (FR-11, FR-21), puis P2 (FR-6, téléchargement).
 
 Chaque story cite les AD qu'elle met en œuvre. Le socle (1) précède tout le reste ; 4 et 5 partagent `match_passages`, à livrer avec la Recherche.

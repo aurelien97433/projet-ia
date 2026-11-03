@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# brouillons de travail BMAD (copies locales des maquettes)
+.working/
