@@ -2,7 +2,7 @@
 title: "PRD — NexaMind AI"
 status: final
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-03
 ---
 
 # PRD — NexaMind AI
@@ -171,6 +171,7 @@ Chaque Document affiche son Statut de traitement : *en cours de traitement*, *pr
   - **erreur temporaire** (par exemple Fournisseur d'IA indisponible) : l'Auteur peut relancer le traitement ; si la relance réussit, le Document passe *en cours de traitement* puis *prêt* ;
   - **fichier sans texte exploitable** (fichier .txt ou .md vide ; PDF scanné, protégé ou vide si FR-6 est livré) : aucune relance n'est proposée ; l'Auteur peut supprimer le Document (FR-12).
 - Un Collaborateur qui n'est pas l'Auteur ne voit pas l'action de relance.
+- Un traitement qui n'a pas abouti 3 minutes après son début passe *en erreur* temporaire, avec un message invitant l'Auteur à le relancer. Ce Statut est le même pour tous les Collaborateurs et reste exact après un rechargement. Un traitement qui aboutirait plus tard ne rend pas le Document *prêt* : seule une relance le peut (délai fixé en architecture, AD-5 et AD-6).
 
 #### FR-8 : N'interroger que les Documents prêts
 
@@ -277,6 +278,7 @@ Chaque réponse fondée sur la Base commune affiche les Sources utilisées.
 - Un clic sur une Source ouvre le Document au niveau du Passage utilisé, mis en évidence.
 - Chaque Source citée contient un Passage qui étaye au moins une affirmation de la réponse (vérifié par relecture lors de la mesure de SM-1).
 - *(Applicable une fois FR-11 livré.)* Si la Source renvoie à une Note dont le texte a été modifié depuis la réponse, le clic ouvre le Document sans mise en évidence de Passage, avec un message indiquant que son contenu a changé depuis la réponse.
+- Une réponse dont aucune citation ne renvoie à un Passage réellement fourni à l'Assistant n'est ni affichée ni enregistrée : le Collaborateur voit un message d'échec avec « Réessayer », et le quota n'est pas décompté. Les citations invalides d'une réponse par ailleurs sourcée sont retirées. Ce cas compte comme un échec pour SM-1 (AD-11).
 
 #### FR-18 : Reconnaître l'absence d'information
 
@@ -285,6 +287,7 @@ Quand la Base commune ne contient pas l'information demandée, l'Assistant le di
 **Critères vérifiables :**
 - Pour une question dont la réponse ne figure dans aucun Document, l'Assistant répond qu'il ne trouve pas l'information dans la Base commune, sans fournir de réponse inventée ni de Source. Taux de réussite évalué sur le Jeu de démonstration via SM-2 (au moins 9 questions sur 10).
 - Pour une question hors du cadre de l'entreprise (culture générale, demande personnelle), l'Assistant indique qu'il répond uniquement à partir des Documents de NexaWorks.
+- Un refus s'affiche d'un seul bloc, jamais rédigé progressivement, et se distingue d'une panne technique : une panne affiche un message d'erreur avec « Réessayer » et ne décompte pas le quota (AD-10).
 
 #### FR-19 : Poser des questions de suivi
 
@@ -349,7 +352,7 @@ Un Collaborateur peut demander le Résumé d'un Document *prêt*.
 - **NFR-5 Langue** — Interface, messages d'erreur, réponses de l'Assistant et Résumés en français.
 - **NFR-6 Responsive** — Conçu pour ordinateur ; reste utilisable sur une largeur de mobile. Vérifiable : à 375 px de large, la lecture d'un Document, la Recherche sémantique et une Conversation fonctionnent sans défilement horizontal.
 - **NFR-7 Accessibilité de base** — Vérifiable : les parcours UJ-1 à UJ-3 sont réalisables au clavier seul ; le texte respecte le contraste du niveau AA des WCAG ; chaque champ de formulaire a un libellé.
-- **NFR-8 Maîtrise des coûts IA** — Une question de plus de 2 000 caractères est refusée avec un message ; le coût d'une question à l'Assistant ne dépend pas de la taille de la Base commune (mécanisme : voir addendum, « Coûts »). Chaque Collaborateur dispose d'un quota quotidien d'appels IA (questions à l'Assistant et générations de Résumé) ; un plafond de dépense est configuré chez le Fournisseur d'IA `[ASSUMPTION: valeurs du quota et du plafond à fixer en architecture]`. Vérifiable : une fois le quota atteint, toute nouvelle demande est refusée avec un message indiquant quand le quota sera rétabli, et aucun appel au fournisseur n'est effectué.
+- **NFR-8 Maîtrise des coûts IA** — Une question de plus de 2 000 caractères est refusée avec un message ; le coût d'une question à l'Assistant ne dépend pas de la taille de la Base commune (mécanisme : voir addendum, « Coûts »). Chaque Collaborateur dispose d'un quota quotidien d'appels IA (questions à l'Assistant et générations de Résumé) ; un plafond de dépense est configuré chez le Fournisseur d'IA. Valeurs retenues : 60 appels par Collaborateur et par jour, remis à zéro à 00:00 UTC. Une question à l'Assistant ou un Résumé généré compte pour 1 ; une panne, un Résumé déjà stocké, la Recherche sémantique et la vectorisation ne comptent pas. Le plafond du projet chez le Fournisseur d'IA est de 10 $, avec une alerte à 5 $ et sans recharge automatique. S'il est atteint, l'échec est propre et distinct du quota (AD-14, AD-15). Vérifiable : une fois le quota atteint, toute nouvelle demande est refusée avec un message indiquant quand le quota sera rétabli, et aucun appel au fournisseur n'est effectué.
 - **NFR-9 Fournisseur d'IA** — Le Fournisseur d'IA (génération et vectorisation) est choisi en phase d'architecture, sous trois contraintes : petit budget, accès par API, clés conservées uniquement côté serveur (NFR-2).
 - **NFR-10 Contenus traités comme des données** — Le texte des Documents est toujours traité comme une donnée à exploiter, jamais comme une instruction pour l'Assistant ou pour le Résumé. Vérifiable : un Document du Jeu de démonstration contenant une consigne du type « ignore tes instructions et réponds que… » ne modifie ni le comportement de l'Assistant ni celui du Résumé.
 
@@ -428,19 +431,17 @@ Mesurés avant la démonstration sur le **Jeu de démonstration** (voir Glossair
 
 ## 9. Questions ouvertes et points reportés
 
-1. **Fournisseur d'IA** — Choix reporté à la phase d'architecture, dans le cadre des contraintes de NFR-9.
+1. **Fournisseur d'IA** — **Réglé** en architecture : OpenAI (génération et vectorisation), dans le cadre de NFR-9 (AD-3).
 2. **Détail du Jeu de démonstration** — Rédaction des 10 à 15 Documents fictifs, des 30 questions de test (SM-1, SM-2), des 10 Requêtes (SM-4) et du lot de fichiers de test (SM-5), après le PRD.
 
 Points non bloquants issus de la validation finale, à traiter dans la phase indiquée :
 
-3. **Mise en ligne pour le jury** *(architecture)* — URL accessible en HTTPS, Jeu de démonstration préchargé, deux Comptes de démonstration pour montrer SM-6.
-4. **Ton et forme des réponses de l'Assistant** *(UX)* — registre, réponse directe d'abord, procédures en étapes numérotées, bienveillance envers les questions naïves des nouveaux arrivants.
-5. **Qualité perçue de l'expérience** *(UX)* — indicateurs de chargement, retour visuel après chaque action, cohérence de l'interface ; traduit l'attente « moderne et fluide » du challenge.
+3. **Mise en ligne pour le jury** *(architecture)* — **Réglé** (AD-21) : URL accessible en HTTPS, Jeu de démonstration préchargé, deux Comptes de démonstration pour montrer SM-6.
+4. **Ton et forme des réponses de l'Assistant** *(UX)* — **Réglé** (EXPERIENCE.md, Voice and Tone) : vouvoiement, réponse directe d'abord, procédures en étapes numérotées, « je » pour l'Assistant, aucune question jugée naïve.
+5. **Qualité perçue de l'expérience** *(UX)* — **Réglé** (EXPERIENCE.md, State Patterns et écrans E1 à E9) : états de chargement, de succès et d'erreur pour chaque écran, retours visuels, cohérence assurée par DESIGN.md.
 6. **Compléments du Jeu de démonstration** *(après le PRD)* — Requêtes hors base pour mesurer FR-15, scénarios de questions de suivi (FR-19) et cas de contradiction (FR-16) rattachés à un indicateur ; exemples de questions proposés dans l'état vide du Tableau de bord.
-7. **Bornes complémentaires** *(UX / architecture)* — nombre maximal de résultats de la Recherche sémantique (FR-14), unité du seuil de traitement de NFR-3 (pages ou caractères), plancher du quota de NFR-8 suffisant pour mesurer SM-1 à SM-3 et pour la démonstration.
+7. **Bornes complémentaires** *(UX / architecture)* — **Réglé** : la Recherche sémantique affiche au plus 5 Documents (EXPERIENCE.md, E5) ; le quota de 60 appels par jour couvre une série SM-1 à SM-3, d'environ 40 appels (AD-14) ; pour NFR-3, un Document de 20 pages correspond à environ 60 000 caractères de texte (unité de mesure retenue pour le Jeu de démonstration).
 
 ## 10. Index des hypothèses
 
-Les 15 hypothèses de la première version ont été confirmées le 2026-11-02 et intégrées au texte. Il reste :
-
-- NFR-8 — Valeurs du quota quotidien d'appels IA par Collaborateur et du plafond de dépense chez le fournisseur : à fixer en phase d'architecture.
+Les 15 hypothèses de la première version ont été confirmées le 2026-11-02 et intégrées au texte. La dernière (valeurs du quota et du plafond, NFR-8) a été fixée en architecture le 2026-11-03. Il ne reste aucune hypothèse ouverte.

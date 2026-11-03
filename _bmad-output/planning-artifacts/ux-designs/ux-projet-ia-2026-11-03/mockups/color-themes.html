@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NexaMind AI — pistes de couleurs</title>
+<style>
+/* Neutres communs (toutes pistes)
+   fond #FFFFFF · surface #F7F8FA · bordure #E3E7EC
+   texte #1F2933 (14.76:1) · texte secondaire #52606D (6.46:1)
+   succès #166534 sur #E8F5EC (6.35:1) · erreur #B42318 sur #FDECEA (5.75:1)
+   en cours #52606D sur #EEF1F4 (5.69:1) */
+:root{--bg:#FFFFFF;--surface:#F7F8FA;--border:#E3E7EC;--text:#1F2933;--muted:#52606D;
+--ok:#166534;--ok-bg:#E8F5EC;--err:#B42318;--err-bg:#FDECEA;--wip:#52606D;--wip-bg:#EEF1F4}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px;background:#EEF0F3;color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1{font-size:20px;margin:0 0 4px}
+.intro{color:var(--muted);margin:0 0 24px;max-width:70ch}
+.grid{display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr))}
+.v{background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.vh{padding:14px 16px;border-bottom:1px solid var(--border)}
+.vh h2{margin:0;font-size:16px}
+.vh p{margin:2px 0 10px;color:var(--muted);font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:2px 8px 2px 3px}
+.chip i{width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.1);display:inline-block}
+.app{display:grid;grid-template-columns:150px 1fr 1fr;min-height:330px;font-size:13px}
+.side{background:var(--surface);border-right:1px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;gap:4px}
+.logo{display:flex;align-items:center;gap:6px;font-weight:650;color:var(--primary);margin-bottom:8px}
+.logo svg{flex:none}
+.add{background:var(--primary);color:#fff;border-radius:6px;padding:6px 8px;font-weight:600;text-align:center;margin-bottom:8px}
+.nav{padding:5px 8px;border-radius:6px;color:var(--muted)}
+.nav.on{background:var(--primary-soft);color:var(--primary);font-weight:600;box-shadow:inset 3px 0 0 var(--primary)}
+.conv{padding:14px;display:flex;flex-direction:column;gap:10px;border-right:1px solid var(--border)}
+.q{align-self:flex-end;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px 10px;max-width:90%}
+.a{max-width:100%}
+.a ol{margin:4px 0 6px;padding-left:18px}
+.src{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.src span.l{font-size:12px;color:var(--muted)}
+.s{border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent-text);border-radius:6px;padding:2px 7px;font-size:12px;font-weight:600}
+.s.sel{outline:2px solid var(--accent-text);outline-offset:1px}
+.refus{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:8px 10px;color:var(--text)}
+.refus .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.btn{border:1px solid var(--border);background:var(--bg);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--primary);font-weight:600}
+.panel{padding:14px;display:flex;flex-direction:column;gap:6px}
+.panel h3{margin:0;font-size:14px}
+.meta{font-size:12px;color:var(--muted)}
+mark{background:var(--accent-soft-strong);color:var(--text);border-bottom:2px solid var(--accent-text);padding:1px 2px}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
+.b{font-size:11px;font-weight:600;border-radius:999px;padding:1px 8px}
+.b.ok{color:var(--ok);background:var(--ok-bg)}.b.wip{color:var(--wip);background:var(--wip-bg)}.b.err{color:var(--err);background:var(--err-bg)}
+.warn{font-size:12px;color:var(--muted);padding:8px 16px;border-top:1px solid var(--border);background:var(--surface)}
+@media (max-width:640px){.app{grid-template-columns:1fr}.side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--border)}.conv{border-right:0;border-bottom:1px solid var(--border)}}
+
+/* A — Bleu nuit + ambre
+   primary #1E3A5F (blanc dessus 11.50:1) · primary-soft #E8EEF5
+   accent texte #92400E (7.09:1 ; 6.54:1 sur puce) · accent puce #FEF5E1 · ligne #F3D9A4
+   surlignage Passage #FDECC8 (texte 12.65:1) */
+.A{--primary:#1E3A5F;--primary-soft:#E8EEF5;--accent-text:#92400E;--accent-soft:#FEF5E1;--accent-line:#F3D9A4;--accent-soft-strong:#FDECC8}
+/* B — Bleu pétrole + ambre
+   primary #0E5A6B (blanc dessus 7.80:1) · primary-soft #E3F0F2
+   accent identique à A */
+.B{--primary:#0E5A6B;--primary-soft:#E3F0F2;--accent-text:#92400E;--accent-soft:#FEF5E1;--accent-line:#F3D9A4;--accent-soft-strong:#FDECC8}
+/* C — Bleu nuit + sarcelle
+   primary #1E3A5F · accent texte #0F766E (5.47:1 ; 4.95:1 sur puce) · puce #E6F7F5 · ligne #A7E3DC
+   surlignage #CCF2EE (texte 12.30:1) */
+.C{--primary:#1E3A5F;--primary-soft:#E8EEF5;--accent-text:#0F766E;--accent-soft:#E6F7F5;--accent-line:#A7E3DC;--accent-soft-strong:#CCF2EE}
+/* D — Bleu nuit + cuivre
+   primary #1E3A5F · accent texte #9A3412 (7.31:1) · puce #FDF0E7 · ligne #F2C9AE
+   surlignage #FBE3D3 (texte 11.97:1) — proche du rouge d'erreur */
+.D{--primary:#1E3A5F;--primary-soft:#E8EEF5;--accent-text:#9A3412;--accent-soft:#FDF0E7;--accent-line:#F2C9AE;--accent-soft-strong:#FBE3D3}
+</style>
+</head>
+<body>
+<h1>NexaMind AI — 4 pistes de couleurs</h1>
+<p class="intro">Les neutres, le vert (succès) et le rouge (erreur) sont communs aux quatre pistes. Seuls changent la couleur principale (navigation, bouton « Ajouter », liens) et l'accent, réservé aux Sources et au Passage mis en évidence. Tous les textes respectent le contraste AA. Les valeurs hexadécimales sont en commentaire dans le code source.</p>
+
+<div class="grid">
+<!-- un bloc par piste -->
+<section class="v A">
+ <div class="vh"><h2>A · Bleu nuit + ambre</h2><p>Institutionnel et posé. L'ambre évoque un surligneur sur papier.</p>
+ <div class="chips"><span class="chip"><i style="background:#1E3A5F"></i>principale</span><span class="chip"><i style="background:#92400E"></i>accent</span><span class="chip"><i style="background:#FDECC8"></i>Passage</span><span class="chip"><i style="background:#166534"></i>succès</span><span class="chip"><i style="background:#B42318"></i>erreur</span></div></div>
+ <div class="app" data-snippet></div>
+</section>
+<section class="v B">
+ <div class="vh"><h2>B · Bleu pétrole + ambre</h2><p>Plus frais et plus moderne, sans perdre en sérieux.</p>
+ <div class="chips"><span class="chip"><i style="background:#0E5A6B"></i>principale</span><span class="chip"><i style="background:#92400E"></i>accent</span><span class="chip"><i style="background:#FDECC8"></i>Passage</span><span class="chip"><i style="background:#166534"></i>succès</span><span class="chip"><i style="background:#B42318"></i>erreur</span></div></div>
+ <div class="app" data-snippet></div>
+</section>
+<section class="v C">
+ <div class="vh"><h2>C · Bleu nuit + sarcelle</h2><p>Froid et technique. L'accent se distingue moins du bleu, et le surlignage se lit moins comme « surligné ».</p>
+ <div class="chips"><span class="chip"><i style="background:#1E3A5F"></i>principale</span><span class="chip"><i style="background:#0F766E"></i>accent</span><span class="chip"><i style="background:#CCF2EE"></i>Passage</span><span class="chip"><i style="background:#166534"></i>succès</span><span class="chip"><i style="background:#B42318"></i>erreur</span></div></div>
+ <div class="app" data-snippet></div>
+</section>
+<section class="v D">
+ <div class="vh"><h2>D · Bleu nuit + cuivre</h2><p>Chaleureux et éditorial.</p>
+ <div class="chips"><span class="chip"><i style="background:#1E3A5F"></i>principale</span><span class="chip"><i style="background:#9A3412"></i>accent</span><span class="chip"><i style="background:#FBE3D3"></i>Passage</span><span class="chip"><i style="background:#166534"></i>succès</span><span class="chip"><i style="background:#B42318"></i>erreur</span></div></div>
+ <div class="app" data-snippet></div>
+ <div class="warn">Attention : le cuivre est proche du rouge d'erreur, ce qui peut entretenir une confusion entre Source et problème.</div>
+</section>
+</div>
+
+<template id="t">
+ <aside class="side">
+  <div class="logo"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="2"/><circle cx="14" cy="4" r="2"/><circle cx="9" cy="14" r="2"/><path d="M5.8 5.6 7.8 12.3M12.6 5.4 10 12.4M6 4.8h6"/></g></svg>NexaMind AI</div>
+  <div class="add">+ Ajouter</div>
+  <div class="nav">Tableau de bord</div><div class="nav on">Assistant</div><div class="nav">Recherche</div><div class="nav">Bibliothèque</div>
+ </aside>
+ <div class="conv">
+  <div class="q">comment je relance un client qui n'a pas payé ?</div>
+  <div class="a">Voici la procédure de relance :
+   <ol><li>Relance amiable par e-mail à J+15 après l'échéance <sup>1</sup>.</li><li>Appel du contact comptable à J+30 <sup>2</sup>.</li></ol>
+   <div class="src"><span class="l">Sources :</span><span class="s sel">1 · Procédure de facturation</span><span class="s">2 · FAQ comptabilité</span></div>
+  </div>
+  <div class="q">quel est le budget marketing 2027 ?</div>
+  <div class="refus">Je n'ai pas trouvé cette information dans la Base commune de NexaWorks. Je préfère ne pas répondre plutôt que d'inventer.
+   <div class="acts"><span class="btn">Reformuler la question</span><span class="btn">Rechercher dans les Documents</span><span class="btn">Ajouter un Document</span></div></div>
+ </div>
+ <div class="panel">
+  <h3>Procédure de facturation</h3>
+  <div class="meta">Procédure · Camille Martin · 28 oct. 2026</div>
+  <p style="margin:4px 0">Toute facture est émise à la livraison et payable à 30 jours. <mark>En cas de retard, une relance amiable est envoyée par e-mail à J+15 après l'échéance.</mark> Sans réponse, le chef de projet…</p>
+  <div class="badges"><span class="b ok">● prêt</span><span class="b wip">◔ en cours de traitement</span><span class="b err">▲ en erreur</span></div>
+ </div>
+</template>
+<script>
+/* inline fill for the four snippets */
+document.querySelectorAll('[data-snippet]').forEach(n=>n.appendChild(document.getElementById('t').content.cloneNode(true)));
+</script>
+</body>
+</html>

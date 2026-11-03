@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NexaMind AI — écran Assistant</title>
+<style>
+/* Écran : Assistant (Conversation + panneau Source)
+   Spines concernées : DESIGN.md Colors / Components (piste B) ;
+   EXPERIENCE.md Component Patterns (Réponse, Source, Refus, Composer, Panneau Source),
+   State Patterns (génération, refus, panne, quota), Key Flows UJ-1 / UJ-3.
+   Historique : bouton dans l'en-tête de l'Assistant → panneau rétractable à gauche (décision confirmée). */
+:root{
+ --bg:#FFFFFF;--surface:#F7F8FA;--border:#E3E7EC;--text:#1F2933;--muted:#52606D;
+ --primary:#0E5A6B;--primary-soft:#E3F0F2;
+ --accent-text:#92400E;--accent-soft:#FEF5E1;--accent-line:#F3D9A4;--accent-mark:#FDECC8;
+ --ok:#166534;--ok-bg:#E8F5EC;--err:#B42318;--err-bg:#FDECEA;--wip:#52606D;--wip-bg:#EEF1F4;
+ --radius:8px;--shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08)}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 48px;background:#E9ECEF;color:var(--text);font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.cap{max-width:1280px;margin:0 auto 10px;font-size:13px;color:var(--muted)}
+.cap b{color:var(--text)}
+h1.page{max-width:1280px;margin:0 auto 4px;font-size:20px}
+/* cadre navigateur */
+.browser{max-width:1280px;margin:0 auto 40px;background:var(--bg);border:1px solid #CDD3DA;border-radius:10px;overflow:hidden;box-shadow:0 8px 24px rgba(16,24,40,.08)}
+.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#F1F3F5;border-bottom:1px solid #DDE1E6;font-size:12px;color:var(--muted)}
+.dots{display:flex;gap:6px}.dots i{width:10px;height:10px;border-radius:50%;background:#CDD3DA;display:block}
+.url{flex:1;background:#fff;border:1px solid #DDE1E6;border-radius:6px;padding:3px 10px}
+/* application */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr) 380px;height:720px}
+.side{background:var(--surface);border-right:1px solid var(--border);padding:16px 12px;display:flex;flex-direction:column;gap:2px}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px;color:var(--primary);padding:0 8px 16px}
+.add{display:block;background:var(--primary);color:#fff;border-radius:var(--radius);padding:9px 12px;font-weight:600;text-align:center;margin:0 0 16px;text-decoration:none}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;color:var(--muted);text-decoration:none;font-size:14px}
+.nav svg{flex:none}
+.nav.on{background:var(--primary-soft);color:var(--primary);font-weight:600;box-shadow:inset 3px 0 0 var(--primary)}
+.me{margin-top:auto;border-top:1px solid var(--border);padding:12px 8px 0;display:flex;align-items:center;gap:10px;font-size:13px}
+.av{width:30px;height:30px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-weight:700;font-size:12px}
+.me small{display:block;color:var(--muted)}
+.logout{margin-left:auto;color:var(--muted);font-size:12px;text-decoration:underline}
+/* conversation */
+.main{display:flex;flex-direction:column;min-width:0}
+.head{display:flex;align-items:center;gap:10px;padding:12px 24px;border-bottom:1px solid var(--border)}
+.head h2{font-size:15px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ghost{border:1px solid #7B8794;background:var(--bg);border-radius:6px;padding:5px 10px;font-size:13px;color:var(--primary);font-weight:600;white-space:nowrap}
+.thread{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:20px}
+.q{align-self:flex-end;max-width:75%;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 2px 12px;padding:8px 14px}
+.a{max-width:88%}
+.who{font-size:12px;font-weight:600;color:var(--primary);margin-bottom:4px}
+.a p{margin:0 0 8px}
+.a ol{margin:0 0 10px;padding-left:22px}
+.a li{margin-bottom:4px}
+sup.ref{font-size:11px;font-weight:700;color:var(--accent-text);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:4px;padding:0 4px;margin-left:2px}
+.sources{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:8px;border-top:1px dashed var(--border)}
+.sources .l{font-size:12px;color:var(--muted);font-weight:600}
+.src{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent-text);border-radius:6px;padding:4px 10px;font-size:13px;font-weight:600;text-decoration:none}
+.src.sel{background:var(--accent-mark);border-color:var(--accent-text)}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+*{overflow-wrap:anywhere}
+.src.gone{background:var(--surface);border-color:var(--border);color:var(--muted);font-weight:500;text-decoration:line-through}
+.refus{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.refus p{margin:0 0 10px}
+.acts{display:flex;flex-wrap:wrap;gap:8px}
+/* saisie */
+.composer{border-top:1px solid var(--border);padding:12px 24px 16px}
+.field{border:1px solid #7B8794;border-radius:var(--radius);padding:10px 12px;display:flex;gap:10px;align-items:flex-end;background:#fff}
+.field:focus-within,.field.focus{outline:2px solid var(--primary);outline-offset:2px}
+.field span.ph{flex:1;color:var(--muted)}
+.send{background:var(--primary);color:#fff;border-radius:6px;padding:6px 14px;font-weight:600;font-size:14px}
+.hint{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+/* panneau Source */
+.panel{border-left:1px solid var(--border);display:flex;flex-direction:column;min-width:0;box-shadow:-4px 0 12px rgba(16,24,40,.04)}
+.ph-head{padding:14px 18px;border-bottom:1px solid var(--border)}
+.ph-top{display:flex;align-items:flex-start;gap:8px}
+.ph-top h3{margin:0;font-size:16px;flex:1}
+.x{border:1px solid #7B8794;border-radius:6px;width:28px;height:28px;display:grid;place-items:center;color:var(--muted)}
+.meta{font-size:12px;color:var(--muted);margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cat{border:1px solid var(--border);border-radius:999px;padding:0 8px;color:var(--text)}
+.badge{font-size:11px;font-weight:600;border-radius:999px;padding:1px 8px}
+.badge.ok{color:var(--ok);background:var(--ok-bg)}
+.full{display:inline-block;margin-top:8px;font-size:13px;color:var(--primary);font-weight:600}
+.body{padding:16px 18px;overflow:auto;font-size:14px}
+.body p{margin:0 0 12px;color:var(--text)}
+.body .dim{color:var(--muted)}
+mark.off{background:var(--accent-soft);border-left:2px dashed var(--accent-text)}
+.pnav{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--muted)}
+.pnav span:first-child{flex:1}
+.ghost.sm{padding:2px 8px;font-size:12px}
+mark{background:var(--accent-mark);color:var(--text);border-left:3px solid var(--accent-text);padding:2px 4px;display:inline;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.passlabel{display:block;font-size:11px;font-weight:700;color:var(--accent-text);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+/* sections d'états */
+.states{max-width:1280px;margin:0 auto;display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.card{background:var(--bg);border:1px solid #CDD3DA;border-radius:10px;padding:16px;box-shadow:var(--shadow)}
+.card h4{margin:0 0 2px;font-size:14px}
+.card .why{font-size:12px;color:var(--muted);margin:0 0 12px}
+.gen{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--primary);opacity:.6}
+.caret{display:inline-block;width:7px;height:16px;background:var(--text);vertical-align:-3px;margin-left:2px}
+.alert{border:1px solid #F5C2BD;background:var(--err-bg);border-radius:var(--radius);padding:12px 14px;color:var(--text)}
+.alert strong{color:var(--err)}
+.quota{border:1px solid var(--border);background:var(--surface);border-radius:var(--radius);padding:12px 14px}
+.disabled{opacity:.55}
+.contra{border-left:3px solid var(--accent-text);background:var(--accent-soft);padding:8px 12px;border-radius:0 6px 6px 0;font-size:14px;margin-bottom:8px}
+.ok-text{color:var(--muted)}
+/* historique */
+.hist-mini{border-top:1px solid var(--border);padding-top:10px}
+.hm-l{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.hm-r,.hist-r{display:flex;justify-content:space-between;gap:10px;padding:6px 8px;border-radius:6px;font-size:14px}
+.hm-r span,.hist-r span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hm-r small,.hist-r small{color:var(--muted);white-space:nowrap;font-size:12px}
+.hist{border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:8px}
+.hist-h{display:flex;justify-content:space-between;align-items:center;padding:4px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.hist-r{flex-direction:column;gap:0}
+.hist-r.on{background:var(--primary-soft);box-shadow:inset 3px 0 0 var(--primary)}
+.hist-r.on span{color:var(--primary);font-weight:600}
+/* mobile */
+.phone{width:375px;max-width:100%;border:1px solid #CDD3DA;border-radius:22px;overflow:hidden;background:var(--bg);box-shadow:var(--shadow);margin:0 auto}
+.m-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px}
+.m-head .back{color:var(--primary);font-weight:600}
+.m-body{padding:16px;font-size:14px}
+.m-wrap{max-width:1280px;margin:0 auto 40px;display:flex;flex-wrap:wrap;gap:24px;justify-content:center}
+.m-cap{font-size:12px;color:var(--muted);text-align:center;margin-top:8px}
+</style>
+</head>
+<body>
+
+<h1 class="page">Écran Assistant · piste B (bleu pétrole + ambre)</h1>
+<p class="cap"><b>État canonique</b> : moment de valeur d'UJ-1. Camille a cliqué sur la Source 1 ; le panneau s'ouvre à droite, déjà positionné sur le Passage mis en évidence. L'Historique s'ouvre par le bouton « Historique » de l'en-tête (voir plus bas). En cas d'écart, DESIGN.md et EXPERIENCE.md font foi.</p>
+
+<div class="browser">
+ <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">nexamind.app/assistant/c/relance-client</div></div>
+ <div class="app">
+
+  <nav class="side" aria-label="Navigation principale">
+   <div class="logo"><svg width="22" height="22" viewBox="0 0 18 18" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="2"/><circle cx="14" cy="4" r="2"/><circle cx="9" cy="14" r="2"/><path d="M5.8 5.6 7.8 12.3M12.6 5.4 10 12.4M6 4.8h6"/></g></svg>NexaMind AI</div>
+   <a class="add" href="#">+ Ajouter</a>
+   <a class="nav" href="#"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>Tableau de bord</a>
+   <a class="nav on" href="#" aria-current="page"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12v8H6l-3 3v-3H2z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>Assistant</a>
+   <a class="nav" href="#"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m10.5 10.5 3.5 3.5" stroke="currentColor" stroke-width="1.4"/></svg>Recherche</a>
+   <a class="nav" href="#"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2h3v12H3zM7 2h3v12H7zM11 3l2.5-.6 1.6 11.4-2.4.6z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>Bibliothèque</a>
+   <div class="me"><span class="av">CM</span><span>Camille Martin<small>camille@nexaworks.fr</small></span><a class="logout" href="#">Se déconnecter</a></div>
+  </nav>
+
+  <main class="main">
+   <div class="head">
+    <h2>Comment je relance un client qui n'a pas payé ?</h2>
+    <span class="ghost">Historique</span>
+    <span class="ghost">+ Nouvelle Conversation</span>
+   </div>
+   <div class="thread">
+    <div class="q">comment je relance un client qui n'a pas payé ?</div>
+    <div class="a">
+     <div class="who">Assistant</div>
+     <p>La relance d'un client en retard de paiement se fait en trois étapes :</p>
+     <ol>
+      <li>Envoyez une relance amiable par e-mail <strong>15 jours après l'échéance</strong>.<sup class="ref"><span class="sr-only">Source </span>1</sup></li>
+      <li>Sans réponse, appelez le contact comptable du client à J+30.<sup class="ref"><span class="sr-only">Source </span>2</sup></li>
+      <li>À J+45, transmettez le dossier au service comptabilité avec l'historique des échanges.<sup class="ref"><span class="sr-only">Source </span>1</sup></li>
+     </ol>
+     <div class="sources" aria-label="Sources de la réponse">
+      <span class="l">Sources</span>
+      <a class="src sel" href="#">1 · Procédure de facturation <span style="font-weight:500">· 2 Passages</span></a>
+      <a class="src" href="#">2 · FAQ comptabilité</a>
+     </div>
+    </div>
+    <div class="q">quel est le budget marketing 2027 ?</div>
+    <div class="a">
+     <div class="who">Assistant</div>
+     <div class="refus">
+      <p>Je n'ai pas trouvé cette information dans la Base commune de NexaWorks. Je préfère ne pas répondre plutôt que d'inventer.</p>
+      <div class="acts"><span class="ghost">Reformuler la question</span><span class="ghost">Rechercher dans les Documents</span><span class="ghost">Ajouter un Document</span></div>
+     </div>
+    </div>
+   </div>
+   <div class="composer">
+    <label class="sr" for="q">Votre question</label>
+    <div class="field focus"><span class="ph" id="q">Posez une question sur les Documents de NexaWorks…</span><span class="send">Envoyer</span></div>
+    <div class="hint"><span>Entrée pour envoyer · Maj + Entrée pour aller à la ligne</span><span>0 / 2 000</span></div>
+   </div>
+  </main>
+
+  <aside class="panel" aria-label="Source : Procédure de facturation">
+   <div class="ph-head">
+    <div class="ph-top"><h3>Procédure de facturation</h3><span class="x" aria-label="Fermer">✕</span></div>
+    <div class="meta"><span class="cat">Procédure</span><span>Camille Martin</span><span>· 28 oct. 2026</span><span class="badge ok">● prêt</span></div>
+    <a class="full" href="#">Ouvrir la page complète ↗</a>
+    <div class="pnav"><span aria-live="polite">Passage 1 sur 2</span><span class="ghost sm disabled" aria-disabled="true">↑ Précédent</span><span class="ghost sm">↓ Suivant</span></div>
+   </div>
+   <div class="body">
+    <p class="dim">1. Émission. Toute facture est émise à la livraison et payable à 30 jours, sauf mention contraire au contrat.</p>
+    <p><span class="passlabel">Passage utilisé · 1 sur 2</span><mark>2. Retard de paiement. En cas de retard, une relance amiable est envoyée par e-mail 15 jours après l'échéance.</mark> Le chef de projet trace la relance dans la fiche client.</p>
+    <p><mark class="off">Sans réponse, le dossier est transmis au service comptabilité à J+45, accompagné de l'historique des échanges.</mark></p>
+    <p class="dim">3. Pénalités. Les pénalités de retard prévues aux conditions générales s'appliquent dès le premier jour de retard…</p>
+   </div>
+  </aside>
+ </div>
+</div>
+
+<h1 class="page">États de la Conversation</h1>
+<p class="cap">Variantes affichées dans le fil ou la zone de saisie. Les couleurs vives (rouge) sont réservées à la panne technique.</p>
+<div class="states">
+ <div class="card">
+  <h4>Recherche puis rédaction</h4>
+  <p class="why">FR-16, NFR-3 : début de réponse en moins de 5 s, affichage progressif.</p>
+  <div class="gen"><span class="pulse"></span>Recherche dans les Documents…</div>
+  <p style="margin:12px 0 0">La relance d'un client en retard de paiement se fait en<span class="caret"></span></p>
+  <p class="why" style="margin-top:12px">État neutre « Recherche dans les Documents… », puis rédaction progressive si la réponse est sourcée. Un refus ne s’écrit jamais : il apparaît directement en bloc. Les Sources s’affichent à la fin, d’après celles réellement citées. « Envoyer » est inactif pendant la génération.</p>
+ </div>
+ <div class="card">
+  <h4>Contradiction entre Sources</h4>
+  <p class="why">FR-16, AD-10 : une réponse sourcée ordinaire ; la contradiction est dite dans le texte, avec les deux Sources. Aucun rendu dédié.</p>
+  <p style="margin:0 0 8px">Les Documents ne s'accordent pas sur ce délai : la Procédure de facturation indique 15 jours<sup class="ref"><span class="sr-only">Source </span>1</sup>, la FAQ comptabilité 10 jours<sup class="ref"><span class="sr-only">Source </span>2</sup>.</p>
+  <div class="sources"><span class="l">Sources</span><span class="src">1 · Procédure de facturation</span><span class="src">2 · FAQ comptabilité</span></div>
+ </div>
+ <div class="card">
+  <h4>Réponse non vérifiable</h4>
+  <p class="why">AD-11 : aucune citation valide à la fin de la rédaction. Le texte provisoire est retiré ; aucun quota consommé.</p>
+  <div class="alert" role="alert"><strong>Je n'ai pas pu vérifier cette réponse à partir des Documents.</strong><br>Veuillez réessayer.<div class="acts" style="margin-top:8px"><span class="ghost">Réessayer</span></div></div>
+ </div>
+ <div class="card">
+  <h4>Hors cadre de l'entreprise</h4>
+  <p class="why">FR-18, cas 2 (REFUS_HORS_CADRE) : même apparence calme que le refus, seule suite « Reformuler la question ».</p>
+  <div class="refus"><p>Je réponds uniquement à partir des Documents de NexaWorks.</p><div class="acts"><span class="ghost">Reformuler la question</span></div></div>
+ </div>
+ <div class="card">
+  <h4>Panne technique</h4>
+  <p class="why">NFR-4 : message distinct du refus, avec action de reprise.</p>
+  <div class="alert" role="alert"><strong>La réponse n'a pas pu être générée.</strong><br>Le service d'IA ne répond pas pour le moment. Votre question est conservée.<div class="acts" style="margin-top:8px"><span class="ghost">Réessayer</span></div></div>
+ </div>
+ <div class="card">
+  <h4>Quota atteint</h4>
+  <p class="why">NFR-8 : refus avant tout appel au fournisseur, avec le moment du rétablissement.</p>
+  <div class="quota">Vous avez atteint votre limite quotidienne de questions et de Résumés. Elle sera rétablie <strong>demain à 4 h 00</strong>. La Recherche reste disponible. <a class="full" href="#">Ouvrir la Recherche</a></div>
+  <div class="field disabled" style="margin-top:10px"><span class="ph">Limite quotidienne atteinte</span><span class="send">Envoyer</span></div>
+  <p class="why" style="margin-top:8px">AD-14 : quota lu au chargement ; 60 appels par jour, remis à zéro à 00:00 UTC, affiché dans le fuseau du navigateur (ici La Réunion, UTC+4).</p>
+ </div>
+ <div class="card">
+  <h4>Question trop longue</h4>
+  <p class="why">NFR-8 : au-delà de 2 000 caractères, l'envoi est bloqué avec un message.</p>
+  <div class="field" style="outline:2px solid var(--err);outline-offset:1px"><span class="ph" style="color:var(--text)">Bonjour, je voudrais savoir, concernant le dossier…</span><span class="send disabled">Envoyer</span></div>
+  <div class="hint"><span style="color:var(--err)">Votre question dépasse 2 000 caractères. Raccourcissez-la pour l'envoyer.</span><span style="color:var(--err)">2 143 / 2 000</span></div>
+ </div>
+ <div class="card">
+  <h4>Source vers un Document supprimé</h4>
+  <p class="why">FR-12 : la Source reste affichée, mais n'est plus cliquable.</p>
+  <div class="sources"><span class="l">Sources</span><span class="src">1 · Procédure de facturation</span><span class="src gone" aria-disabled="true">FAQ comptabilité — Document supprimé</span></div>
+ </div>
+ <div class="card">
+  <h4>Assistant sans Conversation active</h4>
+  <p class="why">Exemples de questions (PRD §9.6) et 5 Conversations récentes sous le champ.</p>
+  <p style="margin:0 0 4px;font-weight:600;font-size:18px">Que voulez-vous savoir ?</p>
+  <p class="ok-text" style="margin:0 0 10px;font-size:14px">L'Assistant répond uniquement à partir des Documents de NexaWorks et cite ses Sources.</p>
+  <div class="field"><span class="ph">Posez une question sur les Documents de NexaWorks…</span><span class="send">Envoyer</span></div>
+  <div class="acts" style="margin:10px 0 14px"><span class="ghost">Comment poser mes congés ?</span><span class="ghost">Comment relancer un client ?</span></div>
+  <div class="hist-mini">
+   <div class="hm-l">Conversations récentes</div>
+   <div class="hm-r"><span>Comment je relance un client qui n'a pas payé ?</span><small>aujourd'hui</small></div>
+   <div class="hm-r"><span>Procédure de note de frais</span><small>hier</small></div>
+   <div class="hm-r"><span>Qui contacter pour un accès VPN ?</span><small>31 oct.</small></div>
+   <a class="full" href="#">Voir tout l'Historique</a>
+  </div>
+ </div>
+ <div class="card">
+  <h4>Panneau Historique ouvert</h4>
+  <p class="why">Bouton « Historique » de l'en-tête → panneau à gauche de la Conversation. Conversation active mise en évidence ; le clic rouvre et referme le panneau.</p>
+  <div class="hist">
+   <div class="hist-h"><strong>Historique</strong><span class="x" aria-label="Fermer">✕</span></div>
+   <div class="hist-r on"><span>Comment je relance un client qui n'a pas payé ?</span><small>aujourd'hui, 14 h 32</small></div>
+   <div class="hist-r"><span>Procédure de note de frais</span><small>hier, 9 h 10</small></div>
+   <div class="hist-r"><span>Qui contacter pour un accès VPN ?</span><small>31 oct.</small></div>
+   <div class="hist-r"><span>Où trouver le modèle de devis ?</span><small>29 oct.</small></div>
+  </div>
+  <p class="why" style="margin-top:10px">Vide : « Aucune Conversation pour le moment. » + « Poser une première question ». Erreur : « L'Historique n'a pas pu être chargé. » + « Réessayer ». P1 : menu « ⋯ » de suppression par ligne.</p>
+ </div>
+</div>
+
+<h1 class="page" style="margin-top:40px">À 375 px</h1>
+<p class="cap">Barre latérale repliée dans un menu ; le panneau Source s'ouvre en plein écran avec un retour vers la Conversation.</p>
+<div class="m-wrap">
+ <div>
+  <div class="phone">
+   <div class="m-head"><span aria-label="Ouvrir le menu">☰</span><strong style="flex:1;color:var(--primary)">NexaMind AI</strong><span class="add" style="margin:0;padding:4px 10px" aria-label="Ajouter un Document">+</span></div>
+   <div class="m-head" style="font-size:13px"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Comment je relance un client…</span><span class="ghost">Historique</span><span class="ghost" aria-label="Nouvelle Conversation">+</span></div>
+   <div class="m-body">
+    <div class="q" style="max-width:90%;margin-left:auto;margin-bottom:14px">comment je relance un client qui n'a pas payé ?</div>
+    <div class="who">Assistant</div>
+    <ol style="padding-left:20px;margin:0 0 10px"><li>Relance amiable par e-mail 15 jours après l'échéance.<sup class="ref"><span class="sr-only">Source </span>1</sup></li><li>Appel du contact comptable à J+30.<sup class="ref"><span class="sr-only">Source </span>2</sup></li></ol>
+    <div class="sources"><span class="l">Sources</span><span class="src">1 · Procédure de facturation</span><span class="src">2 · FAQ comptabilité</span></div>
+    <div class="field" style="margin-top:18px"><span class="ph">Posez une question…</span><span class="send">↑</span></div>
+   </div>
+  </div>
+  <p class="m-cap">Conversation</p>
+ </div>
+ <div>
+  <div class="phone">
+   <div class="m-head"><span class="back">← Retour à la Conversation</span></div>
+   <div class="m-body">
+    <h3 style="margin:0;font-size:16px">Procédure de facturation</h3>
+    <div class="meta"><span class="cat">Procédure</span><span>Camille Martin</span><span class="badge ok">● prêt</span></div>
+    <a class="full" href="#">Ouvrir la page complète ↗</a>
+    <p style="margin:14px 0 0"><span class="passlabel">Passage utilisé</span><mark>En cas de retard, une relance amiable est envoyée par e-mail 15 jours après l'échéance.</mark></p>
+   </div>
+  </div>
+  <p class="m-cap">Panneau Source en plein écran</p>
+ </div>
+</div>
+</body>
+</html>
