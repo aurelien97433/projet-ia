@@ -36,6 +36,8 @@ Les décisions D2 (formats et traitement des Documents) et D3 (Catégories) sont
 
 ## Points d'attention pour l'architecture
 
+- **Taille maximale des fichiers (décision du 2026-11-03).** Les fichiers .txt et .md sont limités à **1 Mo** (FR-5), au lieu de 10 Mo : un fichier de 10 Mo produirait environ 12 500 Passages et 170 à 200 Mo en base, au-delà de ce que permet le plan gratuit de Supabase (500 Mo de base, 150 s par exécution d'Edge Function). La limite des PDF (FR-6, P2) n'est arbitrée qu'au lancement de E9. Un test de charge d'un fichier proche de 1 Mo valide cette limite (story 2.7).
+
 Ces points sont désormais arbitrés dans `architecture/architecture-projet-ia-2026-11-03/architecture-nexamind-ai.md` (AD-1 à AD-21), qui fait foi en cas d'écart : traitement dans des Supabase Edge Functions, module IA unique, quota de 60 appels par jour (remise à zéro à 00:00 UTC), plafond OpenAI de 10 $, hébergement Vercel Hobby + Supabase Free.
 
 - **Position des Passages (FR-10, FR-17).** Chaque Passage stocke sa position dans le texte du Document (par exemple décalages de début et de fin), pour ouvrir le Document au bon endroit et mettre le Passage en évidence. Chaque Source enregistrée dans une Conversation doit référencer le Passage et une version du texte du Document, afin de détecter qu'une Note a été modifiée depuis la réponse (FR-17) ou qu'un Document a été supprimé (FR-12).

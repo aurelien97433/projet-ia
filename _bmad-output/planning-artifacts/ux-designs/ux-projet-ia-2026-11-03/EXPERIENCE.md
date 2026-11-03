@@ -90,7 +90,7 @@ Ces règles s'appliquent à tous les libellés, messages d'erreur, réponses de 
 6. **Les boutons commencent par un verbe à l'infinitif :** « Enregistrer », « Importer », « Réessayer », « Relancer le traitement ».
 7. **Réponses de l'Assistant :** la réponse directe d'abord, en une phrase. Une procédure se présente en étapes numérotées. Un renvoi ¹ ² suit chaque affirmation tirée d'un Passage. Aucune question n'est jugée naïve. Aucune formule de politesse superflue (« Bien sûr ! », « Excellente question »).
 8. **Résumés :** 5 points clés au plus, à la troisième personne (« La procédure prévoit… »), sans s'adresser au lecteur sauf si le Document lui-même le fait.
-9. **Typographie française :** espace fine insécable (U+202F) avant `;` `!` `?` ; espace insécable (U+00A0) avant `:`, dans les nombres (« 2 000 ») et avant les unités (« 10 Mo », « 4 h 00 »). Le catalogue ci-dessous est écrit avec des espaces ordinaires pour rester lisible : la fonction `formatFr` (architecture, §6) applique cette règle au rendu de tous les textes.
+9. **Typographie française :** espace fine insécable (U+202F) avant `;` `!` `?` ; espace insécable (U+00A0) avant `:`, dans les nombres (« 2 000 ») et avant les unités (« 1 Mo », « 4 h 00 »). Le catalogue ci-dessous est écrit avec des espaces ordinaires pour rester lisible : la fonction `formatFr` (architecture, §6) applique cette règle au rendu de tous les textes.
 
 | À écrire | À éviter |
 |---|---|
@@ -98,7 +98,7 @@ Ces règles s'appliquent à tous les libellés, messages d'erreur, réponses de 
 | « Ce fichier est vide : aucun texte exploitable n'a été trouvé. » | « Erreur d'ingestion : 0 chunk extrait » |
 | « Le service d'IA ne répond pas pour le moment. Votre question est conservée. » | « Erreur 503 » |
 | « Votre Document est prêt. » | « Succès ! 🎉 » |
-| « Formats acceptés : .txt et .md, 10 Mo au maximum. » | « Format invalide » |
+| « Formats acceptés : .txt et .md, 1 Mo au maximum. » | « Format invalide » |
 
 ### Textes clés de l'interface
 
@@ -216,7 +216,7 @@ Une contradiction entre Passages n'a pas de texte d'interface : c'est une répon
 | Fichier sans texte exploitable | « Ce fichier ne contient aucun texte exploitable. Il ne peut pas être interrogé. » + « Supprimer » (Auteur) |
 | Encodage illisible | « Le texte de ce fichier n'a pas pu être lu (encodage non pris en charge). » + « Supprimer » (Auteur) ; même traitement que le fichier sans texte exploitable (AD-8) |
 | Format refusé | « Ce format n'est pas pris en charge. Formats acceptés : .txt et .md. » |
-| Fichier trop lourd | « Ce fichier dépasse 10 Mo, la taille maximale. » |
+| Fichier trop lourd | « Ce fichier dépasse 1 Mo, la taille maximale. » (1 Mo = 1 000 000 octets, valeur identique à celle des contrôles) |
 | Échec de l'envoi d'un ajout | « Le Document n'a pas pu être enregistré. Votre saisie est conservée. » · « Réessayer » |
 | Champs du formulaire d'ajout | « Indiquez un titre. » · « Choisissez une Catégorie. » · « Le texte ne peut pas être vide. » · « Choisissez un fichier. » |
 | Question trop longue | « Votre question dépasse 2 000 caractères. Raccourcissez-la pour l'envoyer. » |
@@ -474,14 +474,14 @@ Pour chaque écran : objectif, composants, actions, états, comportement à 375 
 - **Objectif :** créer une Note ou importer un fichier en une minute (FR-4, FR-5, FR-7).
 - **Composants :** titre « Ajouter un Document » ; légende « * Champ obligatoire » ; onglets « Note » (par défaut) et « Fichier » ; bouton « Annuler ».
   - **Onglet Note :** « Titre * », « Catégorie * » (liste fixe des 7 Catégories, sans valeur par défaut), « Texte * » (grande zone), bouton principal « Enregistrer ».
-  - **Onglet Fichier :** zone de dépôt avec bouton « Choisir un fichier » et mention « Formats acceptés : .txt et .md, 10 Mo au maximum. » (le PDF n'est annoncé que lorsque FR-6 est livré) ; « Titre * » prérempli avec le nom du fichier sans extension, modifiable ; « Catégorie * » ; bouton principal « Importer ».
+  - **Onglet Fichier :** zone de dépôt avec bouton « Choisir un fichier » et mention « Formats acceptés : .txt et .md, 1 Mo au maximum. » (le PDF n'est annoncé que lorsque FR-6 est livré) ; « Titre * » prérempli avec le nom du fichier sans extension, modifiable ; « Catégorie * » ; bouton principal « Importer ».
 - **Actions :** enregistrer ou importer ; changer de fichier ; annuler.
 
 | État | Traitement |
 |---|---|
 | Vide | Onglet Note, champs vides, focus sur « Titre ». |
 | Validation | Bouton actif seulement si les champs obligatoires sont remplis (rendu `aria-disabled`, voir Formulaire). Erreurs sous le champ concerné : « Indiquez un titre. », « Choisissez une Catégorie. », « Le texte ne peut pas être vide. » |
-| Refus immédiat du fichier | Format non pris en charge ou fichier de plus de 10 Mo : refus avant tout envoi, message dans la zone de dépôt, autres champs conservés (FR-7). |
+| Refus immédiat du fichier | Format non pris en charge ou fichier de plus de 1 Mo : refus avant tout envoi, message dans la zone de dépôt, autres champs conservés (FR-7). |
 | Dépôt du fichier | Dès le choix d'un fichier valide, il est déposé dans l'espace privé, avant toute création de Document (AD-7) : barre de progression « Dépôt du fichier… » dans la zone de dépôt, « Importer » inactif (`aria-disabled`) jusqu'à la fin. Échec du dépôt : « Le fichier n'a pas pu être déposé. » + « Réessayer », autres champs conservés. |
 | Chargement | « Enregistrement… » ou « Import… », bouton occupé (`aria-disabled`), formulaire verrouillé. Au-delà de 10 s sans réponse : alerte « Le Document n'a pas pu être enregistré. Votre saisie est conservée. », formulaire déverrouillé ; « Réessayer » rejoue la même demande, sans doublon (architecture AD-16). |
 | Succès | Redirection vers E7 (« Document ajouté. Traitement en cours. »). |

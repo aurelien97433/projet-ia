@@ -84,7 +84,7 @@ La promesse du MVP n'est pas l'étendue des fonctionnalités mais la **confiance
 - **Tableau de bord** — Écran d'accueil après connexion.
 - **Requête** — Texte saisi par un Collaborateur dans la Recherche sémantique (à distinguer d'une question posée à l'Assistant).
 - **Fournisseur d'IA** — Service externe qui fournit les modèles utilisés par l'Assistant, la Recherche sémantique et le Résumé.
-- **Jeu de démonstration** — 10 à 15 Documents fictifs de NexaWorks couvrant les 7 Catégories, 20 questions dont la réponse figure dans la Base commune, 10 questions hors base et 10 requêtes de Recherche sémantique, ainsi qu'un lot de fichiers de test (fichiers .txt et .md valides, un fichier vide, un fichier de plus de 10 Mo, un fichier d'un format non pris en charge). Inclut au moins deux Documents qui se contredisent sur un point (FR-16) et un Document contenant une consigne piège (NFR-10). Sert à mesurer les indicateurs du §8.
+- **Jeu de démonstration** — 10 à 15 Documents fictifs de NexaWorks couvrant les 7 Catégories, 20 questions dont la réponse figure dans la Base commune, 10 questions hors base et 10 requêtes de Recherche sémantique, ainsi qu'un lot de fichiers de test (fichiers .txt et .md valides, un fichier vide, un fichier .txt ou .md de plus de 1 Mo, un fichier d'un format non pris en charge). Inclut au moins deux Documents qui se contredisent sur un point (FR-16) et un Document contenant une consigne piège (NFR-10). Sert à mesurer les indicateurs du §8.
 
 ## 4. Fonctionnalités
 
@@ -147,7 +147,7 @@ Un Collaborateur peut créer une Note en saisissant un titre, une Catégorie et 
 Un Collaborateur peut importer un fichier .txt ou .md en lui attribuant une Catégorie. Le titre est prérempli avec le nom du fichier et reste modifiable.
 
 **Critères vérifiables :**
-- Un fichier .txt ou .md valide de 10 Mo au plus passe au Statut de traitement *prêt* puis peut être interrogé par l'Assistant.
+- Un fichier .txt ou .md valide de 1 Mo au plus (1 Mo = 1 000 000 octets ; environ 330 pages ; limite fixée le 2026-11-03 pour rester dans les limites de l'hébergement gratuit) passe au Statut de traitement *prêt* puis peut être interrogé par l'Assistant.
 - Un fichier .txt ou .md vide (ou ne contenant que des espaces) est traité comme un fichier sans texte exploitable : il passe au Statut de traitement *en erreur* avec un message explicite.
 - Le titre est prérempli avec le nom du fichier (sans extension) et peut être modifié avant l'enregistrement.
 - L'import est impossible sans Catégorie.
@@ -157,7 +157,7 @@ Un Collaborateur peut importer un fichier .txt ou .md en lui attribuant une Cat�
 Un Collaborateur peut importer un PDF contenant du texte sélectionnable, dans les mêmes conditions que FR-5.
 
 **Critères vérifiables :**
-- Un PDF valide contenant du texte, de 10 Mo au plus, passe au Statut de traitement *prêt* puis peut être interrogé par l'Assistant.
+- Un PDF valide contenant du texte, de 10 Mo au plus (limite à confirmer au lancement de FR-6), passe au Statut de traitement *prêt* puis peut être interrogé par l'Assistant.
 - Un PDF sans texte exploitable (scanné, protégé ou vide) passe au Statut de traitement *en erreur* avec un message explicite et n'est donc jamais interrogeable (FR-8).
 
 #### FR-7 : Suivre le Statut de traitement et gérer les refus
@@ -166,7 +166,7 @@ Chaque Document affiche son Statut de traitement : *en cours de traitement*, *pr
 
 **Critères vérifiables :**
 - Le Statut de traitement est visible dans la Bibliothèque et sur la page du Document, et se met à jour sans action du Collaborateur.
-- Un fichier d'un format non pris en charge ou de plus de 10 Mo est refusé avant traitement avec un message indiquant les formats acceptés ou la taille maximale.
+- Un fichier d'un format non pris en charge ou dépassant la taille maximale (1 Mo pour les .txt et .md) est refusé avant traitement avec un message indiquant les formats acceptés ou la taille maximale.
 - Un Document *en erreur* affiche la raison de l'erreur, en distinguant deux cas :
   - **erreur temporaire** (par exemple Fournisseur d'IA indisponible) : l'Auteur peut relancer le traitement ; si la relance réussit, le Document passe *en cours de traitement* puis *prêt* ;
   - **fichier sans texte exploitable** (fichier .txt ou .md vide ; PDF scanné, protégé ou vide si FR-6 est livré) : aucune relance n'est proposée ; l'Auteur peut supprimer le Document (FR-12).
@@ -422,7 +422,7 @@ Mesurés avant la démonstration sur le **Jeu de démonstration** (voir Glossair
 
 **Secondaires**
 - **SM-4 : Pertinence de la Recherche sémantique** — Sur 10 Requêtes reformulées sans les mots exacts, le bon Document figure parmi les 3 premiers résultats au moins 8 fois. Valide FR-14.
-- **SM-5 : Fiabilité de l'ajout** — 100 % des fichiers .txt et .md valides du Jeu de démonstration atteignent le Statut de traitement *prêt* ; 100 % des fichiers invalides testés (format non pris en charge, plus de 10 Mo, fichier vide) sont refusés ou passent *en erreur* avec un message clair. Les mêmes critères s'appliquent aux PDF si FR-6 est livré. Valide FR-5 à FR-7.
+- **SM-5 : Fiabilité de l'ajout** — 100 % des fichiers .txt et .md valides du Jeu de démonstration atteignent le Statut de traitement *prêt* ; 100 % des fichiers invalides testés (format non pris en charge, .txt ou .md de plus de 1 Mo, fichier vide) sont refusés ou passent *en erreur* avec un message clair. Les mêmes critères s'appliquent aux PDF si FR-6 est livré. Valide FR-5 à FR-7.
 - **SM-6 : Cloisonnement** — Les 3 critères d'accès (Document de A visible et interrogeable par B ; B ne peut pas modifier ni supprimer le Document de A ; B ne peut pas accéder aux Conversations de A) sont vérifiés. Valide FR-10, FR-13, FR-22.
 
 **Contre-indicateurs (à ne pas optimiser)**

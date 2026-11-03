@@ -119,7 +119,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
   6. **Relance.** `retry_processing` (Auteur seul) se base sur le **Statut effectif** (AD-6). Elle est permise si l'erreur est `temporary`, y compris pour un traitement expiré après 3 min. Elle crée une nouvelle tentative, avec un nouvel horodatage, et repart d'un état propre.
 - **Raison — ce qu'on évite (Prevents) :** le traitement ne bloque pas l'interface (addendum). Sur Vercel, un appel non attendu peut être interrompu à la fin de la requête ; ici, le travail continue côté Supabase. Une tentative périmée ne peut jamais remettre un Document à *prêt*.
 - **Écarté :** `after()` de Next.js ; `fetch` non attendu ; traitement immédiat dans la requête ; file de tâches dédiée (pgmq), notée comme évolution possible.
-- **Risque restant :** limites des Edge Functions du plan gratuit (150 s d'exécution, 2 s de calcul hors attentes réseau). Pour les gros fichiers, voir le test de 10 Mo (§6, §7). Un gros PDF (P2) peut échouer : il passe alors *en erreur* temporaire, sans retarder le P0. En local, la CLI Supabase arrête l'instance après chaque requête : régler `[edge_runtime] policy = "per_worker"` dans `supabase/config.toml`.
+- **Risque restant :** limites des Edge Functions du plan gratuit (150 s d'exécution, 2 s de calcul hors attentes réseau). Les fichiers .txt et .md sont limités à 1 Mo ; un test de charge proche de cette limite le valide (§6, §7). Un gros PDF (P2) peut échouer : il passe alors *en erreur* temporaire, sans retarder le P0. En local, la CLI Supabase arrête l'instance après chaque requête : régler `[edge_runtime] policy = "per_worker"` dans `supabase/config.toml`.
 - **Exigences (Binds) :** FR-4 à FR-8, NFR-3, NFR-4, X11.
 
 ### AD-6 — Statut effectif calculé en base, avec expiration à 3 min `[ADOPTED]`
@@ -131,12 +131,12 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 
 ### AD-7 — Fichiers déposés directement dans le Storage privé `[ADOPTED]`
 - **Règle (Rule) :**
-  1. **Contrôle avant tout envoi.** Dans l'onglet Fichier, le navigateur vérifie l'extension (`.txt`, `.md`, et `.pdf` seulement si FR-6 est livré) et la taille (10 Mo au plus) dès le choix du fichier (FR-7).
+  1. **Contrôle avant tout envoi.** Dans l'onglet Fichier, le navigateur vérifie l'extension (`.txt`, `.md`, et `.pdf` seulement si FR-6 est livré) et la taille (1 Mo au plus pour `.txt` et `.md`, **1 Mo = 1 000 000 octets** dans tous les contrôles ; limite des PDF à arbitrer au lancement de E9) dès le choix du fichier (FR-7).
   2. **Dépôt, avant toute création de Document.** Il demande à Next.js une URL d'upload signée (`POST /api/uploads`, qui renvoie un `upload_id`) pour le chemin `{author_id}/uploads/{upload_id}`, puis y dépose le fichier.
-  3. **Vérification à « Importer ».** Next.js vérifie que l'objet existe, se trouve dans le dossier du Collaborateur et fait 10 Mo au plus. Il **déduit le type MIME de l'extension** côté serveur (`.txt` → `text/plain`, `.md` → `text/markdown`, `.pdf` → `application/pdf`) et ignore celui envoyé par le navigateur.
+  3. **Vérification à « Importer ».** Next.js vérifie que l'objet existe, se trouve dans le dossier du Collaborateur et respecte la taille maximale (1 Mo pour `.txt` et `.md`). Il **déduit le type MIME de l'extension** côté serveur (`.txt` → `text/plain`, `.md` → `text/markdown`, `.pdf` → `application/pdf`) et ignore celui envoyé par le navigateur.
   4. **Création.** Le Document est créé (AD-5, étape 1) avec ce `storage_path`.
-  5. **Bucket.** Le bucket privé `documents` est limité à 10 Mo, sans restriction de type MIME au niveau du bucket, car les navigateurs déclarent mal les `.md`. Aucune URL publique. Le téléchargement (P2) passe par une URL signée courte, en pièce jointe.
-- **Raison — ce qu'on évite (Prevents) :** sur Vercel, le corps d'une requête est limité à 4,5 Mo, alors que FR-5 autorise 10 Mo. Aucun Document n'existe pour un dépôt raté, et aucun type de fichier n'est accepté sur la seule déclaration du client.
+  5. **Bucket.** Le bucket privé `documents` est limité à 1 000 000 octets (`file_size_limit`, à relever seulement si la limite des PDF l'exige, au lancement de E9), sans restriction de type MIME au niveau du bucket, car les navigateurs déclarent mal les `.md`. Aucune URL publique. Le téléchargement (P2) passe par une URL signée courte, en pièce jointe.
+- **Raison — ce qu'on évite (Prevents) :** aucun fichier ne transite par Next.js (le corps d'une requête Vercel est limité à 4,5 Mo, ce qui laisse de la marge pour une éventuelle limite des PDF). Aucun Document n'existe pour un dépôt raté, et aucun type de fichier n'est accepté sur la seule déclaration du client.
 - **Écarté :** envoi du fichier à travers Next.js ; création du Document avant le dépôt ; type MIME déclaré par le navigateur.
 - **Risque restant :** un fichier déposé mais jamais importé reste dans `uploads/`. C'est négligeable pour le MVP ; le nettoyage est reporté (Deferred).
 - **Exigences (Binds) :** FR-5, FR-6, FR-7, FR-10 (P2), NFR-1.
@@ -283,7 +283,7 @@ sequenceDiagram
   participant PD as process-document
   participant O as OpenAI
   alt Fichier
-    B->>B: contrôle extension et taille (10 Mo)
+    B->>B: contrôle extension et taille (1 Mo)
     B->>N: POST /api/uploads
     N-->>B: upload_id + URL signée ({author_id}/uploads/{upload_id})
     B->>S: dépôt direct du fichier
@@ -521,8 +521,8 @@ tests/                                  # unit/, integration/ (RLS), e2e/ (Playw
 |---|---|---|
 | Unitaires | Vitest | Découpage et positions ; normalisation ; lecture du marqueur (3 valeurs, absent, invalide) ; validation des citations (toutes valides, partiellement invalides, numéro inexistant, aucune, puis réessai réussi) ; balisage des Passages et neutralisation du titre (titre contenant `">` et une consigne) ; décodage (UTF-8 avec BOM, Windows-1252, binaire → `no_text`) ; masquage des `[P{n}]` coupés entre deux morceaux de flux ; tampon du marqueur (marqueur coupé, marqueur au-delà de 40 caractères) ; déduction du MIME par l'extension ; `formatFr` ; égalité modèle et dimension entre Passages et Requêtes (AD-4). |
 | Intégration | Vitest + Supabase local (CLI, Docker) `[ASSUMPTION]` | RLS à deux Comptes sur chaque table (SM-6) ; `match_passages` n'expose jamais un Document *en cours* ou *en erreur* ; quota : la 61ᵉ demande du jour est refusée sans appel au fournisseur (fournisseur simulé) ; tentative périmée ignorée ; `retry_processing` accepté sur un Document expiré (> 3 min), refusé sur `no_text` et pour un non-Auteur ; `process-document` sans secret refusé ; idempotence : même `client_request_id` rejoué sans nouvelle question ni quota, réessai après échec remplaçant l'échec, `REQUEST_IN_PROGRESS`, et une entrée de quota vérifiée pour chaque issue du tableau d'AD-16 ; `store_summary` concurrent (une seule écriture, une seule unité décomptée) ; le rôle `anon` ne lit rien ; `documents_list` sans `content_text`. |
-| Secrets | Script de vérification (CI locale avant chaque déploiement) | Aucune occurrence de `OPENAI`, `sk-`, `service_role` ni `PROCESS_DOCUMENT_SECRET` dans `.next/static` (code envoyé au navigateur) ni dans le dépôt ; aucun appel réseau du navigateur vers `api.openai.com` ni vers `/functions/v1/` pendant les tests de bout en bout (interception Playwright). |
-| Charge | Script sur l'environnement Supabase réel | Import d'un `.txt` de 10 Mo : temps de traitement, Statut final, nombre de Passages, taille en base. Si le traitement échoue ou dépasse les limites (150 s, 2 s de calcul, 500 Mo de base), **proposer une limite plus basse** pour `.txt`/`.md` (par exemple 1 Mo, environ 330 pages). C'est une décision produit sur FR-5, à te soumettre. |
+| Secrets | `scripts/check-secrets.ts`, dès la story 1.1, exécuté à chaque build Vercel (avant `next build` sur le dépôt, après sur `.next/static`) | Aucun **format de clé** dans le dépôt ni dans le code envoyé au navigateur : par exemple `\bsk-[A-Za-z0-9_-]{20,}`, un jeton JWT (`eyJ` suivi d'au moins 20 caractères puis d'un point), une clé `sb_secret_…`, ou une affectation avec valeur de `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` ou `PROCESS_DOCUMENT_SECRET` ; la simple présence de ces noms n'est pas une erreur. Test négatif sur une branche temporaire, supprimée ensuite. Aucun appel réseau du navigateur vers `api.openai.com` ni vers `/functions/v1/` pendant les tests de bout en bout (interception Playwright, dès la story 5.2). |
+| Charge | Script sur l'environnement Supabase réel | Import d'un `.txt` ou `.md` proche de 1 Mo : Document *prêt* en moins de 3 min, moins de 50 Mo ajoutés en base, base totale sous 400 Mo (80 % des 500 Mo du plan gratuit). En cas d'échec, une proposition est soumise à arbitrage, sans être appliquée. |
 | Flux sur Vercel | Déploiement de prévisualisation Vercel Hobby | Premier octet de `chat` en moins de 5 s, diffusion non mise en tampon, coupure propre à 90 s, `maxDuration` respecté. |
 | Bout en bout | Playwright + axe | UJ-1, UJ-2 (avec le `.txt` vide) et UJ-3, au clavier seul, à 1 280 px et 375 px (NFR-6, NFR-7) ; `.md` contenant du HTML et du JavaScript affiché en texte, sans exécution, avec une mise en évidence correcte. |
 | Mesures | Script sur le Jeu de démonstration | SM-1, SM-2, SM-4 (avec le fournisseur réel, dans les limites du quota). |
@@ -547,7 +547,8 @@ tests/                                  # unit/, integration/ (RLS), e2e/ (Playw
 | Seuil de similarité, taille des Passages, consignes | Story de calibrage, sur le Jeu de démonstration |
 | Délais d'AD-16 et NFR-3 (latence via Edge Function) | Première story Recherche et première story Assistant |
 | Extraction des PDF dans les limites des Edge Functions | Story FR-6 (P2) |
-| Import d'un `.txt` de 10 Mo (test de charge) ; limite plus basse à proposer en cas d'échec | Story 2, dès le premier import de fichier |
+| Import d'un `.txt` ou `.md` proche de 1 Mo (test de charge de la limite de FR-5) | Story 2.7, juste après l'import de fichiers |
+| Limite de taille des PDF | Au lancement de E9 (FR-6, P2) |
 | Diffusion de `chat` sur Vercel Hobby (`maxDuration`, absence de mise en tampon) | Première story Assistant |
 | Plafond OpenAI réellement bloquant, sinon crédit prépayé | Mise en place du projet OpenAI |
 | Supabase local (Docker) disponible pour les tests RLS | Story de socle |
@@ -556,7 +557,7 @@ tests/                                  # unit/, integration/ (RLS), e2e/ (Playw
 **Conséquences pour le découpage en stories**
 
 1. **Socle :** schéma, RLS, vues et fonctions SQL ; Auth (E1, E2) ; mise en page shadcn et navigation ; forme d'erreur ; `formatFr` ; `.gitignore` et `.env.example` ; tests RLS à deux Comptes.
-2. **Ajout et traitement :** Note → `process-document` (202 + `EdgeRuntime.waitUntil`) → Statut (E8, E7) ; puis `.txt`/`.md` avec dépôt avant création, MIME par extension, décodage strict ; expiration et relance sur le Statut effectif ; test de charge 10 Mo.
+2. **Ajout et traitement :** Note → `process-document` (202 + `EdgeRuntime.waitUntil`) → Statut (E8, E7) ; puis `.txt`/`.md` avec dépôt avant création, MIME par extension, décodage strict ; expiration et relance sur le Statut effectif ; test de charge d'un fichier proche de 1 Mo.
 3. **Bibliothèque et Document :** E6, E7 (lecture, Lecteur de Document, suppression) ; Tableau de bord (E3).
 4. **Recherche :** `semantic-search`, `match_passages`, E5.
 5. **Assistant :** `chat` (tampon du marqueur, masquage des `[P{n}]`, validation des citations, quota par issue, idempotence avant réservation), E4, panneau Source, Historique ; test du flux sur Vercel Hobby.
