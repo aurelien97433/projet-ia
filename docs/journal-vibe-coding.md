@@ -64,3 +64,40 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - **Réserve :** la région d'exécution réelle n'est pas encore prouvée (la page 404 n'expose que le point d'entrée `cpt1`). Elle sera contrôlée avec `x-vercel-id` sur la première route dynamique, au plus tard en story 1.4.
 
 **Statut final.** Story 1.1 passée à `done` le 2026-11-04, avec cette réserve.
+
+## Story 1.2 — Identité visuelle et coquille de navigation (2026-11-04)
+
+**Objectif.** Une application en français, à l'identité de NexaMind AI, avec une navigation claire sur ordinateur comme à 375 px, utilisable au clavier.
+
+**Instructions clés données à l'IA.**
+- Workflow `bmad-build` : fichier de story, plan, fichiers et risques avant de coder.
+- Précisions à l'approbation : « Se déconnecter » visible et utilisable au clavier en `aria-disabled` tant que la session n'est pas branchée ; aucun libellé codé en dur hors du catalogue de textes ; seulement les composants shadcn `Button` et `Sheet`.
+- Aucun commit ni push avant la vérification manuelle.
+
+**Ce que l'IA a produit.**
+- Thème shadcn aligné sur les jetons de DESIGN.md, en mode clair uniquement.
+- Catalogue de textes `src/lib/texts.ts`.
+- Coquille de navigation : barre latérale, barre du haut, menu en `Sheet`, lien d'évitement, logo à trois nœuds.
+- Cinq pages vides avec leur titre.
+- Focus envoyé sur le titre à chaque changement d'écran.
+- 22 tests Playwright aux deux largeurs (1 280 et 375 px), avec axe.
+
+**Corrigé ou refusé, et pourquoi.**
+- Le CLI shadcn a ajouté une dépendance `cn` inconnue. Vérifiée avant usage : paquet de l'éditeur de shadcn, sans script d'installation. Épinglée à sa version exacte, car publiée deux jours plus tôt.
+- Libellés du bouton de fermeture du `Sheet` (« Close », en anglais et codé en dur) et anneau de focus semi-transparent de shadcn : remplacés par le catalogue et par l'anneau de DESIGN.md.
+- Test de l'anneau de focus en échec : la propriété `transition-all` animait l'anneau. Les transitions sont limitées aux couleurs.
+- Retour du focus sur ☰ après un lien du menu en échec : en développement, React rejoue les effets au montage, ce qui consommait deux fois l'état de focus. La décision est désormais figée une seule fois par titre.
+- Documentation de Next.js 16 consultée : avec `cacheComponents`, la navigation qui lit `usePathname` est placée dans une frontière `Suspense`, pour ne pas casser le build quand arriveront les routes à paramètres.
+
+**Tests.**
+- `npm test` : 30 réussis.
+- `npm run test:e2e` : 23 réussis ; 5 sautés, propres à l'autre largeur.
+- axe : aucune violation sur les 5 pages, aux deux largeurs.
+- `lint` : 0 erreur. `tsc` : 0 erreur.
+- `build:ci` : réussi, aucun secret.
+
+**Durée.** De 12:50 à 13:15 pour l'IA, soit environ 25 min, planification comprise ; vérification manuelle par l'utilisateur ensuite.
+
+**Revue.** Relecteurs non lancés pour cette story, à la demande de l'utilisateur ; vérification manuelle validée (ordinateur, 375 px, clavier).
+
+**Statut final.** Story 1.2 passée à `done` le 2026-11-04 à 13:23.

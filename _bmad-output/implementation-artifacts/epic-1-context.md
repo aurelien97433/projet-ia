@@ -44,3 +44,5 @@ Poser les fondations de NexaMind AI, copilote documentaire interne de NexaWorks 
 - 1.1 n'a aucune dépendance ; 1.2 dépend de 1.1 ; 1.3 de 1.1 et 1.2 ; 1.4 de 1.3 ; 1.5 (FINITION) de 1.2, planifiée après E4.
 - 1.1 fournit à toutes les stories : `npm test` (Vitest + Supabase local), `test:e2e` (Playwright), `check:secrets`, `deploy:supabase`, le déploiement Vercel et le journal de Vibe Coding.
 - La story 2.1 (accès à l'IA) dépend aussi de 1.1 ; la story 5.0 (essai du flux sur Vercel) dépend du déploiement de 1.1.
+- Story 1.1 (terminée) : outillage, `check:secrets`, `deploy:supabase`, déploiement Vercel. Réserve : la région d'exécution `fra1` sera prouvée par `x-vercel-id` sur la première route dynamique, au plus tard en 1.4.
+- Next.js 16 avec `cacheComponents` : un composant client qui lit `usePathname` doit être placé dans une frontière `Suspense` dès qu'existent des routes à paramètres dynamiques (`/documents/[id]`, `/assistant/[id]`).

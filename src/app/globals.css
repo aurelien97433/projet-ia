@@ -1,26 +1,129 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Mode clair uniquement : les variantes dark: ne s'appliquent qu'avec une classe .dark,
+   jamais posée, et non selon le réglage du système. */
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-sans: var(--font-geist-sans);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Couche de marque (DESIGN.md) */
+  --color-surface: var(--surface);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent-text: var(--accent-text);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+  --color-accent-mark: var(--accent-mark);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-line: var(--destructive-line);
+  --color-pending: var(--pending);
+  --color-pending-soft: var(--pending-soft);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --spacing-sidebar: 232px;
+  --container-content: 960px;
+  --container-reading: 72ch;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Jetons de DESIGN.md (piste B). Contrastes vérifiés au niveau AA. */
+:root {
+  --radius: 8px;
+  --background: #ffffff;
+  --foreground: #1f2933;
+  --card: #ffffff;
+  --card-foreground: #1f2933;
+  --popover: #ffffff;
+  --popover-foreground: #1f2933;
+  --primary: #0e5a6b;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f8fa;
+  --secondary-foreground: #1f2933;
+  --muted: #f7f8fa;
+  --muted-foreground: #52606d;
+  /* « accent » de shadcn = survol neutre ; l'ambre de la marque a ses propres jetons. */
+  --accent: #e3f0f2;
+  --accent-foreground: #0e5a6b;
+  --destructive: #b42318;
+  --border: #e3e7ec;
+  --input: #7b8794;
+  --ring: #0e5a6b;
+
+  --surface: #f7f8fa;
+  --primary-soft: #e3f0f2;
+  --accent-text: #92400e;
+  --accent-soft: #fef5e1;
+  --accent-line: #f3d9a4;
+  --accent-mark: #fdecc8;
+  --success: #166534;
+  --success-soft: #e8f5ec;
+  --destructive-soft: #fdecea;
+  --destructive-line: #f5c2bd;
+  --pending: #52606d;
+  --pending-soft: #eef1f4;
+
+  color-scheme: light;
+}
+
+@layer base {
+  * {
+    @apply border-border;
   }
-}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  html {
+    scroll-padding-top: 4rem;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  /* Anneau de focus de DESIGN.md : plein, 2 px, décalé de 2 px (équivalent de
+     ring-2 ring-ring ring-offset-2 ring-offset-background), jamais l'opacité 50 % de shadcn. */
+  :focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--background),
+      0 0 0 4px var(--ring);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
