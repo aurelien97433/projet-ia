@@ -171,3 +171,4 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
   - Il vérifie ensuite, avec `migration list --remote`, que chaque migration locale est présente sur le projet distant.
   - Tests unitaires, dont un sur la sortie locale réelle de la CLI.
 - **Leçon pour la démarche.** Un script de déploiement doit prouver sa cible, pas seulement réussir. Un « succès » sans preuve de la cible ne vaut pas validation d'un critère distant.
+- **Second correctif.** Sur le projet distant, le script corrigé s'arrêtait : « la CLI n'a pas indiqué sa cible ». Dans un terminal interactif, la CLI n'écrit pas le JSON de sa cible. Le script force désormais `--output-format json` et compare exactement `project_ref`, après relevé du format réel de la CLI (dry-run sans modification). Le lancement complet vers la production a été refusé à l'IA par la règle de sécurité de l'outil : il est fait par l'utilisateur.

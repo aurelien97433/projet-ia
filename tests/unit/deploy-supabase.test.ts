@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertRemoteTarget,
+  describeOutput,
   listFunctions,
   listLocalMigrations,
   missingRemoteMigrations,
@@ -65,6 +66,33 @@ describe("cible du déploiement", () => {
 
   it("accepte le projet distant lié", () => {
     expect(() => assertRemoteTarget({ target: { kind: "remote", ref: REF } }, REF)).not.toThrow();
+  });
+
+  // Sortie réelle de `db push --remote --output-format json` (CLI 3.0.0, relevée le 2026-11-04).
+  const linkedOutput = (ref: string) =>
+    `{"upToDate":true,"dryRun":false,"migrations":[],"seeds":[],"roles":[],"message":"Remote database is up to date.","target":{"kind":"linked","project_ref":"${ref}","project_name":"projet-ia","environment":"production"}}`;
+
+  it("accepte la sortie réelle de la CLI pour le projet lié (kind linked, project_ref)", () => {
+    expect(() => assertRemoteTarget(parseCliJson(linkedOutput(REF)), REF)).not.toThrow();
+  });
+
+  it("refuse la même sortie quand project_ref désigne un autre projet, même s'il contient la référence", () => {
+    expect(() => assertRemoteTarget(parseCliJson(linkedOutput("zzzzzzzzzzzzzzzzzzzz")), REF)).toThrow(/ne correspond pas/);
+    expect(() =>
+      assertRemoteTarget({ target: { kind: "linked", project_ref: "x", project_name: REF } }, REF),
+    ).toThrow(/ne correspond pas/);
+  });
+
+  it("refuse la sortie texte d'un terminal interactif (aucune cible lisible)", () => {
+    const text = "Remote database is up to date.";
+    expect(() => assertRemoteTarget(parseCliJson(text), REF)).toThrow(/cible/);
+    expect(describeOutput(text)).toBe(text);
+  });
+
+  it("masque les identifiants d'une URL dans le diagnostic", () => {
+    const output = "connexion postgresql://postgres.ref:motdepasse@aws-0-eu-central-1.pooler.supabase.com:6543/postgres";
+    expect(describeOutput(output)).not.toContain("motdepasse");
+    expect(describeOutput(output)).toContain("://***@aws-0");
   });
 });
 

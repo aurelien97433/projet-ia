@@ -53,7 +53,9 @@ export function parseCliJson(stdout: string): Record<string, unknown> | null {
   }
 }
 
-// Refuse toute sortie dont la cible n'est pas le projet distant attendu.
+// Refuse toute sortie dont la cible n'est pas le projet distant attendu. Forme relevée avec la
+// CLI 3.0.0 le 2026-11-04 : {"target":{"kind":"linked","project_ref":"<réf>","project_name":…}}
+// pour le projet lié, {"target":{"kind":"local","host":"127.0.0.1",…}} pour la stack locale.
 export function assertRemoteTarget(output: Record<string, unknown> | null, projectRef: string): void {
   const target = output?.target as Record<string, unknown> | undefined;
   if (!target) {
@@ -62,9 +64,17 @@ export function assertRemoteTarget(output: Record<string, unknown> | null, proje
   if (target.kind === "local") {
     throw new Error("la commande a visé la base locale (127.0.0.1), pas le projet distant.");
   }
-  if (!JSON.stringify(target).includes(projectRef)) {
+  const targetRef = target.project_ref ?? target.ref;
+  const matches = typeof targetRef === "string" ? targetRef === projectRef : JSON.stringify(target).includes(projectRef);
+  if (!matches) {
     throw new Error(`la cible ${JSON.stringify(target)} ne correspond pas au projet lié ${projectRef}.`);
   }
+}
+
+// Début de la sortie reçue, pour diagnostic, sans identifiants (user:motdepasse@ des URL).
+export function describeOutput(stdout: string): string {
+  const cleaned = stdout.replace(/:\/\/[^\s/@]+@/g, "://***@").replace(/\s+/g, " ").trim();
+  return cleaned ? `${cleaned.slice(0, 200)}${cleaned.length > 200 ? "…" : ""}` : "(sortie vide)";
 }
 
 // Migrations locales absentes du projet distant, d'après `supabase migration list --remote`.
@@ -74,15 +84,26 @@ export function missingRemoteMigrations(local: string[], output: Record<string, 
   return local.filter((version) => !remote.has(version));
 }
 
-// Lance la CLI : stdin et stderr dans le terminal (invites), stdout capturé pour lire le JSON.
-function runCli(args: string[]): { ok: boolean; output: Record<string, unknown> | null } {
+// Lance la CLI : stdin et stderr dans le terminal (invites, ligne « Target: »), stdout capturé.
+// --output-format json force la sortie JSON même dans un terminal interactif, où la CLI écrit
+// sinon du texte (cause de l'échec « n'a pas indiqué sa cible » du 2026-11-04).
+function runCli(args: string[]): { ok: boolean; output: Record<string, unknown> | null; raw: string } {
   // Commande en une seule chaîne via le shell (exécutable .cmd de Windows) ; arguments constants.
-  const result = spawnSync([SUPABASE_BIN, ...args].join(" "), {
+  const result = spawnSync([SUPABASE_BIN, ...args, "--output-format", "json"].join(" "), {
     stdio: ["inherit", "pipe", "inherit"],
     encoding: "utf8",
     shell: true,
   });
-  return { ok: result.status === 0, output: parseCliJson(result.stdout ?? "") };
+  const raw = result.stdout ?? "";
+  return { ok: result.status === 0, output: parseCliJson(raw), raw };
+}
+
+function checkTarget(run: { output: Record<string, unknown> | null; raw: string }, projectRef: string): void {
+  try {
+    assertRemoteTarget(run.output, projectRef);
+  } catch (error) {
+    fail(`${(error as Error).message} Sortie reçue : ${describeOutput(run.raw)}`);
+  }
 }
 
 function fail(message: string): never {
@@ -101,20 +122,12 @@ function main(): void {
   console.log(`deploy:supabase — application des migrations sur le projet distant ${projectRef}…`);
   const push = runCli(["db", "push", remote]);
   if (!push.ok) fail("supabase db push a échoué.");
-  try {
-    assertRemoteTarget(push.output, projectRef);
-  } catch (error) {
-    fail((error as Error).message);
-  }
+  checkTarget(push, projectRef);
 
   console.log("deploy:supabase — contrôle des migrations présentes sur le projet distant…");
   const list = runCli(["migration", "list", remote]);
   if (!list.ok) fail("supabase migration list a échoué.");
-  try {
-    assertRemoteTarget(list.output, projectRef);
-  } catch (error) {
-    fail((error as Error).message);
-  }
+  checkTarget(list, projectRef);
   const missing = missingRemoteMigrations(listLocalMigrations(path.join(supabaseDir, "migrations")), list.output);
   if (missing.length > 0) fail(`migrations absentes du projet distant : ${missing.join(", ")}.`);
 
@@ -125,11 +138,7 @@ function main(): void {
     console.log(`deploy:supabase — déploiement des Edge Functions sur ${projectRef} : ${functions.join(", ")}…`);
     const deploy = runCli(["functions", "deploy", remote]);
     if (!deploy.ok) fail("supabase functions deploy a échoué.");
-    try {
-      assertRemoteTarget(deploy.output, projectRef);
-    } catch (error) {
-      fail((error as Error).message);
-    }
+    checkTarget(deploy, projectRef);
   }
   console.log(`deploy:supabase — terminé sur le projet distant ${projectRef}.`);
 }
