@@ -2,7 +2,7 @@
 title: 'Story 1.1 : Chaîne de vérification et premier déploiement'
 type: 'chore'
 created: '2026-11-04'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'ebf4d22404ff1fb913c6052147a7a6499439fe7d'
@@ -141,7 +141,7 @@ Le motif témoin n'est reconnu que sous forme d'affectation (`NEXAMIND_CANARY_DO
 - Vérifié en local : `npm test` 19/19 avec Supabase local démarré, `check:secrets` vert (290 fichiers), `build:ci` vert puis en échec avec un fichier piégé non suivi (supprimé ensuite), `--static` vert (23 fichiers), `test:e2e` 1/1, `lint` 0 erreur, `check:env` OK.
 - Restent à faire par l'utilisateur, après accord : `supabase link` (mot de passe saisi dans son terminal), `npm run deploy:supabase`, import du projet Vercel et variables publiques, push sur `main`, branche témoin.
 
-**Critères d'acceptation en attente (actions de l'utilisateur) :** AC4 (push sur `main`, déploiement HTTPS en `fra1`, branche témoin refusée puis supprimée) et AC5 (`supabase link`, puis `npm run deploy:supabase`). La story reste `in-review` jusqu'à leur vérification ; elle passera à `done` ensuite.
+**Critères d'acceptation :** tous validés le 2026-11-04 (AC4 et AC5 confirmés par l'utilisateur), avec la réserve ci-dessous.
 
 **Vérifications distantes (2026-11-04) :**
 - `supabase link` et `npm run deploy:supabase` réalisés par l'utilisateur, avec succès.
@@ -150,3 +150,6 @@ Le motif témoin n'est reconnu que sous forme d'affectation (`NEXAMIND_CANARY_DO
 - Branche `test/check-secrets` (commit `e993f33dcd484e753dcd862b2707621b2e79d727`, seulement le motif témoin, avec une valeur) : statut Vercel `failure`. Le contrôle local la refuse aussi (« motif témoin »). La branche est supprimée en local et à distance.
 - Confirmé par l'utilisateur dans les journaux Vercel : le build de `3229aaf` affiche deux fois `check:secrets` sans secret détecté ; le build de `test/check-secrets` échoue sur `canary-check-secrets.txt:1`, valeur masquée.
 - Région : la Function Region du projet Vercel affichait `iad1` (badge « Overridden »), bien que `vercel.json` définisse `fra1` ; l'utilisateur l'a réglée sur Frankfurt `fra1` dans le tableau de bord. Un nouveau déploiement doit le confirmer.
+- Commit `4be2215b1924315f0b2f1bd21a66889c6b8f5f02` : déploiement réussi ; HTTPS confirmé par l'utilisateur ; Function Region `fra1` dans le tableau de bord, comme dans `vercel.json`.
+
+**Réserve (2026-11-04) :** la page 404 testée n'expose que le point d'entrée (`cpt1`) dans `x-vercel-id`, ce qui ne prouve pas l'exécution en `fra1`. La région d'exécution réelle sera vérifiée avec `x-vercel-id` sur la première route dynamique, au plus tard en story 1.4 (critère ajouté à cette story dans `epics.md`). L'accès public de l'URL de démonstration pour le jury est ajouté à la story 7.5.

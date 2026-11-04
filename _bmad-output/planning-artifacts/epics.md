@@ -480,7 +480,11 @@ afin que seules les personnes disposant d'un Compte accèdent à NexaMind AI.
 **Quand** je l'ouvre connecté
 **Alors** la page « Page introuvable » (E9) s'affiche avec « Retour au Tableau de bord » et « Ouvrir l'Assistant », focus sur le titre
 
-**Tâches techniques :** page `/connexion` (afficher/masquer le mot de passe) ; Server Actions connexion/déconnexion ; protection des routes dans `src/proxy.ts` (groupes `(auth)` et `(app)`) ; redirection sûre vers la page demandée ; `not-found.tsx` (E9) ; tests Playwright (connexion, erreur, redirection, déconnexion, persistance) et test d'appel direct sans session.
+**Étant donné** le déploiement Vercel de la story et une route dynamique rendue côté serveur, par exemple le Tableau de bord d'un Collaborateur connecté (réserve levée de la story 1.1)
+**Quand** je la charge sur l'URL de production et lis l'en-tête de réponse `x-vercel-id`
+**Alors** il contient une région de fonction `fra1` (forme `<point d'entrée>::fra1::…`), ce qui prouve l'exécution à Francfort, et le résultat est consigné dans `docs/environnements.md` ; sinon, la région est corrigée avant de clore la story
+
+**Tâches techniques :** page `/connexion` (afficher/masquer le mot de passe) ; Server Actions connexion/déconnexion ; protection des routes dans `src/proxy.ts` (groupes `(auth)` et `(app)`) ; redirection sûre vers la page demandée ; `not-found.tsx` (E9) ; tests Playwright (connexion, erreur, redirection, déconnexion, persistance) et test d'appel direct sans session ; contrôle de `x-vercel-id` sur une route dynamique en production (région `fra1`).
 **Dépendances :** 1.3.
 **Références :** CH-1, CH-18 · FR-2, FR-22 (base) · NFR-1, NFR-4, NFR-7 · SM-6 · AR-2, AR-3 · AD-1, AD-2 · UX-DR27, UX-DR29 · **Priorité :** P0
 
@@ -1771,7 +1775,11 @@ afin que rien ne m'empêche de présenter le 30/11.
 **Quand** je l'enregistre
 **Alors** elle montre UJ-1 à UJ-3 sur l'environnement final en moins de 5 minutes
 
-**Tâches techniques :** `docs/demo/checklist.md` ; répétitions ; enregistrement ; mise à jour du statut des documents.
+**Étant donné** l'URL de démonstration transmise au jury
+**Quand** je l'ouvre dans une fenêtre privée, sans session Vercel ni Supabase, depuis un autre appareil ou réseau, 48 h avant le rendu et la veille
+**Alors** la page de connexion de NexaMind AI s'affiche directement, en HTTPS, sans redirection vers une authentification Vercel (Deployment Protection désactivée pour le domaine de production) ; les deux Comptes de démo s'y connectent ; le résultat est consigné dans `docs/demo/checklist.md`
+
+**Tâches techniques :** `docs/demo/checklist.md` ; répétitions ; enregistrement ; vérification de l'accès public de l'URL de démonstration (Deployment Protection du domaine de production) ; mise à jour du statut des documents.
 **Dépendances :** 7.3 (7.4 si livrée).
 **Références :** CH-19 · NFR-3 · SM-3 · AR-22 · AD-21 · **Priorité :** P0
 

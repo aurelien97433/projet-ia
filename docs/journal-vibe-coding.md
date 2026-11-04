@@ -60,3 +60,7 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - L'IA n'a pas accès aux journaux de build ni aux URL protégées de Vercel : la région `fra1` et les lignes `check:secrets` sont vérifiées par l'utilisateur dans le tableau de bord.
 - Confirmé par l'utilisateur : deux passages de `check:secrets` sans secret dans le build de `main` ; échec du build témoin sur le fichier témoin, valeur masquée.
 - Constat : malgré `"regions": ["fra1"]` dans `vercel.json`, Vercel affichait la région `iad1` (badge « Overridden »). La région a été réglée sur `fra1` dans le tableau de bord ; à confirmer sur un nouveau déploiement.
+- HTTPS confirmé ; Function Region `fra1` dans le tableau de bord (badge « Overridden », cohérent avec `vercel.json`).
+- **Réserve :** la région d'exécution réelle n'est pas encore prouvée (la page 404 n'expose que le point d'entrée `cpt1`). Elle sera contrôlée avec `x-vercel-id` sur la première route dynamique, au plus tard en story 1.4.
+
+**Statut final.** Story 1.1 passée à `done` le 2026-11-04, avec cette réserve.
