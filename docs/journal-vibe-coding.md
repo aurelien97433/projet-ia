@@ -156,3 +156,7 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Implémentation : de 13:42 à 14:30.
 - Revue et corrections : de 14:30 à 14:40.
 - Total : environ 1 h, hors actions de l'utilisateur (migration distante, réglage du mot de passe).
+
+**Vérification sur Vercel (utilisateur).** Migration distante appliquée, longueur minimale de 8 réglée. Confirmés : création du Compte et arrivée sur le Tableau de bord, ligne `profiles`, e-mail déjà utilisé, e-mail invalide, mot de passe trop court et trop long, envoi unique, saisie conservée.
+
+**Statut final.** Story 1.3 passée à `done` le 2026-11-04 à 14:49.

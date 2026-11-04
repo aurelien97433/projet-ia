@@ -2,7 +2,7 @@
 title: 'Story 1.3 : Créer un Compte'
 type: 'feature'
 created: '2026-11-04'
-status: 'in-review'
+status: 'done'
 baseline_commit: '29461be7ade70827042b17e06ca8f1571e181899'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -134,3 +134,4 @@ Les tests de bout en bout démarrent leur propre serveur sur un autre port, avec
 - Tests après revue : `npm test` 58/58 (dont les privilèges SQL réels via `supabase db query`), `npm run test:e2e` 41 réussis (5 sautés), `lint` 0, `tsc` 0, `build:ci` vert.
 - Arbitrages de l'utilisateur appliqués : limite de 72 octets UTF-8 (limite de Supabase Auth) avec « Le mot de passe doit contenir au plus 72 caractères. » ; `weak_password` pour un motif autre que la seule longueur → « Ce mot de passe n'est pas accepté. Choisissez-en un autre. ». Migration distante appliquée et longueur minimale de 8 réglée par l'utilisateur.
 - Tests : `npm test` 62/62, `npm run test:e2e` 43 réussis (5 sautés), `lint` 0, `tsc` 0, `build:ci` vert.
+- Vérification sur Vercel confirmée par l'utilisateur le 2026-11-04 : création du Compte et arrivée sur le Tableau de bord, ligne `profiles`, e-mail déjà utilisé, e-mail invalide, mot de passe trop court et trop long, envoi unique, saisie conservée. Story passée à `done`.
