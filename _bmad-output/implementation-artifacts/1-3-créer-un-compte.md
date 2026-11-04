@@ -2,7 +2,7 @@
 title: 'Story 1.3 : Créer un Compte'
 type: 'feature'
 created: '2026-11-04'
-status: 'done'
+status: 'in-review'
 baseline_commit: '29461be7ade70827042b17e06ca8f1571e181899'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -132,6 +132,13 @@ Les tests de bout en bout démarrent leur propre serveur sur un autre port, avec
 - Restent à faire par l'utilisateur : migration distante (`npm run deploy:supabase`) et longueur minimale de 8 caractères sur le projet distant.
 - Après revue : défaut global `revoke execute on functions from public` (rôle `postgres`), sans lequel toute nouvelle fonction restait exécutable par `anon` ; `profiles` lisible seulement sur `id`, `display_name`, `created_at` (un `select("*")` ou `select("email")` par un Collaborateur est refusé : sélectionner les colonnes explicitement) ; reprise des Comptes existants ; `coalesce` sur l'e-mail ; paquet `server-only` déclaré.
 - Tests après revue : `npm test` 58/58 (dont les privilèges SQL réels via `supabase db query`), `npm run test:e2e` 41 réussis (5 sautés), `lint` 0, `tsc` 0, `build:ci` vert.
-- Arbitrages de l'utilisateur appliqués : limite de 72 octets UTF-8 (limite de Supabase Auth) avec « Le mot de passe doit contenir au plus 72 caractères. » ; `weak_password` pour un motif autre que la seule longueur → « Ce mot de passe n'est pas accepté. Choisissez-en un autre. ». Migration distante appliquée et longueur minimale de 8 réglée par l'utilisateur.
+- Arbitrages de l'utilisateur appliqués : limite de 72 octets UTF-8 (limite de Supabase Auth) avec « Le mot de passe doit contenir au plus 72 caractères. » ; `weak_password` pour un motif autre que la seule longueur → « Ce mot de passe n'est pas accepté. Choisissez-en un autre. ». Longueur minimale de 8 réglée par l'utilisateur. ~~Migration distante appliquée~~ : **inexact**, voir la correction ci-dessous.
 - Tests : `npm test` 62/62, `npm run test:e2e` 43 réussis (5 sautés), `lint` 0, `tsc` 0, `build:ci` vert.
-- Vérification sur Vercel confirmée par l'utilisateur le 2026-11-04 : création du Compte et arrivée sur le Tableau de bord, ligne `profiles`, e-mail déjà utilisé, e-mail invalide, mot de passe trop court et trop long, envoi unique, saisie conservée. Story passée à `done`.
+- ~~Vérification sur Vercel confirmée par l'utilisateur le 2026-11-04 (…). Story passée à `done`.~~ **Annulé** : cette vérification reposait sur une migration distante qui n'avait pas été appliquée.
+
+**Correction du 2026-11-04 — anomalie `deploy:supabase` (relevée par l'utilisateur) :**
+- `npm run deploy:supabase` avait visé la stack **locale** (127.0.0.1:54322) : la CLI 3.0.0 cible la base locale par défaut et affichait « pass --remote for projet-ia ». La migration `profiles` n'avait donc **pas** été appliquée au projet distant.
+- L'utilisateur l'a appliquée lui-même avec `supabase db push --remote` ; la table `profiles` existe maintenant sur le projet distant.
+- Script corrigé : `--remote=<référence liée>` explicite pour `db push` et `functions deploy`, échec sans projet lié, contrôle de la cible dans la sortie JSON de la CLI (refus de `"kind":"local"` ou d'un autre projet), puis contrôle par `migration list --remote` que chaque migration locale est présente sur le projet distant. Tests : `tests/unit/deploy-supabase.test.ts`.
+- Edge Functions futures : `functions deploy` reçoit la même référence explicite et le même contrôle de cible ; la forme JSON de sa sortie sera vérifiée au premier déploiement d'une fonction (story 2.3).
+- Story repassée en `review` jusqu'à la nouvelle vérification de l'utilisateur : `npm run deploy:supabase` corrigé sur le projet distant, puis vérifications Vercel.

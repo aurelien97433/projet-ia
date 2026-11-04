@@ -141,15 +141,17 @@ Le motif témoin n'est reconnu que sous forme d'affectation (`NEXAMIND_CANARY_DO
 - Vérifié en local : `npm test` 19/19 avec Supabase local démarré, `check:secrets` vert (290 fichiers), `build:ci` vert puis en échec avec un fichier piégé non suivi (supprimé ensuite), `--static` vert (23 fichiers), `test:e2e` 1/1, `lint` 0 erreur, `check:env` OK.
 - Restent à faire par l'utilisateur, après accord : `supabase link` (mot de passe saisi dans son terminal), `npm run deploy:supabase`, import du projet Vercel et variables publiques, push sur `main`, branche témoin.
 
-**Critères d'acceptation :** tous validés le 2026-11-04 (AC4 et AC5 confirmés par l'utilisateur), avec la réserve ci-dessous.
+**Critères d'acceptation :** validés le 2026-11-04 (AC4 confirmé par l'utilisateur), avec la réserve ci-dessous. **Correction du 2026-11-04 (après la story 1.3) :** AC5 n'était pas réellement satisfait, voir la correction ci-dessous.
 
 **Vérifications distantes (2026-11-04) :**
-- `supabase link` et `npm run deploy:supabase` réalisés par l'utilisateur, avec succès.
+- `supabase link` réalisé par l'utilisateur, avec succès. ~~`npm run deploy:supabase` réalisé avec succès~~ : **inexact**. La CLI 3.0.0 vise la base **locale** par défaut (`db push` sans `--remote`) ; le script a donc réussi sur la stack locale (127.0.0.1:54322), en affichant « pass --remote for projet-ia », sans rien appliquer au projet distant. Sans migration à ce stade, aucun dégât, mais le critère « réussit sur le projet lié » n'était pas prouvé.
 - Commit `3229aaf46034377d396ba1039b3a1d21339aef70` poussé sur `main` : statut Vercel `success` (« Deployment has completed »).
 - Les URL Vercel du projet sont protégées par l'authentification Vercel, donc la région et les journaux de build restent à confirmer par l'utilisateur.
 - Branche `test/check-secrets` (commit `e993f33dcd484e753dcd862b2707621b2e79d727`, seulement le motif témoin, avec une valeur) : statut Vercel `failure`. Le contrôle local la refuse aussi (« motif témoin »). La branche est supprimée en local et à distance.
 - Confirmé par l'utilisateur dans les journaux Vercel : le build de `3229aaf` affiche deux fois `check:secrets` sans secret détecté ; le build de `test/check-secrets` échoue sur `canary-check-secrets.txt:1`, valeur masquée.
 - Région : la Function Region du projet Vercel affichait `iad1` (badge « Overridden »), bien que `vercel.json` définisse `fra1` ; l'utilisateur l'a réglée sur Frankfurt `fra1` dans le tableau de bord. Un nouveau déploiement doit le confirmer.
 - Commit `4be2215b1924315f0b2f1bd21a66889c6b8f5f02` : déploiement réussi ; HTTPS confirmé par l'utilisateur ; Function Region `fra1` dans le tableau de bord, comme dans `vercel.json`.
+
+**Correction de `deploy:supabase` (2026-11-04, anomalie relevée par l'utilisateur pendant la story 1.3) :** le script passe désormais `--remote=<référence du projet lié>` à `db push` et à `functions deploy`, échoue sans projet lié, vérifie dans la sortie JSON de la CLI que la cible est ce projet distant (et non `"kind":"local"`), puis contrôle avec `migration list --remote` que chaque migration locale existe sur le projet distant. Tests unitaires dans `tests/unit/deploy-supabase.test.ts`, dont la sortie locale réelle de la CLI. AC5 sera considéré comme satisfait après la première exécution réussie du script corrigé par l'utilisateur (vérification de la story 1.3).
 
 **Réserve (2026-11-04) :** la page 404 testée n'expose que le point d'entrée (`cpt1`) dans `x-vercel-id`, ce qui ne prouve pas l'exécution en `fra1`. La région d'exécution réelle sera vérifiée avec `x-vercel-id` sur la première route dynamique, au plus tard en story 1.4 (critère ajouté à cette story dans `epics.md`). L'accès public de l'URL de démonstration pour le jury est ajouté à la story 7.5.

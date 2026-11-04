@@ -157,6 +157,17 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Revue et corrections : de 14:30 à 14:40.
 - Total : environ 1 h, hors actions de l'utilisateur (migration distante, réglage du mot de passe).
 
-**Vérification sur Vercel (utilisateur).** Migration distante appliquée, longueur minimale de 8 réglée. Confirmés : création du Compte et arrivée sur le Tableau de bord, ligne `profiles`, e-mail déjà utilisé, e-mail invalide, mot de passe trop court et trop long, envoi unique, saisie conservée.
+**Vérification sur Vercel (utilisateur).** Longueur minimale de 8 réglée. Confirmés : création du Compte et arrivée sur le Tableau de bord, ligne `profiles`, e-mail déjà utilisé, e-mail invalide, mot de passe trop court et trop long, envoi unique, saisie conservée.
 
-**Statut final.** Story 1.3 passée à `done` le 2026-11-04 à 14:49.
+~~**Statut final.** Story 1.3 passée à `done` le 2026-11-04 à 14:49.~~ **Annulé, story repassée en `review`.**
+
+**Anomalie relevée par l'utilisateur : `deploy:supabase` visait la base locale.**
+- **Ce qui s'est passé.** La CLI Supabase 3.0.0 vise la base **locale** par défaut. Le script de la story 1.1 appelait `supabase db push` sans `--remote` : il a « réussi » sur la stack locale, en affichant « pass --remote for projet-ia », sans rien appliquer au projet distant.
+  - Ni l'IA ni la revue de la story 1.1 ne l'ont vu, et la story 1.1 notait à tort un succès distant.
+  - L'utilisateur a repéré le message et appliqué la migration lui-même avec `supabase db push --remote`.
+- **Correction.**
+  - Le script passe désormais `--remote=<référence liée>` à `db push` et à `functions deploy`, et échoue sans projet lié.
+  - Il lit la cible réelle dans la sortie JSON de la CLI, qu'elle produit quand sa sortie n'est pas un terminal, et refuse une cible locale ou un autre projet.
+  - Il vérifie ensuite, avec `migration list --remote`, que chaque migration locale est présente sur le projet distant.
+  - Tests unitaires, dont un sur la sortie locale réelle de la CLI.
+- **Leçon pour la démarche.** Un script de déploiement doit prouver sa cible, pas seulement réussir. Un « succès » sans preuve de la cible ne vaut pas validation d'un critère distant.
