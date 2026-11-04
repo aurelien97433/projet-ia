@@ -53,3 +53,10 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Planification et rédaction de la story : environ 45 min.
 - Total : environ 1 h 45, hors actions de l'utilisateur.
 - Les étapes qui demandent l'utilisateur (`supabase link`, configuration Vercel, pushes) restent à mesurer.
+
+**Mise en ligne (2026-11-04, après accord).**
+- Commit `3229aaf` poussé sur `main` : déploiement Vercel réussi.
+- Branche témoin `test/check-secrets` : build Vercel en échec comme attendu, puis branche supprimée en local et sur GitHub.
+- L'IA n'a pas accès aux journaux de build ni aux URL protégées de Vercel : la région `fra1` et les lignes `check:secrets` sont vérifiées par l'utilisateur dans le tableau de bord.
+- Confirmé par l'utilisateur : deux passages de `check:secrets` sans secret dans le build de `main` ; échec du build témoin sur le fichier témoin, valeur masquée.
+- Constat : malgré `"regions": ["fra1"]` dans `vercel.json`, Vercel affichait la région `iad1` (badge « Overridden »). La région a été réglée sur `fra1` dans le tableau de bord ; à confirmer sur un nouveau déploiement.

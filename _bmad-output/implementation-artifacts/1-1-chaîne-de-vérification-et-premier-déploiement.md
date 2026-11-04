@@ -142,3 +142,11 @@ Le motif témoin n'est reconnu que sous forme d'affectation (`NEXAMIND_CANARY_DO
 - Restent à faire par l'utilisateur, après accord : `supabase link` (mot de passe saisi dans son terminal), `npm run deploy:supabase`, import du projet Vercel et variables publiques, push sur `main`, branche témoin.
 
 **Critères d'acceptation en attente (actions de l'utilisateur) :** AC4 (push sur `main`, déploiement HTTPS en `fra1`, branche témoin refusée puis supprimée) et AC5 (`supabase link`, puis `npm run deploy:supabase`). La story reste `in-review` jusqu'à leur vérification ; elle passera à `done` ensuite.
+
+**Vérifications distantes (2026-11-04) :**
+- `supabase link` et `npm run deploy:supabase` réalisés par l'utilisateur, avec succès.
+- Commit `3229aaf46034377d396ba1039b3a1d21339aef70` poussé sur `main` : statut Vercel `success` (« Deployment has completed »).
+- Les URL Vercel du projet sont protégées par l'authentification Vercel, donc la région et les journaux de build restent à confirmer par l'utilisateur.
+- Branche `test/check-secrets` (commit `e993f33dcd484e753dcd862b2707621b2e79d727`, seulement le motif témoin, avec une valeur) : statut Vercel `failure`. Le contrôle local la refuse aussi (« motif témoin »). La branche est supprimée en local et à distance.
+- Confirmé par l'utilisateur dans les journaux Vercel : le build de `3229aaf` affiche deux fois `check:secrets` sans secret détecté ; le build de `test/check-secrets` échoue sur `canary-check-secrets.txt:1`, valeur masquée.
+- Région : la Function Region du projet Vercel affichait `iad1` (badge « Overridden »), bien que `vercel.json` définisse `fra1` ; l'utilisateur l'a réglée sur Frankfurt `fra1` dans le tableau de bord. Un nouveau déploiement doit le confirmer.
