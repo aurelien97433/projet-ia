@@ -30,5 +30,31 @@ export const texts = {
   },
   common: {
     close: "Fermer",
+    requiredLegend: "* Champ obligatoire",
+  },
+  auth: {
+    emailLabel: "Adresse e-mail",
+    passwordLabel: "Mot de passe",
+    showPassword: "Afficher le mot de passe",
+    hidePassword: "Masquer le mot de passe",
+    signInLink: "Se connecter",
+  },
+  signUp: {
+    pageTitle: "Créer votre Compte",
+    passwordHelp: "8 caractères minimum",
+    submit: "Créer mon Compte",
+    submitting: "Création…",
+    alreadyHaveAccount: "J'ai déjà un Compte",
+    errors: {
+      invalidEmail: "Cette adresse e-mail n'est pas valide.",
+      passwordTooShort: "Le mot de passe doit contenir au moins 8 caractères.",
+      // Textes validés le 2026-11-04 (revue de la story 1.3), absents d'EXPERIENCE.md.
+      passwordTooLong: "Le mot de passe doit contenir au plus 72 caractères.",
+      passwordRejected: "Ce mot de passe n'est pas accepté. Choisissez-en un autre.",
+      emailTaken: "Cette adresse e-mail est déjà utilisée.",
+      // Absent d'EXPERIENCE.md : texte validé le 2026-11-04 (story 1.3, option A).
+      unexpectedTitle: "Le Compte n'a pas pu être créé.",
+      unexpectedText: "Veuillez réessayer dans quelques instants. Votre saisie est conservée.",
+    },
   },
 } as const;

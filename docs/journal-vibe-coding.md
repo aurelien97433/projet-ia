@@ -101,3 +101,58 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 **Revue.** Relecteurs non lancés pour cette story, à la demande de l'utilisateur ; vérification manuelle validée (ordinateur, 375 px, clavier).
 
 **Statut final.** Story 1.2 passée à `done` le 2026-11-04 à 13:23.
+
+## Story 1.3 — Créer un Compte (2026-11-04)
+
+**Objectif.** Un Visiteur crée un Compte avec son e-mail et un mot de passe, sans confirmation par e-mail, et arrive connecté sur le Tableau de bord ; profils et règles d'accès posés au niveau de la base.
+
+**Instructions clés données à l'IA.**
+- Workflow `bmad-build`. Points à vérifier imposés par l'utilisateur :
+  - création sans confirmation par e-mail ;
+  - ligne `profiles` créée par déclencheur ;
+  - rôle `anon` sans accès ;
+  - tests RLS à deux Comptes ;
+  - forme d'erreur unique et textes du catalogue ;
+  - envoi unique du formulaire.
+- Décisions à l'approbation :
+  - texte de l'erreur inattendue (option A) ;
+  - mot de passe jamais renvoyé, journalisé ni placé dans une URL ;
+  - message « e-mail déjà utilisé » de FR-1 testé sur Supabase local ;
+  - `/connexion` et « Non connecté » acceptés jusqu'à la story 1.4.
+- Revue par trois relecteurs demandée pour cette story sensible. Aucun commit ni push sans validation.
+
+**Ce que l'IA a produit.**
+- Base : migration `profiles` avec déclencheur `security definer`, RLS et rôle `anon` sans privilège.
+- Serveur :
+  - forme d'erreur unique (AD-19) ;
+  - schéma `zod` ;
+  - Server Action qui appelle Supabase Auth, avec les erreurs de Supabase traduites en messages du catalogue.
+- Interface : page `/inscription` (E2), avec `FormField`, `SubmitButton` et `ErrorAlert`.
+- Tests :
+  - unitaires ;
+  - d'intégration RLS à deux Comptes sur Supabase local ;
+  - Playwright sur Supabase local, à deux largeurs.
+
+**Corrigé ou refusé, et pourquoi.**
+- `zod` renvoyait un message anglais quand un champ était absent : message du catalogue imposé.
+- Double envoi possible : le verrou du formulaire était libéré avant que le bouton ne quitte l'état « Création… ». Ajout de `isPending`.
+- Un test de double clic comptait à tort deux requêtes : Playwright attend qu'un bouton `aria-disabled` redevienne actif avant de cliquer. Le clic pendant l'attente est désormais forcé.
+- Next.js 16 refuse deux `next dev` dans le même dossier. Le serveur de test reçoit son propre dossier de build (`NEXT_DIST_DIR=.next-e2e`) et vise Supabase local : aucun Compte n'est créé sur le projet de démonstration.
+- **Revue : le défaut le plus grave venait de l'IA elle-même.** Le `REVOKE` par schéma ne retirait pas le droit `EXECUTE` global de `PUBLIC` : toute nouvelle fonction SQL serait restée exécutable par un Visiteur. Défaut reproduit (`anon_exec=true`), corrigé par un défaut global, et couvert par un test qui vérifie le privilège réel.
+- Revue, autres corrections :
+  - l'e-mail des Collaborateurs n'est plus lisible par les autres (lecture limitée à certaines colonnes) ;
+  - tests renforcés : codes `42501`, toutes les correspondances d'erreurs, double clic avec une saisie valide ;
+  - paquet `server-only` déclaré ;
+  - serveur de test jamais réutilisé.
+- Revue : 15 remarques corrigées, 2 arbitrées par l'utilisateur puis appliquées (limite de 72 caractères ; message générique pour un mot de passe refusé pour une autre raison que la longueur), 2 reportées, 6 rejetées après vérification.
+
+**Tests.**
+- `npm test` : 62 réussis, dont la RLS à deux Comptes et les privilèges SQL.
+- `npm run test:e2e` : 43 réussis ; 5 sautés, propres à l'autre largeur.
+- `lint` et `tsc` : 0 erreur.
+- `build:ci` : réussi, aucun secret.
+
+**Durée.**
+- Implémentation : de 13:42 à 14:30.
+- Revue et corrections : de 14:30 à 14:40.
+- Total : environ 1 h, hors actions de l'utilisateur (migration distante, réglage du mot de passe).

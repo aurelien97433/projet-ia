@@ -19,7 +19,7 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 |---|---|
 | `npm run check:env` | Vérifie Docker et la CLI Supabase 3.0.0 |
 | `npm test` | Tests Vitest (unitaires, puis intégration sur Supabase local) |
-| `npm run test:e2e` | Tests Playwright (démarre `npm run dev`). Une fois par poste : `npx playwright install chromium` |
+| `npm run test:e2e` | Tests Playwright sur **Supabase local** (à démarrer avant) : serveur Next.js dédié sur le port 3100, dossier `.next-e2e`, variables publiques locales lues à l'exécution ; aucun accès au projet distant. Une fois par poste : `npx playwright install chromium` |
 | `npm run check:secrets` | Cherche des formats de clés dans le dépôt ; `-- --static` dans `.next/static` |
 | `npm run build:ci` | Contrôle des secrets, `next build`, contrôle du code envoyé au navigateur (commande de build Vercel) |
 | `npm run deploy:supabase` | Migrations (`supabase db push`), puis Edge Functions s'il en existe, sur le projet distant lié |
@@ -34,8 +34,10 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 | `supabase login` | ✔ 2026-11-04 |
 | Confirmation de l'e-mail désactivée (Auth, projet distant) | ✔ 2026-11-04 |
 | Projet OpenAI dédié créé | ✔ 2026-11-04 |
-| `supabase link` au projet distant (mot de passe de la base saisi dans le terminal) | à faire (story 1.1) |
-| Projet Vercel importé, variables publiques définies, premier déploiement | à faire (story 1.1, après accord pour le push) |
+| `supabase link` au projet distant (mot de passe de la base saisi dans le terminal) | ✔ 2026-11-04 |
+| Projet Vercel importé, variables publiques définies, premier déploiement | ✔ 2026-11-04 (région d'exécution `fra1` à prouver en story 1.4) |
+| Longueur minimale du mot de passe : 8 caractères (Auth, projet distant) | à faire par l'utilisateur (story 1.3) |
+| Migration `profiles` appliquée au projet distant (`npm run deploy:supabase`) | à faire par l'utilisateur (story 1.3), avant le déploiement Vercel |
 | Crédit prépayé OpenAI de 10 $, sans recharge automatique, alerte à 5 $ | à confirmer avant la story 2.1 |
 | Accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small` | à confirmer avant la story 2.1 |
 | Clé OpenAI posée avec `supabase secrets set` | à faire avant la story 2.1 |

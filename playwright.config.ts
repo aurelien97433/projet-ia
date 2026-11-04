@@ -1,6 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
+import { localSupabase } from "./tests/support/local-supabase";
 
-const PORT = 3000;
+// Les tests de bout en bout tournent sur Supabase local (npx supabase start), jamais sur le projet
+// distant de démonstration : un serveur Next.js dédié, sur un autre port, reçoit les variables
+// publiques locales, lues à l'exécution (elles priment sur .env.local).
+const PORT = 3100;
+const supabase = localSupabase();
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -11,10 +16,15 @@ export default defineConfig({
     { name: "mobile-375", use: { ...devices["Desktop Chrome"], viewport: { width: 375, height: 812 } } },
   ],
   webServer: {
-    command: "npm run dev",
+    command: `npx next dev -p ${PORT}`,
     url: `http://localhost:${PORT}`,
-    // En CI, toujours démarrer un serveur propre plutôt que réutiliser ce qui écoute déjà sur le port.
-    reuseExistingServer: !process.env.CI,
+    env: {
+      NEXT_DIST_DIR: ".next-e2e",
+      NEXT_PUBLIC_SUPABASE_URL: supabase.url,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: supabase.publishableKey,
+    },
+    // Jamais de réutilisation : un serveur déjà présent sur ce port pourrait viser le projet distant.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

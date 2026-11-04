@@ -12,3 +12,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-1-chaîne-de-vérification-et-premier-déploiement.md`
   summary: Aligner `major_version` de `supabase/config.toml` (17) sur la version Postgres du projet distant.
   evidence: Non vérifié ; `supabase link` affiche un avertissement en cas d'écart.
+- source_spec: `_bmad-output/implementation-artifacts/1-3-créer-un-compte.md`
+  summary: Après une réponse perdue alors que le Compte a été créé, le réessai affiche « e-mail déjà utilisé » ; proposer plutôt de se connecter.
+  evidence: Cas rare (coupure réseau après la création côté serveur) ; à reprendre avec la page de connexion (story 1.4) ou en finition.
+- source_spec: `_bmad-output/implementation-artifacts/1-3-créer-un-compte.md`
+  summary: Imposer l'ordre « migration distante puis déploiement Vercel » (vérification au build ou liste de contrôle bloquante).
+  evidence: Sans migration distante, un Compte créé sur Vercel n'aurait pas de profil ; aujourd'hui l'ordre repose sur la définition de « terminé » et sur l'utilisateur.

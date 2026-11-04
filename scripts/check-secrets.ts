@@ -33,7 +33,7 @@ const ASSIGNMENT = new RegExp(
 const CANARY = /(?<![A-Za-z0-9])NEXAMIND_CANARY_DO_NOT_DEPLOY["']?[ \t]*[=:][ \t]*["']?[A-Za-z0-9_-]/;
 
 // Dossiers jamais parcourus en mode disque (générés, dépendances, secrets locaux ignorés par git).
-const EXCLUDED_DIRS = new Set(["node_modules", ".next", ".git", ".vercel", "test-results", "playwright-report"]);
+const EXCLUDED_DIRS = new Set(["node_modules", ".next", ".next-e2e", ".git", ".vercel", "test-results", "playwright-report"]);
 // Liste d'exclusions explicite : aucun fichier suivi n'est exclu à ce jour.
 const EXCLUDED_FILES = new Set<string>([]);
 const MAX_BYTES = 10 * 1024 * 1024;
