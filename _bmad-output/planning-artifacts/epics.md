@@ -123,7 +123,7 @@ Numérotées à partir de l'énoncé (`input-challenge.md`).
 | AR-19 | Résumé stocké par version du texte ; `store_summary` conditionnel, sans verrou | AD-18 |
 | AR-20 | Forme d'erreur unique `{ error: { code, message, retryable, resetAt? } }` et liste de codes | AD-19 |
 | AR-21 | Secrets : `OPENAI_API_KEY` et `service_role` uniquement côté Supabase ; `.env.example` ; contrôle automatisé dès la story 1.1 (motifs de clés dans le dépôt et le code envoyé au navigateur), rejoué à chaque déploiement, tests négatifs sans faux secret réaliste poussé ; interception réseau dès la story 5.2b | AD-20 |
-| AR-22 | Supabase local pour le développement, un seul projet distant en Europe (démo) nettoyé par les scripts ; région Vercel alignée (`cdg1`/`fra1`) ; `deploy:supabase` (migrations + Edge Functions) ; Vercel Hobby + Supabase Free ; `scripts/seed-demo.ts` idempotent qui déclenche `process-document` ; 2 Comptes de démo et plusieurs Comptes de mesure ; vérifications 48 h et veille ; vidéo de secours | AD-21 |
+| AR-22 | Supabase local pour le développement, un seul projet distant en Europe (démo) nettoyé par les scripts ; région Vercel alignée (`fra1`, Supabase en `eu-central-1`) ; `deploy:supabase` (migrations + Edge Functions) ; Vercel Hobby + Supabase Free ; `scripts/seed-demo.ts` idempotent qui déclenche `process-document` ; 2 Comptes de démo et plusieurs Comptes de mesure ; vérifications 48 h et veille ; vidéo de secours | AD-21 |
 | AR-23 | Tests : Vitest (unitaires, intégration RLS sur Supabase local), Playwright + axe (UJ-1..3 à 1 280 et 375 px), test de charge d'un .txt/.md proche de 1 Mo, test du flux sur Vercel Hobby, script de mesure SM | §6 |
 | AR-24 | Conventions : correspondance Glossaire → code, nommage, `zod` dans `src/lib/schemas`, journalisation JSON sans secret, `formatFr` | §6 |
 
@@ -272,25 +272,25 @@ Niveaux : **CORE** = nécessaire aux parcours P0, à la sécurité, à l'accessi
 
 | Epic | Titre | Priorité | Dépend de | Stories | Fenêtre indicative |
 |---|---|---|---|---|---|
-| E1 | Accéder à NexaMind AI en toute sécurité | P0 | — | 1.1 à 1.4 (1.5 reportée après E4) | 03/11 → 09/11 (avec E2) |
-| E2 | Ajouter des Documents et suivre leur traitement | P0 | E1 | 2.1 à 2.5, 2.6a, 2.6b, 2.8 ; 2.7 en début de fenêtre suivante ; 2.9 reportée après E4 | 03/11 → 10/11 (avec E1) |
-| E3 | Retrouver, consulter et gérer les Documents | P0 | E1, E2 (+ résultat du test de charge de 1 Mo) | 3.1 à 3.6 | 10/11 → 14/11 (avec E4) |
-| E4 | Rechercher par le sens | P0 | E2, E3 | 4.1a, 4.1b, 4.2, puis 5.0 et 5.1 (avancées), 1.5 et 2.9 (FINITION reportées) | 10/11 → 14/11 (avec E3) |
-| E5 | Interroger l'Assistant et vérifier ses Sources — **chemin critique** | P0 | E2, E3, E4 | 5.0 et 5.1 (réalisées dans la fenêtre E3 + E4 si possible), 5.2a, 5.2b, 5.3 à 5.12 | 15/11 → 22/11 (avec E6) |
-| E6 | Obtenir le Résumé d'un Document | P0 | E2, E3, E5 | 6.1 à 6.2 | 15/11 → 22/11 (avec E5) |
-| E7 | Démonstration prête et mesurée | P0 | E1 à E6 | 7.1a (rédaction, en parallèle à partir du 10/11), 7.1b, 7.2 à 7.6 | 23/11 → 27/11 |
+| E1 | Accéder à NexaMind AI en toute sécurité | P0 | — | 1.1 à 1.4 (1.5 reportée après E4) | 04/11 → 10/11 (avec E2) |
+| E2 | Ajouter des Documents et suivre leur traitement | P0 | E1 | 2.1 à 2.5, 2.6a, 2.6b, 2.8 ; 2.7 en début de fenêtre suivante ; 2.9 reportée après E4 | 04/11 → 10/11 (avec E1) |
+| E3 | Retrouver, consulter et gérer les Documents | P0 | E1, E2 (+ résultat du test de charge de 1 Mo) | 3.1 à 3.6 | 11/11 → 13/11 (avec E4) |
+| E4 | Rechercher par le sens | P0 | E2, E3 | 4.1a, 4.1b, 4.2, puis 5.0 et 5.1 (avancées), 1.5 et 2.9 (FINITION reportées) | 11/11 → 13/11 (avec E3) |
+| E5 | Interroger l'Assistant et vérifier ses Sources — **chemin critique** | P0 | E2, E3, E4 | 5.0 et 5.1 (réalisées dans la fenêtre E3 + E4 si possible), 5.2a, 5.2b, 5.3 à 5.12 | 16/11 → 20/11 (avec E6) |
+| E6 | Obtenir le Résumé d'un Document | P0 | E2, E3, E5 | 6.1 à 6.2 | 16/11 → 20/11 (avec E5) |
+| E7 | Démonstration prête et mesurée | P0 | E1 à E6 | 7.1a (rédaction, en parallèle à partir du 11/11), 7.1b, 7.2 à 7.6 | 23/11 → 27/11 |
 | E8 | Modifier ses Documents et nettoyer son Historique | P1 | E7 validé | 8.1 à 8.3 | **non livré, sauf avance réelle** (voir règle 8) |
 | E9 | Importer des PDF et télécharger les originaux | P2 | E7 validé | 9.1 à 9.2 | **non livré, sauf avance réelle** (voir règle 8) |
 
-Marge et répétitions : du 28/11 au 30/11.
+Jours ouvrés uniquement (6 h par jour, du lundi au vendredi). Aucune marge ouvrée après le 27/11 : le week-end des 28 et 29/11 précède le rendu du lundi 30/11.
 
 ### Règles transverses
 
 1. **Tests continus.** Toute story qui crée une table y ajoute ses tests RLS à deux Comptes (Vitest + Supabase local) ; une story n'est terminée que si `npm test` passe. Le contrôle des secrets (AR-21) est automatisé dès la story 1.1 et rejoué à chaque déploiement Vercel (étape de build) ; E7 ne fait que le contrôle final.
 2. **Prérequis explicites.** Ils sont réalisés par toi, hors stories, et cochés dans `docs/environnements.md` (sans aucune valeur secrète) :
-   - **avant la fin de 1.1 :** Docker (validé le 2026-11-03) ; compte Vercel relié au dépôt GitHub ; région du projet Supabase distant vérifiée dans son tableau de bord (Europe) ; connexion de la CLI Supabase au projet distant (`supabase login`, `supabase link`) ;
-   - **avant 1.3 :** confirmation de l'e-mail désactivée dans les réglages Auth du projet distant ;
-   - **pendant E1, avant 2.1 :** projet OpenAI dédié créé, crédit prépayé de 10 $ sans recharge automatique, alerte à 5 $, accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small`. Tu crées la clé et la poses toi-même avec `supabase secrets set` ; **aucune clé n'apparaît dans un document, un fichier suivi ou une conversation.**
+   - **avant la fin de 1.1 :** Docker (validé le 2026-11-03) ✔ ; compte Vercel relié au dépôt GitHub ✔ (2026-11-04) ; région du projet Supabase distant : `eu-central-1`, Francfort ✔ (2026-11-04) ; `supabase login` ✔ (2026-11-04) ; `supabase link` au projet distant, réalisé pendant 1.1 (le mot de passe de la base est saisi par toi, jamais dans la conversation) ;
+   - **avant 1.3 :** confirmation de l'e-mail désactivée dans les réglages Auth du projet distant ✔ (2026-11-04) ;
+   - **pendant E1, avant 2.1 :** projet OpenAI dédié créé ✔ (2026-11-04) ; restent à confirmer : crédit prépayé de 10 $ sans recharge automatique, alerte à 5 $, accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small`. Tu crées la clé et la poses toi-même avec `supabase secrets set` ; **aucune clé n'apparaît dans un document, un fichier suivi ou une conversation.**
 3. **Limite de taille et point de contrôle.** Les .txt, les .md et le texte d'une Note sont limités à **1 Mo, soit 1 000 000 octets** en UTF-8 (décision du 2026-11-03 ; même définition dans tous les contrôles, messages et tests). La story 2.7 valide cette limite par un test de charge sur le projet distant, dont elle supprime les données ; en cas d'échec, une proposition t'est soumise avant E3, sans être appliquée. La limite des PDF n'est arbitrée qu'au lancement de E9.
 4. **Version de démo protégée.** E8 et E9 ne commencent qu'après validation de E7, sur une branche, et ne sont fusionnés que si UJ-1 à UJ-3 restent verts.
 5. **Stories FINITION.** 1.5, 2.9, 3.6, 5.12 et 7.4 portent les exigences UX classées FINITION ; elles peuvent glisser ou être abandonnées sans casser le P0 (écart assumé, consigné dans EXPERIENCE.md). **1.5 et 2.9 sont planifiées après E4** (leurs dépendances, 1.2 et 2.6a, sont alors livrées depuis longtemps).
@@ -302,21 +302,28 @@ Marge et répétitions : du 28/11 au 30/11.
 
 ### Calendrier : appréciation
 
-Calendrier mis à jour après le contrôle de préparation du 2026-11-03 (03/11 est un mardi ; les fenêtres comprennent les week-ends) :
+**Disponibilité (confirmée le 2026-11-04) :** 6 h par jour, du lundi au vendredi. Du mercredi 04/11 au vendredi 27/11, cela fait **18 jours ouvrés, soit 108 h** (17 jours et 102 h si le 11/11, férié, n'est pas travaillé — à confirmer). Le rendu du lundi 30/11 suit un week-end.
 
-| Fenêtre | Stories prévues | Charge |
+Calendrier recalculé en jours ouvrés, sans changer l'ordre des stories ni le point d'arrêt :
+
+| Fenêtre (jours ouvrés) | Stories prévues | Charge |
 |---|---|---|
-| 03/11 → 09/11 : E1 + E2 | 1.1 à 1.4, 2.1 à 2.5, 2.6a, 2.6b, 2.8 (12 P0) ; prérequis OpenAI réalisé par toi en parallèle | ≈ 1,7 par jour : **tendu** |
-| 10/11 → 14/11 : E3 + E4 | 2.7 (test de charge, en premier), 3.1 à 3.5, 4.1a, 4.1b, 4.2 (9 P0 exigées au point d'arrêt) ; puis 5.0 et 5.1 si possible ; FINITION 1.5, 2.9, 3.6 ; début de la rédaction 7.1a en parallèle | 9 à 11 P0 en 5 jours : **très tendu** ; **point d'arrêt le 14/11 au soir** (règle 8) |
-| 15/11 → 22/11 : E5 + E6 (**chemin critique**) | 5.0 et 5.1 si non faites, 5.2a, 5.2b, 5.3 à 5.11, 6.1, 6.2 (13 à 15 P0) ; 5.12 FINITION ; fin de 7.1a | ≈ 1,6 à 1,9 par jour : sans marge |
-| 23/11 → 27/11 : E7 | 7.1b, 7.2, 7.3, 7.5, 7.6 (5 P0) ; 7.4 FINITION | 5 en 5 jours |
-| 28/11 → 30/11 | marge, répétitions, vérifications 48 h avant et la veille | — |
+| 04/11 → 10/11 : E1 + E2 (5 j) | 1.1 à 1.4, 2.1 à 2.5, 2.6a, 2.6b, 2.8 (12 P0) ; prérequis OpenAI restants en parallèle | ≈ 2,4 par jour (≈ 2,5 h par story) : **très tendu** |
+| 11/11 → 13/11 : E3 + E4 (3 j, 2 si le 11/11 est chômé) | 2.7 (test de charge, en premier), 3.1 à 3.5, 4.1a, 4.1b, 4.2 (9 P0 exigées au point d'arrêt) ; 5.0 et 5.1 si possible ; début de 7.1a | 3 à 4,5 par jour : **irréaliste** ; **point d'arrêt le 14/11** (samedi : bilan sur le travail du vendredi 13/11 au soir, règle 8) |
+| 16/11 → 20/11 : E5 + E6 (5 j, **chemin critique**) | 5.0 et 5.1 si non faites, 5.2a, 5.2b, 5.3 à 5.11, 6.1, 6.2 (13 à 15 P0) ; fin de 7.1a | ≈ 2,6 à 3 par jour : **très tendu** |
+| 23/11 → 27/11 : E7 (5 j) | 7.1b, 7.2, 7.3, 7.5, 7.6 (5 P0) | 1 par jour : seule fenêtre avec de la marge, qui absorbe le retard des fenêtres précédentes |
+| 28/11 → 30/11 | week-end, puis rendu le lundi ; répétition générale le vendredi 27/11 (7.5) ; vérifications « 48 h avant » (samedi 28/11) et « la veille » (dimanche 29/11), **30 min chacune**, en plus de la disponibilité ouvrée (décision du 2026-11-04) | 2 × 30 min |
 
-**Volume.** 52 stories au total : 42 P0, 5 FINITION, 3 P1 (E8), 2 P2 (E9). Les 42 P0 sont à réaliser entre le 03/11 et le 27/11, soit environ **1,7 story P0 par jour, 7 jours sur 7**. Les scissions (2.6, 4.1, 5.2, 7.1) n'ajoutent presque pas de travail : elles découpent en sessions plus sûres. Le travail réellement ajouté est l'essai de flux 5.0 (court) et le dossier de démarche 7.6.
+**Volume.** 52 stories au total : 42 P0, 5 FINITION, 3 P1 (E8), 2 P2 (E9). Les 42 P0 tiennent en 108 h seulement à **≈ 2,3 stories P0 par jour ouvré, soit ≈ 2 h 35 par story** en moyenne, rédaction 7.1a comprise. Les scissions (2.6, 4.1, 5.2, 7.1) n'ajoutent presque pas de travail. Les stories FINITION et E8/E9 ne sont pas comptées dans ce volume : les couper ne libère donc **aucune** heure pour le P0.
 
-**Disponibilité.** *À confirmer par toi* (non renseignée le 2026-11-03). Ce rythme suppose une disponibilité quasi complète tous les jours. Avec une disponibilité moindre, le point d'arrêt du 14/11 se déclenchera probablement : les FINITION seront coupées et E8/E9 non livrés, sans toucher au P0.
+**Appréciation (2026-11-04) : le calendrier P0 n'est pas tenable en l'état avec 6 h par jour ouvré.** Le point d'arrêt du 14/11 se déclenchera presque certainement, et ses conséquences prévues (couper les FINITION, acter E8/E9 non livrés) ne suffisent pas à rattraper le P0. Un arbitrage est nécessaire avant la fin de la fenêtre E1 + E2 ; il relève de `bmad-correct-course` car il touche le périmètre ou le calendrier.
 
-Appréciation : le calendrier est **réaliste seulement à plein temps**, et tendu de bout en bout. La semaine 1 contient la chaîne asynchrone (2.3 à 2.5) et l'import de fichiers (2.6a, 2.6b) ; le test de charge 2.7 ouvre la fenêtre suivante. Le flux sur Vercel, principal risque technique, est essayé dès 5.0, avant le chemin critique. La rédaction du Jeu de démonstration complet (7.1a) est sortie de la dernière semaine et menée en parallèle.
+**Décisions du 2026-11-04 :**
+- La story 1.1 commence dès la séquence 8, sans attendre d'arbitrage.
+- **Mesure du rythme réel** après les stories 1.1 à 1.3 : temps passé par story, consigné dans le journal de Vibe Coding (règle 9).
+- **Déclencheur :** si le rythme reste inférieur à **2 stories par jour ouvré**, un `bmad-correct-course` est préparé **avant le 10/11**, avec des simplifications P0 à te soumettre. Limites fixées : ni le parcours UJ-2 ni les exigences du challenge (CH-1 à CH-19) ne sont retirés. Aucune simplification n'est appliquée sans ton accord.
+- Les vérifications des 28 et 29/11 sont prévues (30 min chacune), en plus de la répétition générale du 27/11.
+- Restent à confirmer : le 11/11 (travaillé ou non) et le format du rendu.
 
 ## Epic 1 : Accéder à NexaMind AI en toute sécurité
 
@@ -366,8 +373,8 @@ afin que chaque story suivante soit testée et livrée en ligne sans risque d'ex
 **Quand** je les ouvre
 **Alors** le premier liste les environnements (Supabase local, projet distant de démo et sa région, région Vercel), les prérequis cochés et les noms des secrets, **sans aucune valeur** ; le second contient l'entrée de la story 1.1
 
-**Tâches techniques :** installer Supabase CLI 3.0.0, Vitest 5.1.0, @playwright/test 1.64.1, @axe-core/playwright ; `supabase init` et `supabase link` au projet distant ; script `scripts/check-env.ts` (Docker, CLI) ; script `scripts/check-secrets.ts` (motifs de clés, motif témoin, liste d'exclusions explicite) ; scripts npm `test`, `test:e2e`, `check:secrets`, `build:ci`, `deploy:supabase` ; `.env.example` complété (tous les noms du tableau des secrets) ; vérifier `.gitignore` ; `vercel.json` (`regions` : `cdg1` si Supabase est à Paris, `fra1` si Supabase est à Francfort) ; projet Vercel (variables publiques Supabase du projet distant), commande de build `build:ci` ; un test Playwright de fumée sur la page d'accueil ; `docs/environnements.md`, `docs/journal-vibe-coding.md`.
-**Prérequis (toi) :** compte Vercel relié au dépôt GitHub ; région du projet Supabase distant relevée dans son tableau de bord (Europe) ; `supabase login`.
+**Tâches techniques :** installer Supabase CLI 3.0.0, Vitest 5.1.0, @playwright/test 1.64.1, @axe-core/playwright ; `supabase init` et `supabase link` au projet distant ; script `scripts/check-env.ts` (Docker, CLI) ; script `scripts/check-secrets.ts` (motifs de clés, motif témoin, liste d'exclusions explicite) ; scripts npm `test`, `test:e2e`, `check:secrets`, `build:ci`, `deploy:supabase` ; `.env.example` complété (tous les noms du tableau des secrets) ; vérifier `.gitignore` ; `vercel.json` (`"regions": ["fra1"]`, aligné sur Supabase `eu-central-1`) ; projet Vercel (variables publiques Supabase du projet distant), commande de build `build:ci` ; un test Playwright de fumée sur la page d'accueil ; `docs/environnements.md`, `docs/journal-vibe-coding.md`.
+**Prérequis (toi) :** compte Vercel relié au dépôt GitHub ✔ ; région du projet Supabase distant relevée (`eu-central-1`) ✔ ; `supabase login` ✔ ; pendant la story, saisie par toi du mot de passe de la base lors de `supabase link`.
 **Dépendances :** aucune (projet existant, AR-1).
 **Références :** CH-18, CH-19 · NFR-2 · AR-1, AR-21, AR-22, AR-23 · AD-20, AD-21 · UX-DR — · **Priorité :** P0
 

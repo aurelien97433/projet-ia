@@ -261,7 +261,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 ### AD-21 — Hébergement et démonstration `[ADOPTED]`
 - **Règle (Rule) :**
   - **Environnements.** Développement et tests sur Supabase local (CLI, Docker). Un seul projet Supabase distant, en Europe : c'est l'environnement de démonstration, auquel sont reliés les déploiements Vercel (production et prévisualisation). Aucun projet distant de développement séparé. Les scripts qui écrivent sur le projet distant (test de charge 2.7, mesures, tests de bout en bout) suppriment leurs données à la fin.
-  - **Région.** La région du projet Supabase est vérifiée dans son tableau de bord ; elle doit être européenne. Les fonctions Vercel sont placées dans la même zone par `vercel.json` (`"regions": ["cdg1"]` si Supabase est à Paris, `["fra1"]` si Supabase est à Francfort ; pour une autre région européenne, la région Vercel la plus proche).
+  - **Région.** Le projet Supabase distant est en `eu-central-1` (Francfort), relevé dans son tableau de bord le 2026-11-04. Les fonctions Vercel sont placées dans la même zone par `vercel.json` : `"regions": ["fra1"]`.
   - **Déploiement côté Supabase.** `npm run deploy:supabase` enchaîne `supabase db push` (migrations) et `supabase functions deploy` sur le projet distant. Il fait partie de la définition de « terminé » de toute story qui modifie la base ou une Edge Function, avant le déploiement Vercel. Les secrets distants (`supabase secrets set`) et les réglages d'Auth (confirmation de l'e-mail désactivée) sont posés une fois, à la main, et consignés dans `docs/environnements.md` sans aucune valeur.
   - **Hébergement.** Next.js sur Vercel Hobby (URL HTTPS par défaut) ; Supabase Free ; migrations SQL versionnées dans `supabase/migrations`.
   - **Préchargement.** Le script `scripts/seed-demo.ts` précharge le Jeu de démonstration, deux Comptes de démo fictifs et les Comptes de mesure. Il crée chaque Document avec la clé `service_role` (Statut *en cours*, nouvelle tentative), appelle `process-document` avec `PROCESS_DOCUMENT_SECRET`, comme Next.js, puis attend que chaque Document soit *prêt* (échec explicite après 3 min). Il n'appelle jamais OpenAI lui-même. Il est relançable sans doublon (clés naturelles) et prend ses identifiants dans l'environnement.
@@ -556,13 +556,13 @@ vercel.json                             # région des fonctions alignée sur Sup
 | Point | Quand |
 |---|---|
 | Seuil de similarité, taille des Passages, consignes | Story de calibrage, sur le Jeu de démonstration |
-| Région du projet Supabase (européenne) et région Vercel alignée (`cdg1` ou `fra1`) | Avant la fin de la story 1.1 (prérequis) |
+| Région du projet Supabase et région Vercel alignée | Réglé le 2026-11-04 : Supabase `eu-central-1` (Francfort), Vercel `fra1` |
 | Délais d'AD-16 et NFR-3 (latence via Edge Function) | Première story Recherche et première story Assistant |
 | Extraction des PDF dans les limites des Edge Functions | Story FR-6 (P2) |
 | Import d'un `.txt` ou `.md` proche de 1 Mo (test de charge de la limite de FR-5) | Story 2.7, juste après l'import de fichiers |
 | Limite de taille des PDF | Au lancement de E9 (FR-6, P2) |
 | Diffusion de `chat` sur Vercel Hobby (`maxDuration`, absence de mise en tampon) | Essai léger en 5.0 (fenêtre E3 + E4), mesure réelle en 5.5 ; plan B dans AD-16 |
-| Projet OpenAI dédié avec crédit prépayé de 10 $, sans recharge automatique (borne certaine retenue) ; accès à `gpt-5.4-mini` et `text-embedding-3-small` | Prérequis réalisé par toi pendant E1, avant la story 2.1 |
+| Projet OpenAI dédié avec crédit prépayé de 10 $, sans recharge automatique (borne certaine retenue) ; accès à `gpt-5.4-mini` et `text-embedding-3-small` | Projet créé le 2026-11-04 ; crédit, alerte, accès aux modèles et pose de la clé à confirmer avant la story 2.1 |
 | Supabase local (Docker) disponible pour les tests RLS | Docker validé le 2026-11-03 ; Supabase local vérifié en story 1.1 |
 | Tarifs et modèles OpenAI | Avant la démonstration |
 
