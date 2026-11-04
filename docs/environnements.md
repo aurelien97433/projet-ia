@@ -32,11 +32,11 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 | Compte Vercel relié au dépôt GitHub | ✔ 2026-11-04 |
 | Région du projet Supabase distant relevée : `eu-central-1` | ✔ 2026-11-04 |
 | `supabase login` | ✔ 2026-11-04 |
-| Confirmation de l'e-mail désactivée (Auth, projet distant) | ✔ 2026-11-04 |
+| Confirmation de l'e-mail désactivée (Auth, projet distant) | ✔ 2026-11-04, **après correction** : elle était encore active pendant la story 1.3 (événement `mail.send` dans le journal Auth à l'inscription), puis désactivée par l'utilisateur. **Contrôle** : Authentication › Sign In / Providers › Email › « Confirm email » désactivé, puis une inscription sur Vercel doit arriver directement sur le Tableau de bord. Si ce réglage revient, l'écran d'inscription affiche « Votre Compte n'a pas pu être ouvert directement. » et le journal serveur l'événement `sign_up_without_session` |
 | Projet OpenAI dédié créé | ✔ 2026-11-04 |
 | `supabase link` au projet distant (mot de passe de la base saisi dans le terminal) | ✔ 2026-11-04 |
 | Projet Vercel importé, variables publiques définies, premier déploiement | ✔ 2026-11-04 (région d'exécution `fra1` à prouver en story 1.4) |
-| Longueur minimale du mot de passe : 8 caractères (Auth, projet distant) | à faire par l'utilisateur (story 1.3) |
+| Longueur minimale du mot de passe : 8 caractères (Auth, projet distant) | ✔ 2026-11-04 |
 | Migration `profiles` appliquée au projet distant | ✔ 2026-11-04, par l'utilisateur avec `supabase db push --remote` (l'ancien `deploy:supabase` visait la base locale) ; à reconfirmer avec `npm run deploy:supabase` corrigé |
 | Crédit prépayé OpenAI de 10 $, sans recharge automatique, alerte à 5 $ | à confirmer avant la story 2.1 |
 | Accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small` | à confirmer avant la story 2.1 |

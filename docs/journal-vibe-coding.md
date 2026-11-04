@@ -172,3 +172,9 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
   - Tests unitaires, dont un sur la sortie locale réelle de la CLI.
 - **Leçon pour la démarche.** Un script de déploiement doit prouver sa cible, pas seulement réussir. Un « succès » sans preuve de la cible ne vaut pas validation d'un critère distant.
 - **Second correctif.** Sur le projet distant, le script corrigé s'arrêtait : « la CLI n'a pas indiqué sa cible ». Dans un terminal interactif, la CLI n'écrit pas le JSON de sa cible. Le script force désormais `--output-format json` et compare exactement `project_ref`, après relevé du format réel de la CLI (dry-run sans modification). Le lancement complet vers la production a été refusé à l'IA par la règle de sécurité de l'outil : il est fait par l'utilisateur.
+- **Confirmation par e-mail encore active sur le projet distant.**
+  - L'utilisateur a repéré `mail.send` dans le journal Auth et l'a désactivée.
+  - Le prérequis, coché trop tôt, est corrigé dans la documentation, avec une procédure de contrôle.
+  - Le code traite désormais ce cas clairement : un Compte accepté sans session produit un résultat dédié (`confirmation_required`) et un message neutre. Ce n'est plus l'erreur « Le Compte n'a pas pu être créé. », qui était fausse. L'événement est journalisé sans donnée personnelle.
+- **Leçon.** Un prérequis de configuration distante doit être vérifié par un effet observable (ici, une inscription qui ouvre une session), pas seulement coché.
+- **Statut final.** Story 1.3 passée à `done` après les vérifications de l'utilisateur sur Vercel. Reste ouvert : la confirmation de `deploy:supabase` corrigé (story 1.1, critère AC5).

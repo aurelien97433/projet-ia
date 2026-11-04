@@ -56,5 +56,11 @@ export const texts = {
       unexpectedTitle: "Le Compte n'a pas pu être créé.",
       unexpectedText: "Veuillez réessayer dans quelques instants. Votre saisie est conservée.",
     },
+    // Compte demandé sans session ouverte (confirmation par e-mail active sur le serveur, contraire
+    // au MVP). Texte ajouté le 2026-11-04 ; neutre, car Supabase répond de même si l'e-mail existe.
+    confirmationRequired: {
+      title: "Votre Compte n'a pas pu être ouvert directement.",
+      text: "Une confirmation par e-mail est demandée. Si vous recevez un e-mail de NexaMind AI, suivez le lien qu'il contient, puis connectez-vous.",
+    },
   },
 } as const;

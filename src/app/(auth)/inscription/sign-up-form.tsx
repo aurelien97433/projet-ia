@@ -24,6 +24,7 @@ export function SignUpForm() {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
 
   const fieldErrors = result?.status === "invalid" ? result.fieldErrors : {};
   const emailTaken = result?.status === "invalid" && result.emailTaken === true;
@@ -35,6 +36,8 @@ export function SignUpForm() {
       (result.fieldErrors.email ? emailRef : passwordRef).current?.focus();
     } else if (result.status === "error") {
       alertRef.current?.focus();
+    } else if (result.status === "confirmation_required") {
+      noticeRef.current?.focus();
     }
   }, [result]);
 
@@ -72,6 +75,19 @@ export function SignUpForm() {
         <ErrorAlert ref={alertRef} title={result.error.message}>
           <p>{texts.signUp.errors.unexpectedText}</p>
         </ErrorAlert>
+      ) : null}
+
+      {result?.status === "confirmation_required" ? (
+        // Information neutre (DESIGN.md : pas de rouge pour ce qui n'est pas une panne).
+        <div
+          ref={noticeRef}
+          role="status"
+          tabIndex={-1}
+          className="rounded-lg border border-border bg-surface p-4 text-sm text-foreground"
+        >
+          <p className="font-semibold">{texts.signUp.confirmationRequired.title}</p>
+          <p className="mt-1">{texts.signUp.confirmationRequired.text}</p>
+        </div>
       ) : null}
 
       <FormField

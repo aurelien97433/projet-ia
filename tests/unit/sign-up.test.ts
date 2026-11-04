@@ -70,7 +70,6 @@ describe("signUp", () => {
   it.each([
     ["erreur Supabase inconnue", () => fakeAuth({ data: {}, error: { code: "unexpected_failure", status: 500, message: "x" } })],
     ["exception réseau", () => ({ signUp: vi.fn().mockRejectedValue(new Error("fetch failed")) })],
-    ["session absente (confirmation par e-mail activée)", () => fakeAuth({ data: { session: null, user: {} }, error: null })],
   ])("renvoie la forme d'erreur unique pour une %s, sans détail ni mot de passe", async (_label, makeAuth) => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = await signUp({ email: "a@b.test", password: PASSWORD }, makeAuth());
@@ -79,6 +78,19 @@ describe("signUp", () => {
       error: { code: "INTERNAL", message: texts.signUp.errors.unexpectedTitle, retryable: true },
     });
     const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).not.toContain(PASSWORD);
+    expect(logged).not.toContain("a@b.test");
+    errorLog.mockRestore();
+  });
+
+  it("Compte accepté sans session (confirmation par e-mail active) : résultat dédié, journalisé, ni panne ni succès", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const auth = fakeAuth({ data: { session: null, user: { id: "u1" } }, error: null });
+    const result = await signUp({ email: "a@b.test", password: PASSWORD }, auth);
+    expect(result).toEqual({ status: "confirmation_required" });
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).toContain("sign_up_without_session");
+    expect(logged).toContain("email_confirmation_enabled");
     expect(logged).not.toContain(PASSWORD);
     expect(logged).not.toContain("a@b.test");
     errorLog.mockRestore();

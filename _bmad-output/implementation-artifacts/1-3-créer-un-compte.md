@@ -2,7 +2,7 @@
 title: 'Story 1.3 : Créer un Compte'
 type: 'feature'
 created: '2026-11-04'
-status: 'in-review'
+status: 'done'
 baseline_commit: '29461be7ade70827042b17e06ca8f1571e181899'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -143,3 +143,12 @@ Les tests de bout en bout démarrent leur propre serveur sur un autre port, avec
 - Edge Functions futures : `functions deploy` reçoit la même référence explicite et le même contrôle de cible ; la forme JSON de sa sortie sera vérifiée au premier déploiement d'une fonction (story 2.3).
 - Story repassée en `review` jusqu'à la nouvelle vérification de l'utilisateur : `npm run deploy:supabase` corrigé sur le projet distant, puis vérifications Vercel.
 - **Second correctif (2026-11-04) :** sur le projet distant, le script corrigé échouait avec « la CLI n'a pas indiqué sa cible », alors que la ligne `Target: project projet-ia (lkjjtcfegplipalraqml) · production` s'affichait. Relevé : hors terminal, la CLI écrit sur stdout le JSON `{"target":{"kind":"linked","project_ref":"<réf>",…}}` et la ligne « Target: » sur stderr ; dans un terminal interactif, elle n'écrit pas ce JSON. Le script ajoute donc `--output-format json` à ses trois commandes, compare exactement `project_ref` à la référence liée (refus de `kind: local` et d'un autre projet), et affiche en cas d'échec le début de la sortie reçue, identifiants d'URL masqués. Tests ajoutés avec la sortie réelle de la CLI. Exécution distante laissée à l'utilisateur.
+- **Confirmation par e-mail encore active sur le projet distant (2026-11-04) :** le journal Auth montrait `mail.send` à l'inscription ; l'utilisateur l'a désactivée. Le code traite désormais ce cas clairement : un Compte accepté par Supabase sans session renvoie `{ status: "confirmation_required" }` (et non plus l'erreur inattendue « Le Compte n'a pas pu être créé. », fausse puisque Supabase a accepté la demande) ; l'écran affiche un message neutre, `role="status"`, sans rouge : « Votre Compte n'a pas pu être ouvert directement. Une confirmation par e-mail est demandée… » ; le serveur journalise `sign_up_without_session` sans e-mail ni mot de passe. Test unitaire ajouté. Prérequis corrigé dans `docs/environnements.md` et `epics.md`.
+
+**Critères d'acceptation (bilan final, 2026-11-04) :**
+- Création sans confirmation par e-mail, ligne `profiles`, arrivée connecté sur le Tableau de bord : ✔ sur Supabase local (tests) et sur Vercel (vérifié par l'utilisateur après désactivation de la confirmation et application de la migration distante).
+- E-mail invalide, mot de passe trop court ou trop long, e-mail déjà utilisé, saisie conservée, envoi unique : ✔ (tests et Vercel).
+- `anon` sans accès, RLS à deux Comptes, privilèges SQL : ✔ (tests sur Supabase local).
+- Forme d'erreur unique et textes du catalogue : ✔.
+- Tests existants, lint, build : ✔.
+- Story passée à `done` le 2026-11-04 à 15:34. Reste hors de cette story : la confirmation de `npm run deploy:supabase` corrigé (critère AC5 de la story 1.1).

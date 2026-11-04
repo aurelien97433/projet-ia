@@ -10,6 +10,9 @@ export type SignUpFieldErrors = { email?: string; password?: string };
 export type SignUpResult =
   | { status: "success" }
   | { status: "invalid"; fieldErrors: SignUpFieldErrors; emailTaken?: boolean }
+  // Supabase a accepté la demande sans ouvrir de session : la confirmation par e-mail est active
+  // sur le serveur (configuration contraire au MVP). Pas une panne : réessayer n'y changerait rien.
+  | { status: "confirmation_required" }
   | ({ status: "error" } & AppError);
 
 type AuthClient = Pick<SupabaseClient["auth"], "signUp">;
@@ -58,10 +61,13 @@ export async function signUp(input: { email: unknown; password: unknown }, auth:
   try {
     const { data, error } = await auth.signUp({ email: parsed.data.email, password: parsed.data.password });
     if (error) return fromAuthError(error);
-    // Sans session, la confirmation par e-mail serait activée : configuration à corriger.
+    // Sans session, la confirmation par e-mail est active sur le projet Supabase (constaté sur le
+    // projet distant le 2026-11-04 : mail.send dans le journal Auth). Supabase renvoie alors le même
+    // résultat pour un e-mail nouveau ou déjà utilisé : le message reste neutre. Journalisé pour
+    // l'exploitant, sans e-mail ni mot de passe.
     if (!data.session) {
       logEvent("sign_up_without_session", { code: "email_confirmation_enabled" });
-      return unexpected();
+      return { status: "confirmation_required" };
     }
     return { status: "success" };
   } catch {
