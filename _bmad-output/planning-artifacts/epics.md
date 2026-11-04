@@ -286,7 +286,7 @@ Jours ouvrés uniquement (6 h par jour, du lundi au vendredi). Aucune marge ouvr
 
 ### Règles transverses
 
-1. **Tests continus.** Toute story qui crée une table y ajoute ses tests RLS à deux Comptes (Vitest + Supabase local) ; une story n'est terminée que si `npm test` passe. Le contrôle des secrets (AR-21) est automatisé dès la story 1.1 et rejoué à chaque déploiement Vercel (étape de build) ; E7 ne fait que le contrôle final.
+1. **Tests continus.** Toute story qui crée une table y ajoute ses tests RLS à deux Comptes (Vitest + Supabase local) ; une story n'est terminée que si `npm test` passe. Le contrôle des secrets (AR-21) est automatisé dès la story 1.1 et rejoué à chaque déploiement Vercel (étape de build) ; E7 ne fait que le contrôle final. **Rappel (revue de la story 1.1) :** dès qu'une page prérendue affichera des données (première story concernée, au plus tard 3.5), étendre `check:secrets --static` aux pages prérendues envoyées au navigateur (`.next/server/app`, fichiers `.html`, `.rsc`, `.body`) ; voir `implementation-artifacts/deferred-work.md`.
 2. **Prérequis explicites.** Ils sont réalisés par toi, hors stories, et cochés dans `docs/environnements.md` (sans aucune valeur secrète) :
    - **avant la fin de 1.1 :** Docker (validé le 2026-11-03) ✔ ; compte Vercel relié au dépôt GitHub ✔ (2026-11-04) ; région du projet Supabase distant : `eu-central-1`, Francfort ✔ (2026-11-04) ; `supabase login` ✔ (2026-11-04) ; `supabase link` au projet distant, réalisé pendant 1.1 (le mot de passe de la base est saisi par toi, jamais dans la conversation) ;
    - **avant 1.3 :** confirmation de l'e-mail désactivée dans les réglages Auth du projet distant ✔ (2026-11-04) ;
@@ -801,7 +801,7 @@ afin de tester la Recherche et l'Assistant dès E4, bien avant la dernière sema
 **Quand** `check:secrets` s'exécute
 **Alors** aucun identifiant de démo n'y figure
 
-**Tâches techniques :** contenus fictifs dans `demo/documents/` ; `scripts/seed-demo.ts` (clé `service_role` et `PROCESS_DOCUMENT_SECRET` lues dans `.env.local`, déclenchement de `process-document`, attente de *prêt*, idempotence) ; Comptes de mesure ; `demo/questions-mini.json` ; documentation d'exécution.
+**Tâches techniques :** **en premier**, fichier séparé pour les variables du script de préchargement (par exemple `.env.seed`, ignoré par git via `.env*`, avec un `.env.seed.example` sans valeur) : `SUPABASE_SERVICE_ROLE_KEY`, `PROCESS_DOCUMENT_SECRET` pour le script, `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*` ; ces variables sortent de `.env.local`, que Next.js charge, pour que la clé `service_role` n'entre jamais dans l'environnement de Next.js ; mettre à jour AD-20, AD-21, `.env.example` et `docs/environnements.md` (revue de la story 1.1) ; contenus fictifs dans `demo/documents/` ; `scripts/seed-demo.ts` (clé `service_role` et `PROCESS_DOCUMENT_SECRET` lues dans ce fichier séparé, déclenchement de `process-document`, attente de *prêt*, idempotence) ; Comptes de mesure ; `demo/questions-mini.json` ; documentation d'exécution.
 **Dépendances :** 2.6b.
 **Références :** CH-17, CH-19 · NFR-10 · SM-1, SM-2, SM-4 (préparation) · AR-22 · AD-21 · UX-DR30, UX-DR31 · **Priorité :** P0
 
