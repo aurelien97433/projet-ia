@@ -178,3 +178,24 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
   - Le code traite désormais ce cas clairement : un Compte accepté sans session produit un résultat dédié (`confirmation_required`) et un message neutre. Ce n'est plus l'erreur « Le Compte n'a pas pu être créé. », qui était fausse. L'événement est journalisé sans donnée personnelle.
 - **Leçon.** Un prérequis de configuration distante doit être vérifié par un effet observable (ici, une inscription qui ouvre une session), pas seulement coché.
 - **Statut final.** Story 1.3 passée à `done` après les vérifications de l'utilisateur sur Vercel. Critère AC5 de la story 1.1 clôturé ensuite : `npm run deploy:supabase` corrigé a réussi sur le projet distant (confirmé par l'utilisateur).
+
+## Trajectoire du 2026-11-04 (fin de la séquence 8, préparation de la séquence 9)
+
+**Décision de l'utilisateur, sans retirer d'exigence P0.**
+- **Calendrier :**
+  - le 04/11, la story 1.4 ;
+  - le 05/11, les stories 2.1, 2.2, puis 2.3 si possible ;
+  - le 06/11, la story 2.4, puis l'ouverture de la séquence 9 avec 2.8 ;
+  - le 09/11, la story 2.5, puis 3.1 et 3.2.
+- **Mini Jeu (2.8) :** en Notes, dépendant de 2.4 et non plus de l'import de fichiers.
+- **Test de charge (2.7) :** tranché avant 5.2a, au plus tard le 18/11.
+- **Point de contrôle :** le 13/11 au soir.
+- **Story 3.4 :** elle doit traiter les Notes sans fichier d'origine.
+- **Story 6.2 :** elle dépend aussi de 2.6a, 2.6b et 3.4.
+- **Relecteurs :** les trois relecteurs sont réservés aux stories sensibles.
+
+**Vérification par l'IA.**
+- Aucune dépendance cassée : les 52 stories ont des dépendances antérieures, et chaque date du calendrier vient après ses dépendances.
+- Le suivi est synchronisé avec `epics.md`.
+
+**Risque.** Au 13/11, 20 P0 sur 42 seraient faites. La semaine du 16/11 concentre 16 P0 (E5 et E6), ce qui est irréaliste sans arbitrage. Le rythme est remesuré le 10/11, et la décision sur le `bmad-correct-course` est prise à ce moment-là.
