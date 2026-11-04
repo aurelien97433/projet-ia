@@ -177,4 +177,4 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
   - Le prérequis, coché trop tôt, est corrigé dans la documentation, avec une procédure de contrôle.
   - Le code traite désormais ce cas clairement : un Compte accepté sans session produit un résultat dédié (`confirmation_required`) et un message neutre. Ce n'est plus l'erreur « Le Compte n'a pas pu être créé. », qui était fausse. L'événement est journalisé sans donnée personnelle.
 - **Leçon.** Un prérequis de configuration distante doit être vérifié par un effet observable (ici, une inscription qui ouvre une session), pas seulement coché.
-- **Statut final.** Story 1.3 passée à `done` après les vérifications de l'utilisateur sur Vercel. Reste ouvert : la confirmation de `deploy:supabase` corrigé (story 1.1, critère AC5).
+- **Statut final.** Story 1.3 passée à `done` après les vérifications de l'utilisateur sur Vercel. Critère AC5 de la story 1.1 clôturé ensuite : `npm run deploy:supabase` corrigé a réussi sur le projet distant (confirmé par l'utilisateur).

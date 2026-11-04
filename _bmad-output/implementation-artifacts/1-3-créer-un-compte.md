@@ -151,4 +151,4 @@ Les tests de bout en bout démarrent leur propre serveur sur un autre port, avec
 - `anon` sans accès, RLS à deux Comptes, privilèges SQL : ✔ (tests sur Supabase local).
 - Forme d'erreur unique et textes du catalogue : ✔.
 - Tests existants, lint, build : ✔.
-- Story passée à `done` le 2026-11-04 à 15:34. Reste hors de cette story : la confirmation de `npm run deploy:supabase` corrigé (critère AC5 de la story 1.1).
+- Story passée à `done` le 2026-11-04 à 15:34. Critère AC5 de la story 1.1 (`npm run deploy:supabase` corrigé) clôturé ensuite, après confirmation de l'utilisateur.

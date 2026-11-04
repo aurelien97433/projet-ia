@@ -37,7 +37,7 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 | `supabase link` au projet distant (mot de passe de la base saisi dans le terminal) | ✔ 2026-11-04 |
 | Projet Vercel importé, variables publiques définies, premier déploiement | ✔ 2026-11-04 (région d'exécution `fra1` à prouver en story 1.4) |
 | Longueur minimale du mot de passe : 8 caractères (Auth, projet distant) | ✔ 2026-11-04 |
-| Migration `profiles` appliquée au projet distant | ✔ 2026-11-04, par l'utilisateur avec `supabase db push --remote` (l'ancien `deploy:supabase` visait la base locale) ; à reconfirmer avec `npm run deploy:supabase` corrigé |
+| Migration `profiles` appliquée au projet distant | ✔ 2026-11-04, par l'utilisateur avec `supabase db push --remote` (l'ancien `deploy:supabase` visait la base locale) ; confirmé le 2026-11-04 par une exécution réussie de `npm run deploy:supabase` corrigé |
 | Crédit prépayé OpenAI de 10 $, sans recharge automatique, alerte à 5 $ | à confirmer avant la story 2.1 |
 | Accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small` | à confirmer avant la story 2.1 |
 | Clé OpenAI posée avec `supabase secrets set` | à faire avant la story 2.1 |
