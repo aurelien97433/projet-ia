@@ -21,8 +21,9 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 | `npm test` | Tests Vitest (unitaires, puis intégration sur Supabase local) |
 | `npm run test:e2e` | Tests Playwright sur **Supabase local** (à démarrer avant) : serveur Next.js dédié sur le port 3100, dossier `.next-e2e`, variables publiques locales lues à l'exécution ; aucun accès au projet distant. Une fois par poste : `npx playwright install chromium` |
 | `npm run check:secrets` | Cherche des formats de clés dans le dépôt ; `-- --static` dans `.next/static` |
+| `npm run test:ai` | Seul test réel de l'IA : appelle la fonction **locale** `ai-health` (Supabase local démarré, clé dans `supabase/functions/.env`). Vérifie l'accès aux deux modèles (gratuit) et la dimension 1 536 (un embedding de « Bonjour »). Jamais lancé par `npm test` |
 | `npm run build:ci` | Contrôle des secrets, `next build`, contrôle du code envoyé au navigateur (commande de build Vercel) |
-| `npm run deploy:supabase` | Sur le **projet distant lié** uniquement : `db push --remote=<référence>`, contrôle de la cible dans la sortie de la CLI (échec si elle vise la base locale), contrôle des migrations présentes à distance (`migration list --remote`), puis `functions deploy --remote=<référence>` s'il existe des Edge Functions. La CLI 3 vise la base locale par défaut : ne jamais lancer `supabase db push` sans `--remote` pour le projet distant |
+| `npm run deploy:supabase` | Sur le **projet distant lié** uniquement : `db push --remote=<référence>`, contrôle de la cible dans la sortie de la CLI (échec si elle vise la base locale), contrôle des migrations présentes à distance (`migration list --remote`), puis `functions deploy <noms> --remote=<référence>` pour les Edge Functions déployables (noms explicites, `ai-health` exclue car locale). La CLI 3 vise la base locale par défaut : ne jamais lancer `supabase db push` sans `--remote` pour le projet distant |
 
 ## Prérequis
 
@@ -39,9 +40,10 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 | Région d'exécution `fra1` prouvée par `x-vercel-id` sur une requête exécutée par une fonction (story 1.4) | ✔ 2026-11-05 : POST `connexion` en production, `…::fra1::<id>`, `x-vercel-cache: BYPASS` |
 | Longueur minimale du mot de passe : 8 caractères (Auth, projet distant) | ✔ 2026-11-04 |
 | Migration `profiles` appliquée au projet distant | ✔ 2026-11-04, par l'utilisateur avec `supabase db push --remote` (l'ancien `deploy:supabase` visait la base locale) ; confirmé le 2026-11-04 par une exécution réussie de `npm run deploy:supabase` corrigé |
-| Crédit prépayé OpenAI de 10 $, sans recharge automatique, alerte à 5 $ | à confirmer avant la story 2.1 |
-| Accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small` | à confirmer avant la story 2.1 |
-| Clé OpenAI posée avec `supabase secrets set` | à faire avant la story 2.1 |
+| Crédit prépayé OpenAI de 10 $, sans recharge automatique (plafond réel du projet) | ✔ 2026-11-05, attesté par l'utilisateur |
+| Alerte de dépense à 5 $ sur le projet OpenAI | ✔ 2026-11-05, attesté par l'utilisateur. Le plafond de 10 $ du tableau de bord affiche « Limit not enforced » : il **ne bloque pas** les appels. La limite réelle est le crédit prépayé de 10 $, sans recharge automatique. Une fois le crédit épuisé, OpenAI répond 429 `insufficient_quota`, traduit en `AI_BUDGET_EXHAUSTED` (test unitaire) |
+| Accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small`, dimension 1 536 | ✔ 2026-11-05, `npm run test:ai` (fonction locale `ai-health`, clé locale) |
+| Clé OpenAI posée en local (`supabase/functions/.env`, ignoré par git) et sur le projet distant (`supabase secrets set`) | ✔ 2026-11-05, par l'utilisateur (procédure ci-dessous). `supabase secrets list` affiche `OPENAI_API_KEY` avec une empreinte seulement (vérifié par l'utilisateur). Fonctionnement distant prouvé au premier traitement réel (story 2.4) |
 
 ## Contrôle de la région d'exécution (`x-vercel-id`)
 
@@ -58,6 +60,27 @@ Ne pas relever le document `/` : sa coquille statique peut venir du cache (`Age`
 Résultats (production, commit `615a53e`, 2026-11-05, relevés par l'utilisateur) :
 - Document `/` : `cpt1::<id>`, avec `Age: 177`. Réponse servie depuis le cache, sans fonction : ne prouve pas la région.
 - **POST `connexion`** (exécuté par une fonction) : `x-vercel-id: cpt1:cpt1:fra1::fra1::<id>`, `x-vercel-cache: BYPASS`. **Région d'exécution `fra1` prouvée.** Réserve de la story 1.1 levée.
+
+## Clé OpenAI : pose sans affichage (PowerShell, à la racine du projet)
+
+La clé n'est jamais tapée sur une ligne de commande, collée dans un fichier suivi ni communiquée à l'IA. `Read-Host -AsSecureString` masque la saisie, et l'historique de PowerShell n'enregistre que la commande, pas ce qui est saisi.
+
+1. **Local** (`supabase/functions/.env`, lu par les Edge Functions de Supabase local) :
+   ```powershell
+   New-Item -ItemType Directory -Force supabase\functions | Out-Null
+   $secure = Read-Host "Clé OpenAI" -AsSecureString
+   $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+   try {
+     $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+     [IO.File]::WriteAllText("$PWD\supabase\functions\.env", "OPENAI_API_KEY=$plain`n", (New-Object Text.UTF8Encoding $false))
+   } finally {
+     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr); Remove-Variable plain, secure, bstr -ErrorAction SilentlyContinue
+   }
+   ```
+   Le fichier est écrit sans BOM, qui fausserait le nom de la variable.
+2. **Contrôle** : `git check-ignore -v supabase/functions/.env` cite `.gitignore` (`.env*`). `git status --short` ne liste pas le fichier.
+3. **Projet distant** : `npx supabase secrets set --env-file supabase\functions\.env` lit la valeur dans le fichier et vise le projet lié (commande « remote only »). Ensuite, `npx supabase secrets list` doit afficher `OPENAI_API_KEY` avec une empreinte, jamais la valeur.
+4. **Après une pose ou un changement de clé** : redémarrer Supabase local (`npx supabase stop`, puis `npx supabase start`) et lancer `npm run test:ai`.
 
 ## Secrets et variables (noms seulement)
 

@@ -34,6 +34,24 @@ describe("listFunctions", () => {
     }
     expect(listFunctions(dir).sort()).toEqual(["chat", "process-document"]);
   });
+
+  it("n'inclut jamais une fonction locale (ai-health)", () => {
+    dir = mkdtempSync(path.join(tmpdir(), "deploy-"));
+    for (const name of ["ai-health", "chat"]) {
+      mkdirSync(path.join(dir, name));
+      writeFileSync(path.join(dir, name, "index.ts"), "");
+    }
+    expect(listFunctions(dir)).toEqual(["chat"]);
+  });
+
+  it("ignore un dossier dont le nom ne serait pas sûr sur la ligne de commande", () => {
+    dir = mkdtempSync(path.join(tmpdir(), "deploy-"));
+    for (const name of ["chat", "a&b", "Majuscule", "avec espace"]) {
+      mkdirSync(path.join(dir, name));
+      writeFileSync(path.join(dir, name, "index.ts"), "");
+    }
+    expect(listFunctions(dir)).toEqual(["chat"]);
+  });
 });
 
 describe("cible du déploiement", () => {

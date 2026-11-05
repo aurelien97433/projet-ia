@@ -12,6 +12,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:ai": "vitest run --config vitest.live.config.mts",
     "check:env": "tsx scripts/check-env.ts",
     "check:secrets": "tsx scripts/check-secrets.ts",
     "build:ci": "npm run check:secrets && next build && npm run check:secrets -- --static",

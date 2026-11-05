@@ -11,15 +11,20 @@ import { fileURLToPath } from "node:url";
 const SUPABASE_BIN = path.join("node_modules", ".bin", "supabase");
 const PROJECT_REF_PATTERN = /^[a-z0-9]{20}$/;
 
+// Fonctions servies en local seulement, jamais déployées (ai-health : contrôle de l'IA, story 2.1).
+export const LOCAL_ONLY_FUNCTIONS: readonly string[] = ["ai-health"];
+
 // Fonctions déployables : dossiers de supabase/functions contenant un index.ts, hors modules
-// partagés (_shared…) et dossiers cachés (.vscode…).
+// partagés (_shared…), dossiers cachés (.vscode…) et fonctions locales.
 export function listFunctions(functionsDir: string): string[] {
   if (!existsSync(functionsDir)) return [];
   return readdirSync(functionsDir, { withFileTypes: true })
     .filter(
       (entry) =>
         entry.isDirectory() &&
-        !/^[_.]/.test(entry.name) &&
+        // Nom passé à la CLI par le shell (runCli) : lettres minuscules, chiffres et tirets seulement.
+        /^[a-z0-9][a-z0-9-]*$/.test(entry.name) &&
+        !LOCAL_ONLY_FUNCTIONS.includes(entry.name) &&
         existsSync(path.join(functionsDir, entry.name, "index.ts")),
     )
     .map((entry) => entry.name);
@@ -136,7 +141,8 @@ function main(): void {
     console.log("deploy:supabase — aucune Edge Function à déployer.");
   } else {
     console.log(`deploy:supabase — déploiement des Edge Functions sur ${projectRef} : ${functions.join(", ")}…`);
-    const deploy = runCli(["functions", "deploy", remote]);
+    // Noms explicites : sans nom, la CLI déploierait aussi les fonctions locales (ai-health).
+    const deploy = runCli(["functions", "deploy", ...functions, remote]);
     if (!deploy.ok) fail("supabase functions deploy a échoué.");
     checkTarget(deploy, projectRef);
   }

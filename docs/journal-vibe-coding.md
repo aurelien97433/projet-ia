@@ -280,3 +280,66 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - **Leçon.** Une preuve d'exécution serveur doit porter sur une requête qui passe forcément par une fonction (`x-vercel-cache: BYPASS`), pas sur une page qui peut venir du cache.
 
 **Statut final.** Story 1.4 passée à `done` le 2026-11-05, après la vérification de l'utilisateur. L'Epic 1 reste `in-progress` : la story 1.5 (FINITION) est en `backlog`, planifiée après E4.
+
+## Story 2.1 — Préparer l'accès à l'IA (2026-11-05)
+
+**Objectif.** Un accès unique, borné en coût et invisible du navigateur au fournisseur d'IA, avant le premier traitement. Preuve que la clé donne accès à `gpt-5.4-mini` et à `text-embedding-3-small` (1 536 dimensions).
+
+**Instructions clés données à l'IA.**
+- Workflow `bmad-build`, story 2.1 uniquement, sans commencer la 2.2.
+- Fichier de story et plan présentés avant le code.
+- Exigences : AD-3, AD-4, AD-15 et NFR-2 respectés, aucune référence OpenAI dans `src/`.
+- **Clé.** L'utilisateur ne la communique jamais. L'IA fournit une méthode pour la poser sans l'afficher, sans l'écrire dans l'historique du terminal et sans la commiter.
+- Décisions à l'approbation :
+  - `ai-health` reste en local, exclue de `deploy:supabase` ;
+  - revue ciblée sur les secrets et le module OpenAI, sans les trois relecteurs ;
+  - spec gardée entière.
+- Alerte à 5 $ : la réponse reçue (« oui/non ») n'était pas tranchée. Elle est notée « à confirmer ».
+
+**Ce que l'IA a produit.**
+- `supabase/functions/_shared/` :
+  - `config.ts` : modèles, dimension, version, lots de 96, délais ;
+  - `errors.ts` : codes AD-19, identiques à ceux de Next.js ;
+  - `ai.ts` : `embed` et `checkModelAccess`, en `fetch` sans SDK, avec nouvelles tentatives sur 429 et 5xx, `AI_BUDGET_EXHAUSTED`, `AI_TIMEOUT`, contrôle de la dimension et journaux sans clé ni texte.
+- Fonction locale `ai-health`, réservée à la clé `service_role`.
+- `deploy:supabase` déploie les fonctions par noms explicites, `ai-health` exclue.
+- Tests :
+  - unitaires, avec un fournisseur simulé, sur toute la matrice ;
+  - de frontières : rien d'OpenAI dans `src/`, clé lue seulement par `ai.ts`, `.env` ignoré ;
+  - un seul test réel, `npm run test:ai`.
+- Procédure PowerShell de pose de la clé, avec `Read-Host -AsSecureString`, un fichier écrit sans BOM et `secrets set --env-file`.
+
+**Corrigé ou refusé, et pourquoi.**
+- La première configuration de `test:ai` (`mergeConfig`) additionnait les motifs `include` et lançait toute la suite. Elle est remplacée par une configuration dédiée.
+- Supabase local a dû être redémarré pour servir la nouvelle fonction et lire `supabase/functions/.env`.
+- Une erreur de typage dans un test faisait échouer `build:ci`. Elle est corrigée.
+- Revue ciblée :
+  - Les noms de fonctions, désormais passés au shell par le script de déploiement, sont filtrés (`[a-z0-9-]`). C'est la seule correction.
+  - Le message d'erreur d'OpenAI, qui peut contenir un fragment de la clé, n'est jamais journalisé : seul son code l'est.
+  - Points rejetés après examen : `Retry-After` ignoré ; JSON invalide retenté.
+
+**Tests.**
+- `npm run test:ai` : 2 réussis. Accès aux deux modèles, dimension 1 536, refus sans clé `service_role`.
+- `npm test` : 196 réussis.
+- `npm run test:e2e` : 93 réussis ; 5 sautés.
+- `lint` et `tsc` : 0 erreur.
+- `check:secrets` et `build:ci` : verts.
+
+**Durée.**
+- Contexte de l'Epic 2, spec et méthode de pose de la clé : de 13:41 à 13:56.
+- Pose de la clé par l'utilisateur : jusqu'à 14:00.
+- Implémentation et tests : de 14:01 à 14:20.
+- Revue ciblée et documentation : de 14:20 à 14:25.
+- Total : environ 45 min, dont environ 40 min de travail de l'IA.
+
+**Vérifications de l'utilisateur et clôture.**
+- **Alerte à 5 $** : configurée.
+- **Plafond de 10 $** : le tableau de bord OpenAI affiche « Limit not enforced », donc il ne bloque pas les appels. La limite réelle est le crédit prépayé de 10 $, sans recharge automatique.
+- **Leçon.** Un plafond affiché n'est pas un plafond appliqué : il faut lire son état réel dans le tableau de bord.
+- **Crédit épuisé.** Ajout d'un test avec la réponse réelle d'OpenAI (429, `insufficient_quota`, message) :
+  - la réponse est traduite en `AI_BUDGET_EXHAUSTED` ;
+  - elle n'est pas retentée ;
+  - le message du fournisseur n'est pas journalisé.
+  - Le même cas est testé pendant la vérification des modèles.
+- **Secret distant.** `supabase secrets list` affiche `OPENAI_API_KEY` avec une empreinte seulement (vérifié par l'utilisateur).
+- **Statut final.** Story 2.1 passée à `done` le 2026-11-05. Le fonctionnement de la clé distante sera prouvé au premier traitement réel (story 2.4).
