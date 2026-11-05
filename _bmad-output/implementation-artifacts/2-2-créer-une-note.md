@@ -2,7 +2,7 @@
 title: 'Story 2.2 : Créer une Note'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'da04e0e596d43e1cf4545bf3f06f10cfbfa6b93d'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -189,3 +189,11 @@ Revue ciblée du 2026-11-05 : sécurité et RLS, faite par l'IA, sans relecteurs
   - Tests ajoutés avec une CLI simulée qui exige `--yes` pour une migration en attente : succès et ordre des commandes, erreur affichée et masquée, migration absente après le push, cible locale, projet non lié.
   - `--yes` est accepté par la CLI 3.0.0 (vérifié sur la base locale, sans effet distant).
 - La story reste en `review` jusqu'à la vérification de l'utilisateur en production.
+
+**Clôture (2026-11-05) :**
+- L'utilisateur a vérifié en production :
+  - Note créée, notification et badge corrects au départ ;
+  - ligne `documents` avec `status = processing` et son `author_id` ;
+  - Document lisible par un second Compte, sans action de modification.
+- Après 3 min, le badge passe à « en erreur », ce qui est attendu avant les stories 2.3 et 2.4. En revanche, la notification `?ajoute=1` reste affichée : reporté à la story 2.3 (`deferred-work.md`), où le bandeau de Statut prendra le relais selon l'état réel.
+- Story passée à `done` à la demande de l'utilisateur.

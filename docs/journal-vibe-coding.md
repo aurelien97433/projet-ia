@@ -419,4 +419,13 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - **Leçon (déjà notée en 1.3, à nouveau).** Les chemins d'échec d'un script de déploiement doivent être testés autant que le chemin de succès. Le scénario « migration en attente » n'avait jamais été joué : la première migration avait été appliquée à la main.
 - **Durée de la correction** : de 17:05 à 17:15.
 
-**Statut.** Commit et push après validation. Story en `review` jusqu'à la vérification de l'utilisateur en production.
+**Déploiement.** Commit `72afdd5` poussé sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production.**
+- Note créée, avec la notification et le badge corrects.
+- Ligne `documents` avec `status = processing` et le bon `author_id`.
+- Document lisible par un second Compte, sans action de modification.
+- **Après 3 min**, le badge passe à « en erreur » : c'est attendu tant que le traitement (2.3, 2.4) n'existe pas. La notification « Document ajouté. Traitement en cours. » reste pourtant affichée, car elle dépend du paramètre `?ajoute=1` et non de l'état réel. Reporté à la story 2.3 : le bandeau de Statut doit prendre le relais.
+- **Leçon.** Un message lié à un paramètre d'URL décrit l'instant de l'action, pas l'état réel. Tout message d'état doit dériver du Statut effectif.
+
+**Statut final.** Story 2.2 passée à `done` le 2026-11-05, après la vérification de l'utilisateur.

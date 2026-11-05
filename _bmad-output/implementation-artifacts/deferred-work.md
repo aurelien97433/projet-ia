@@ -30,3 +30,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-2-créer-une-note.md`
   summary: Document inconnu ou inaccessible (`/documents/[id]`) : E9 est servie avec le statut HTTP 200 (plus `noindex`) au lieu de 404.
   evidence: Accepté pour le MVP par l'utilisateur le 2026-11-05. La coquille est envoyée en flux avant que `notFound()` ne s'exécute, comportement documenté de Next.js 16 avec `cacheComponents`. Pour obtenir un 404, il faudrait vérifier l'existence avant tout envoi (proxy ou route sans flux). À reprendre si un contrôle externe (supervision, jury) exige le code 404.
+- source_spec: `_bmad-output/implementation-artifacts/2-2-créer-une-note.md`
+  summary: À traiter en story 2.3. La notification « Document ajouté. Traitement en cours. » (`?ajoute=1`) reste affichée quand le Statut effectif change (par exemple *en erreur* après 3 min) ; le bandeau de Statut doit prendre le relais selon l'état réel.
+  evidence: Constaté en production par l'utilisateur le 2026-11-05. Après 3 min, le badge passe correctement à « en erreur », mais la notification liée au paramètre `?ajoute=1` reste visible, ce qui contredit l'état réel.
