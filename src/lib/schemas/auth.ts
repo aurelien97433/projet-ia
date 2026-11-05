@@ -20,3 +20,12 @@ export const signUpSchema = z.object({
 });
 
 export type SignUpInput = z.infer<typeof signUpSchema>;
+
+// Connexion (FR-2) : un seul message pour toute saisie refusée, sans désigner le champ fautif.
+// Aucune règle de longueur minimale : un mot de passe faux ou trop court reçoit le même message.
+export const signInSchema = z.object({
+  email: z.string().trim().pipe(z.email()),
+  password: z.string().min(1).max(1024),
+});
+
+export type SignInInput = z.infer<typeof signInSchema>;

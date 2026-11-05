@@ -8,12 +8,21 @@ import { MobileNav } from "./mobile-nav";
 import { ADD_HREF } from "./nav-items";
 import { NavLinks } from "./nav-links";
 import { SignOutButton } from "./sign-out-button";
+import { SessionGate } from "./session-gate";
+import { UserEmail, UserEmailFallback } from "./user-email";
 
 export const MAIN_CONTENT_ID = "contenu";
 
 // Coquille des écrans protégés (EXPERIENCE.md, Navigation) : barre latérale fixe à partir de
 // 1024 px, barre du haut globale et menu en Sheet en dessous, lien d'évitement en premier arrêt.
 export function AppShell({ children }: { children: React.ReactNode }) {
+  // E-mail du Collaborateur, lu côté serveur sous Suspense ; transmis au menu mobile (composant client).
+  const account = (
+    <Suspense fallback={<UserEmailFallback />}>
+      <UserEmail />
+    </Suspense>
+  );
+
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
       <a
@@ -24,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </a>
 
       <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 border-b bg-background px-2 lg:hidden">
-        <MobileNav />
+        <MobileNav account={account} />
         <Logo />
         <Button asChild variant="ghost" size="icon-lg">
           <Link href={ADD_HREF} aria-label={texts.shell.addDocumentLabel}>
@@ -44,13 +53,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Suspense>
         </nav>
         <div className="mt-auto border-t pt-3">
-          <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{texts.shell.signedOut}</p>
+          {account}
           <SignOutButton />
         </div>
       </aside>
 
       <main id={MAIN_CONTENT_ID} tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 lg:px-6">
-        <div className="mx-auto w-full max-w-content">{children}</div>
+        <div className="mx-auto w-full max-w-content">
+          <Suspense fallback={null}>
+            <SessionGate>{children}</SessionGate>
+          </Suspense>
+        </div>
       </main>
     </div>
   );

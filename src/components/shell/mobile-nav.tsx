@@ -11,7 +11,7 @@ import { markNavigationFromMobileMenu } from "./title-focus";
 
 // Menu sous 1024 px : la barre latérale devient un Sheet ouvert par ☰. Il se ferme à la navigation,
 // par Échap ou par un clic à l'extérieur, et le focus revient sur ☰ (fourni par Radix).
-export function MobileNav() {
+export function MobileNav({ account }: { account: React.ReactNode }) {
   const [open, setOpen] = useState(false);
 
   const handleNavigate = () => {
@@ -34,7 +34,7 @@ export function MobileNav() {
           </Suspense>
         </nav>
         <div className="mt-auto border-t pt-3">
-          <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{texts.shell.signedOut}</p>
+          {account}
           <SignOutButton />
         </div>
       </SheetContent>

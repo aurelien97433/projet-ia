@@ -18,3 +18,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-3-créer-un-compte.md`
   summary: Imposer l'ordre « migration distante puis déploiement Vercel » (vérification au build ou liste de contrôle bloquante).
   evidence: Sans migration distante, un Compte créé sur Vercel n'aurait pas de profil ; aujourd'hui l'ordre repose sur la définition de « terminé » et sur l'utilisateur.
+- source_spec: `_bmad-output/implementation-artifacts/1-4-se-connecter-se-déconnecter-et-protéger-les-pages.md`
+  summary: Chaque Server Action d'un écran protégé (à partir de 2.2) doit vérifier la session elle-même, par une aide commune `requireUser()` dans `src/server/auth`.
+  evidence: Les identifiants de Server Action sont globaux, et une action peut être appelée par un POST sur `/connexion`, que le proxy laisse passer. La RLS protège les données, mais l'action doit refuser tôt avec `UNAUTHENTICATED`.
+- source_spec: `_bmad-output/implementation-artifacts/1-4-se-connecter-se-déconnecter-et-protéger-les-pages.md`
+  summary: Vérifier le comportement d'une Server Action envoyée après l'expiration de la session (307 du proxy vers `/connexion`, POST rejoué) et répondre plutôt 401 ou `UNAUTHENTICATED` aux requêtes qui ne sont pas des navigations.
+  evidence: maybe-false, gravité medium si c'est confirmé. Pour trancher : session expirée, puis clic sur une action d'un écran protégé (dès 2.2), en observant la réponse.
+- source_spec: `_bmad-output/implementation-artifacts/1-4-se-connecter-se-déconnecter-et-protéger-les-pages.md`
+  summary: Tester en e2e l'alerte « La connexion n'a pas abouti… », et la redirection de `SessionGate` sans le proxy.
+  evidence: Les deux branches ne sont couvertes que par des tests unitaires ou par la seule barrière du proxy. Il faudrait un point d'injection de panne ou un banc de test pour composants serveur.

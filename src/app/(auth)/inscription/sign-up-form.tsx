@@ -68,7 +68,7 @@ export function SignUpForm() {
   const busy = isPending;
 
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-5">
+    <form method="post" noValidate onSubmit={handleSubmit} className="flex flex-col gap-5">
       <p className="text-xs font-medium text-muted-foreground">{texts.common.requiredLegend}</p>
 
       {result?.status === "error" ? (

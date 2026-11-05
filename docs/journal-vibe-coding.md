@@ -199,3 +199,73 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Le suivi est synchronisé avec `epics.md`.
 
 **Risque.** Au 13/11, 20 P0 sur 42 seraient faites. La semaine du 16/11 concentre 16 P0 (E5 et E6), ce qui est irréaliste sans arbitrage. Le rythme est remesuré le 10/11, et la décision sur le `bmad-correct-course` est prise à ce moment-là.
+
+## Story 1.4 — Se connecter, se déconnecter et protéger les pages (2026-11-05)
+
+**Objectif.** Un Collaborateur se connecte, reste connecté et se déconnecte. Toutes les pages, sauf la Connexion et l'Inscription, exigent une session. La région d'exécution `fra1` est prouvée sur une route dynamique (réserve de la story 1.1).
+
+**Instructions clés données à l'IA.**
+- Workflow `bmad-build`, story 1.4 uniquement, sans commencer la 2.1. Fichier de story et plan présentés avant le code.
+- Points à vérifier imposés par l'utilisateur :
+  - connexion, déconnexion et session persistante ;
+  - routes protégées ;
+  - message d'erreur qui ne désigne pas le champ fautif ;
+  - redirection interne uniquement ;
+  - e-mail dans la barre latérale ;
+  - appel direct refusé pour un Visiteur ;
+  - `x-vercel-id` en `fra1`.
+- Décisions à l'approbation :
+  - texte de l'échec inattendu (option A) ;
+  - revue par trois relecteurs malgré la règle 11 ;
+  - spec gardée entière (environ 2 500 tokens).
+- Précisions de l'utilisateur :
+  - refuser aussi les variantes encodées (`%2F%2F`, `%5C`, formes décodées vers une URL externe) ;
+  - tester l'absence de boucle sur `/connexion` et `/inscription` ;
+  - `getClaims` selon les recommandations de Supabase, les droits restant contrôlés par le serveur et la RLS.
+- Aucun commit ni push sans validation.
+
+**Ce que l'IA a produit.**
+- Page `/connexion` (E1), Server Actions de connexion et de déconnexion, page « Page introuvable » (E9).
+- Proxy :
+  - protection des routes, avec la page demandée transmise dans `suite` ;
+  - un Collaborateur connecté est renvoyé de `/connexion` et `/inscription` vers `/` ;
+  - en-têtes anti-cache de Supabase appliqués.
+- `safeNextPath` : chemin interne uniquement, contrôlé brut, décodé jusqu'à 5 fois, et normalisé.
+- Coquille :
+  - e-mail lu par `getClaims` (signature vérifiée) ;
+  - `SessionGate` comme seconde barrière ;
+  - « Se déconnecter » actif.
+- Tests :
+  - unitaires : redirection, connexion, déconnexion, proxy ;
+  - intégration : lecture par `anon` de chaque table de `public` ;
+  - Playwright sur Supabase local, à deux largeurs.
+- Procédure de relevé `x-vercel-id` dans `docs/environnements.md`.
+
+**Corrigé ou refusé, et pourquoi.**
+- Les tests ont trouvé un contournement de la première version de `safeNextPath` : `/./%2F/exemple.com` devenait `/%2F/exemple.com`, qui se décode en `///exemple.com`. Chaque forme décodée est désormais contrôlée avant et après normalisation.
+- Next.js 16 (`cacheComponents`) refusait `Date.now()`, appelé par `getClaims` pendant le pré-rendu : la lecture de session est déclarée liée à la requête (`connection()`).
+- Le proxy n'appliquait pas les en-têtes `Cache-Control` fournis par `@supabase/ssr` avec les cookies de session. Ce défaut existait depuis la story 1.1. Il est corrigé et testé : une réponse qui pose une session ne doit pas être mise en cache par le CDN.
+- `method="post"` est ajouté aux deux formulaires : un envoi fait avant le chargement du JavaScript ne place plus le mot de passe dans l'URL.
+- Revue :
+  - **Remarque la plus importante : la seconde barrière ne protégeait que l'e-mail, pas le contenu des écrans.** Corrigé par `SessionGate`.
+  - Autres corrections :
+    - journal `sign_in_unconfirmed` ;
+    - limite de débit locale relevée (la suite e2e approchait 30 connexions par 5 min) ;
+    - déconnexion simplifiée (`supabase-js` efface déjà la session locale en cas d'erreur) ;
+    - tests ajoutés : proxy, cookie falsifié, envoi sans JavaScript.
+  - Bilan : 13 remarques corrigées, 4 reportées dans `deferred-work.md` (dont la vérification de session dans chaque Server Action future), 12 rejetées après vérification.
+- Délai de Vitest porté à 30 s : `supabase db query` met environ 6 s par appel, ce qui faisait échouer un test d'intégration de la story 1.3 sans défaut réel.
+
+**Tests.**
+- `npm test` : 157 réussis.
+- `npm run test:e2e` : 93 réussis ; 5 sautés, propres à l'autre largeur.
+- `lint` et `tsc` : 0 erreur.
+- `build:ci` : réussi, aucun secret.
+
+**Durée.**
+- Préparation, contexte de l'épic et fichier de story : de 12:25 à 12:38 (environ).
+- Implémentation et tests : de 12:40 à 12:51.
+- Revue par trois relecteurs, corrections et documentation : de 12:51 à 13:12.
+- Total : environ 45 min, hors validation de l'utilisateur et vérifications sur Vercel.
+
+**Statut.** Story en `review` : en attente du déploiement sur Vercel, du relevé de `x-vercel-id` par l'utilisateur et de sa validation avant commit.

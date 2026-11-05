@@ -13,7 +13,8 @@ export const texts = {
     menuTitle: "Navigation",
     navigationLabel: "Navigation principale",
     signOut: "Se déconnecter",
-    signedOut: "Non connecté",
+    signingOut: "Déconnexion…",
+    accountLabel: "Compte connecté",
   },
   nav: {
     dashboard: "Tableau de bord",
@@ -62,5 +63,25 @@ export const texts = {
       title: "Votre Compte n'a pas pu être ouvert directement.",
       text: "Une confirmation par e-mail est demandée. Si vous recevez un e-mail de NexaMind AI, suivez le lien qu'il contient, puis connectez-vous.",
     },
+  },
+  signIn: {
+    pageTitle: "Connexion",
+    submit: "Se connecter",
+    submitting: "Connexion…",
+    createAccount: "Créer un compte",
+    signedOut: "Vous êtes déconnecté.",
+    retry: "Réessayer",
+    errors: {
+      invalidCredentials: "E-mail ou mot de passe incorrect.",
+      // Absent d'EXPERIENCE.md : texte validé le 2026-11-05 (story 1.4, option A).
+      unexpected: "La connexion n'a pas abouti. Veuillez réessayer dans quelques instants.",
+      networkLost: "Connexion perdue. Vérifiez votre réseau, puis réessayez.",
+    },
+  },
+  notFound: {
+    title: "Page introuvable",
+    text: "Cette page n'existe pas ou ne vous est pas accessible.",
+    backToDashboard: "Retour au Tableau de bord",
+    openAssistant: "Ouvrir l'Assistant",
   },
 } as const;

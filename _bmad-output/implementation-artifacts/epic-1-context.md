@@ -21,7 +21,8 @@ Poser les fondations de NexaMind AI, copilote documentaire interne de NexaWorks 
 - Inscription ouverte, sans confirmation par e-mail (données fictives uniquement) ; mot de passe d'au moins 8 caractères ; session persistante ; message d'erreur de connexion qui ne précise pas le champ fautif ; redirection vers la page demandée uniquement pour un chemin interne.
 - Interface entièrement en français, vouvoiement, textes repris d'un catalogue unique. Accessibilité : parcours au clavier, contraste AA, libellé pour chaque champ, anneau de focus plein de 2 px décalé de 2 px. À 375 px, aucun défilement horizontal.
 - Définition de « terminé » : critères vérifiés, `npm test` vert, aucune régression, `npm run deploy:supabase` réussi si la base ou une Edge Function change, déploiement Vercel réussi, entrée ajoutée à `docs/journal-vibe-coding.md` (objectif, instructions données à l'IA, ce qui a été produit, corrigé ou refusé, tests, durée).
-- Le temps réel passé par story est mesuré après 1.1 à 1.3 ; sous 2 stories par jour ouvré, une correction de trajectoire est préparée avant le 10/11.
+- Le temps réel passé par story est mesuré ; trajectoire du 04/11 : 1.4 clôt l'épic 1 (sauf 1.5 FINITION), point de contrôle le 13/11 au soir.
+- Revue par trois relecteurs réservée aux stories sensibles (migrations RLS/privilèges/`security definer`, traitement asynchrone, Storage, secrets, Assistant, contrôle final). Les stories de l'épic 1 n'y figurent pas : tests, contrôles et vérification manuelle, sauf demande explicite de revue.
 
 ## Technical Decisions
 

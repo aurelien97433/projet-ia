@@ -1,20 +1,33 @@
 "use client";
 
+import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { texts } from "@/lib/texts";
+import { signOutAction } from "@/server/auth/sign-out";
 
-// Inactif tant que la session n'est pas branchée (story 1.4) : visible et focalisable au clavier,
-// en aria-disabled (jamais disabled, pour ne pas perdre le focus).
-export function SignOutButton() {
+function SubmitSignOut() {
+  const { pending } = useFormStatus();
   return (
     <Button
-      type="button"
+      type="submit"
       variant="ghost"
-      aria-disabled="true"
-      onClick={(event) => event.preventDefault()}
-      className="min-h-10 justify-start px-3 text-muted-foreground aria-disabled:cursor-not-allowed"
+      aria-disabled={pending || undefined}
+      // Un second clic pendant l'envoi est ignoré (aria-disabled, jamais disabled).
+      onClick={(event) => {
+        if (pending) event.preventDefault();
+      }}
+      className="min-h-10 w-full justify-start px-3"
     >
-      {texts.shell.signOut}
+      {pending ? texts.shell.signingOut : texts.shell.signOut}
     </Button>
+  );
+}
+
+// « Se déconnecter » (FR-2) : Server Action, puis retour sur la Connexion avec « Vous êtes déconnecté. ».
+export function SignOutButton() {
+  return (
+    <form action={signOutAction}>
+      <SubmitSignOut />
+    </form>
   );
 }

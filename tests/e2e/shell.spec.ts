@@ -1,6 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { texts } from "../../src/lib/texts";
+import { expect, isDesktop, test } from "../support/e2e-auth";
+
+// Coquille des écrans protégés : chaque test part avec la session du Compte du worker.
+test.use({ storageState: async ({ authState }, provide) => provide(authState) });
 
 const RING_COLOR = "rgb(14, 90, 107)"; // {colors.ring} #0E5A6B
 
@@ -11,8 +15,6 @@ const PAGES = [
   { path: "/bibliotheque", title: texts.titles.library },
   { path: "/ajouter", title: texts.titles.addDocument },
 ];
-
-const isDesktop = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
 
 async function expectNoHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -64,7 +66,7 @@ test.describe("coquille commune", () => {
 test.describe("ordinateur (≥ 1 024 px)", () => {
   test.beforeEach(({ page }) => test.skip(!isDesktop(page), "vue ordinateur uniquement"));
 
-  test("barre latérale : « + Ajouter », 4 entrées, entrée active, pied de compte", async ({ page }) => {
+  test("barre latérale : « + Ajouter », 4 entrées, entrée active, pied de compte", async ({ page, account }) => {
     await page.goto("/bibliotheque");
     const sidebar = page.locator("aside");
     await expect(sidebar.getByRole("link", { name: texts.shell.addAction })).toBeVisible();
@@ -73,9 +75,9 @@ test.describe("ordinateur (≥ 1 024 px)", () => {
     }
     await expect(sidebar.getByRole("link", { name: texts.nav.library })).toHaveAttribute("aria-current", "page");
     await expect(sidebar.getByRole("link", { name: texts.nav.dashboard })).not.toHaveAttribute("aria-current", "page");
-    await expect(sidebar.getByText(texts.shell.signedOut)).toBeVisible();
+    await expect(sidebar.getByText(account.email)).toBeVisible();
     const signOut = sidebar.getByRole("button", { name: texts.shell.signOut });
-    await expect(signOut).toHaveAttribute("aria-disabled", "true");
+    await expect(signOut).not.toHaveAttribute("aria-disabled", "true");
     await signOut.focus();
     await expect(signOut).toBeFocused();
     await expect(page.getByRole("button", { name: texts.shell.openMenu })).toBeHidden();
@@ -99,14 +101,15 @@ test.describe("mobile (375 px)", () => {
     await expect(page.locator("aside")).toBeHidden();
   });
 
-  test("menu : s'ouvre, se ferme par Échap, le focus revient sur ☰", async ({ page }) => {
+  test("menu : s'ouvre, se ferme par Échap, le focus revient sur ☰", async ({ page, account }) => {
     await page.goto("/");
     const menuButton = page.getByRole("button", { name: texts.shell.openMenu });
     await menuButton.click();
     const dialog = page.getByRole("dialog", { name: texts.shell.menuTitle });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("link", { name: texts.nav.dashboard })).toHaveAttribute("aria-current", "page");
-    await expect(dialog.getByRole("button", { name: texts.shell.signOut })).toHaveAttribute("aria-disabled", "true");
+    await expect(dialog.getByText(account.email)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: texts.shell.signOut })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(menuButton).toBeFocused();

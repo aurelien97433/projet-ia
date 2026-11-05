@@ -35,12 +35,25 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 | Confirmation de l'e-mail désactivée (Auth, projet distant) | ✔ 2026-11-04, **après correction** : elle était encore active pendant la story 1.3 (événement `mail.send` dans le journal Auth à l'inscription), puis désactivée par l'utilisateur. **Contrôle** : Authentication › Sign In / Providers › Email › « Confirm email » désactivé, puis une inscription sur Vercel doit arriver directement sur le Tableau de bord. Si ce réglage revient, l'écran d'inscription affiche « Votre Compte n'a pas pu être ouvert directement. » et le journal serveur l'événement `sign_up_without_session` |
 | Projet OpenAI dédié créé | ✔ 2026-11-04 |
 | `supabase link` au projet distant (mot de passe de la base saisi dans le terminal) | ✔ 2026-11-04 |
-| Projet Vercel importé, variables publiques définies, premier déploiement | ✔ 2026-11-04 (région d'exécution `fra1` à prouver en story 1.4) |
+| Projet Vercel importé, variables publiques définies, premier déploiement | ✔ 2026-11-04 |
+| Région d'exécution `fra1` prouvée par `x-vercel-id` sur une route dynamique (story 1.4) | **à relever par l'utilisateur** après le déploiement de la story 1.4 : voir « Contrôle de la région d'exécution » |
 | Longueur minimale du mot de passe : 8 caractères (Auth, projet distant) | ✔ 2026-11-04 |
 | Migration `profiles` appliquée au projet distant | ✔ 2026-11-04, par l'utilisateur avec `supabase db push --remote` (l'ancien `deploy:supabase` visait la base locale) ; confirmé le 2026-11-04 par une exécution réussie de `npm run deploy:supabase` corrigé |
 | Crédit prépayé OpenAI de 10 $, sans recharge automatique, alerte à 5 $ | à confirmer avant la story 2.1 |
 | Accès vérifié à `gpt-5.4-mini` et `text-embedding-3-small` | à confirmer avant la story 2.1 |
 | Clé OpenAI posée avec `supabase secrets set` | à faire avant la story 2.1 |
+
+## Contrôle de la région d'exécution (`x-vercel-id`)
+
+Le Tableau de bord d'un Collaborateur connecté est rendu en partie côté serveur (lecture de la session dans la coquille) : sa réponse passe par une fonction Vercel, dont la région figure dans l'en-tête `x-vercel-id`, de forme `<point d'entrée>::<région de la fonction>::<identifiant>`. Une réponse servie sans fonction (fichier statique, redirection du proxy) ne prouve rien.
+
+1. Ouvrir l'URL de **production**, se connecter avec un Compte de démonstration.
+2. Outils de développement › Réseau › cocher « Désactiver le cache », recharger `/`.
+3. Sélectionner la requête du document `/` (type « document », statut 200), onglet En-têtes › En-têtes de réponse : relever `x-vercel-id`.
+4. Attendu : le segment **avant l'identifiant final** est `fra1` (ex. `cdg1::fra1::…`). Le premier segment (point d'entrée du réseau) peut être une autre région : il dépend de l'emplacement du navigateur.
+5. Si la région de la fonction n'est pas `fra1` : vérifier Vercel › Settings › Functions › Function Region, et `vercel.json` (`"regions": ["fra1"]`), puis redéployer. La story 1.4 n'est pas close avant ce relevé.
+
+Résultat : *à consigner ici (date, valeur relevée de `x-vercel-id`, identifiant final masqué).*
 
 ## Secrets et variables (noms seulement)
 
