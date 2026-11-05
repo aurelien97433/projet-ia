@@ -36,7 +36,7 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 | Projet OpenAI dédié créé | ✔ 2026-11-04 |
 | `supabase link` au projet distant (mot de passe de la base saisi dans le terminal) | ✔ 2026-11-04 |
 | Projet Vercel importé, variables publiques définies, premier déploiement | ✔ 2026-11-04 |
-| Région d'exécution `fra1` prouvée par `x-vercel-id` sur une route dynamique (story 1.4) | **à relever par l'utilisateur** après le déploiement de la story 1.4 : voir « Contrôle de la région d'exécution » |
+| Région d'exécution `fra1` prouvée par `x-vercel-id` sur une requête exécutée par une fonction (story 1.4) | ✔ 2026-11-05 : POST `connexion` en production, `…::fra1::<id>`, `x-vercel-cache: BYPASS` |
 | Longueur minimale du mot de passe : 8 caractères (Auth, projet distant) | ✔ 2026-11-04 |
 | Migration `profiles` appliquée au projet distant | ✔ 2026-11-04, par l'utilisateur avec `supabase db push --remote` (l'ancien `deploy:supabase` visait la base locale) ; confirmé le 2026-11-04 par une exécution réussie de `npm run deploy:supabase` corrigé |
 | Crédit prépayé OpenAI de 10 $, sans recharge automatique, alerte à 5 $ | à confirmer avant la story 2.1 |
@@ -45,15 +45,19 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 
 ## Contrôle de la région d'exécution (`x-vercel-id`)
 
-Le Tableau de bord d'un Collaborateur connecté est rendu en partie côté serveur (lecture de la session dans la coquille) : sa réponse passe par une fonction Vercel, dont la région figure dans l'en-tête `x-vercel-id`, de forme `<point d'entrée>::<région de la fonction>::<identifiant>`. Une réponse servie sans fonction (fichier statique, redirection du proxy) ne prouve rien.
+L'en-tête `x-vercel-id` liste les étapes de la requête sur le réseau de Vercel, puis la région de la fonction qui l'a exécutée, avant l'identifiant final. Exemple : `cpt1:cpt1:fra1::fra1::<id>`. Une réponse servie **sans fonction** ne porte que le point d'entrée (`cpt1::<id>`) et ne prouve rien. C'est le cas d'un fichier statique, ou de la coquille d'une page en pré-rendu partiel servie depuis le cache : `x-vercel-cache: HIT` ou `PRERENDER`, en-tête `Age` non nul.
 
-1. Ouvrir l'URL de **production**, se connecter avec un Compte de démonstration.
-2. Outils de développement › Réseau › cocher « Désactiver le cache », recharger `/`.
-3. Sélectionner la requête du document `/` (type « document », statut 200), onglet En-têtes › En-têtes de réponse : relever `x-vercel-id`.
-4. Attendu : le segment **avant l'identifiant final** est `fra1` (ex. `cdg1::fra1::…`). Le premier segment (point d'entrée du réseau) peut être une autre région : il dépend de l'emplacement du navigateur.
-5. Si la région de la fonction n'est pas `fra1` : vérifier Vercel › Settings › Functions › Function Region, et `vercel.json` (`"regions": ["fra1"]`), puis redéployer. La story 1.4 n'est pas close avant ce relevé.
+1. Ouvrir l'URL de **production**, puis se déconnecter.
+2. Outils de développement › Réseau : cocher « Désactiver le cache » et « Conserver le journal », filtrer sur **Fetch/XHR**.
+3. Se connecter, puis sélectionner la requête **POST `connexion`** (Server Action, toujours exécutée par une fonction). Relever, dans les en-têtes de réponse, `x-vercel-id` et `x-vercel-cache`.
+4. Attendu : `fra1` comme **dernier segment avant l'identifiant final**, et `x-vercel-cache: BYPASS`. Les premiers segments (points d'entrée du réseau) dépendent de l'emplacement du navigateur.
+5. Si la région de la fonction n'est pas `fra1` : vérifier Vercel › Settings › Functions › Function Region et `vercel.json` (`"regions": ["fra1"]`), puis redéployer.
 
-Résultat : *à consigner ici (date, valeur relevée de `x-vercel-id`, identifiant final masqué).*
+Ne pas relever le document `/` : sa coquille statique peut venir du cache (`Age` non nul) sans passer par une fonction.
+
+Résultats (production, commit `615a53e`, 2026-11-05, relevés par l'utilisateur) :
+- Document `/` : `cpt1::<id>`, avec `Age: 177`. Réponse servie depuis le cache, sans fonction : ne prouve pas la région.
+- **POST `connexion`** (exécuté par une fonction) : `x-vercel-id: cpt1:cpt1:fra1::fra1::<id>`, `x-vercel-cache: BYPASS`. **Région d'exécution `fra1` prouvée.** Réserve de la story 1.1 levée.
 
 ## Secrets et variables (noms seulement)
 

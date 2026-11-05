@@ -2,7 +2,7 @@
 title: 'Story 1.4 : Se connecter, se déconnecter et protéger les pages'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'e030969a6b262365b2fcf44a34f3616bc222ecfe'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -94,7 +94,7 @@ context:
 - [x] `tests/unit/safe-redirect.test.ts`, `sign-in.test.ts` -- toutes les lignes de la matrice qui portent sur la redirection et sur les erreurs.
 - [x] `tests/integration/anon-access.test.ts` -- liste des tables de `public`, puis lecture par `anon` avec la clé publique : vide ou refus.
 - [x] `tests/e2e/connexion.spec.ts` + adaptation de `shell`, `smoke` et `inscription` -- connexion, erreur, `suite` interne et externe, protection, déconnexion, persistance (nouveau contexte avec l'état de stockage), E9, e-mail dans la coquille, axe à 1 280 et 375 px.
-- [ ] `docs/environnements.md` -- procédure et résultat du contrôle `x-vercel-id`. La procédure est écrite. Le résultat sera consigné après le relevé de l'utilisateur sur Vercel.
+- [x] `docs/environnements.md` -- procédure et résultat du contrôle `x-vercel-id` (relevé du 2026-11-05 sur le POST `connexion`, `fra1`).
 
 **Acceptance Criteria:**
 - Given les tests existants, when `npm test`, `npm run test:e2e`, `npm run lint` et `npm run build:ci` sont lancés, then tout passe.
@@ -112,7 +112,7 @@ Le proxy est la première barrière, et la coquille la seconde : `SessionGate` (
 - `npm run lint`, `npx tsc --noEmit`, `npm run build:ci` -- expected: 0 erreur, aucun secret.
 
 **Manual checks (if no CLI):**
-- Sur Vercel, connecté, ouvrir `/` dans l'onglet Réseau des outils de développement : l'en-tête `x-vercel-id` du document contient `::fra1::`.
+- Sur Vercel, relever `x-vercel-id` d'une requête exécutée par une fonction (POST `connexion`, `x-vercel-cache: BYPASS`) : il contient `fra1` avant l'identifiant final. Le document `/` peut venir du cache et ne prouve rien.
 
 ## Implementation Notes
 
@@ -184,3 +184,9 @@ Revue du 2026-11-05 : trois relecteurs (sans contexte, cas limites, vérificatio
 | 27 | `smoke.spec.ts` testait la Connexion sous le nom « page d'accueil » | low | redirection du proxy | patch : test renommé et précisé |
 | 28 | Aucune intégration continue | low | aucun dossier `.github/workflows` dans le dépôt | reject (hors story) |
 | 29 | Le diff omet la story et `sprint-status.yaml` | false | exclus volontairement du diff de code | reject |
+
+**Clôture (2026-11-05) :**
+- Commit `615a53e` poussé sur `main`. Le statut Vercel du commit est « Deployment has completed ».
+- Premier relevé, sur le document `/` : `cpt1::<id>`, avec `Age: 177`. La réponse venait du cache, sans fonction, et ne prouvait rien. La procédure désignait la mauvaise requête : elle est corrigée dans `docs/environnements.md`.
+- Relevé retenu, sur le POST `connexion` (exécuté par une fonction) : `cpt1:cpt1:fra1::fra1::<id>`, avec `x-vercel-cache: BYPASS`. Région `fra1` prouvée, réserve de la story 1.1 levée.
+- Story passée à `done` à la demande de l'utilisateur.

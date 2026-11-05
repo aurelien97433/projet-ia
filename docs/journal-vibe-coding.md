@@ -268,4 +268,15 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Revue par trois relecteurs, corrections et documentation : de 12:51 à 13:12.
 - Total : environ 45 min, hors validation de l'utilisateur et vérifications sur Vercel.
 
-**Statut.** Story en `review` : en attente du déploiement sur Vercel, du relevé de `x-vercel-id` par l'utilisateur et de sa validation avant commit.
+**Déploiement.** Commit `615a53e` poussé sur `main` après validation de l'utilisateur. Statut Vercel : « Deployment has completed ». Le suivi du déploiement par l'IA a d'abord échoué : l'outil `gh` n'est pas installé, et une boucle d'attente a tourné 10 min pour rien. Le statut a ensuite été lu par l'API publique de GitHub.
+
+**Relevé de la région `fra1` (utilisateur).**
+- Premier relevé, sur le document `/` : `cpt1::<id>`, sans segment de fonction, avec `Age: 177`.
+  - La coquille statique du pré-rendu partiel venait du cache.
+  - **Erreur de l'IA** : la procédure désignait cette requête comme preuve.
+- Second relevé, sur le POST `connexion` (Server Action, toujours exécutée par une fonction) : `cpt1:cpt1:fra1::fra1::<id>`, avec `x-vercel-cache: BYPASS`.
+  - **Région `fra1` prouvée.** Réserve de la story 1.1 levée.
+  - La procédure de `docs/environnements.md` est corrigée.
+- **Leçon.** Une preuve d'exécution serveur doit porter sur une requête qui passe forcément par une fonction (`x-vercel-cache: BYPASS`), pas sur une page qui peut venir du cache.
+
+**Statut final.** Story 1.4 passée à `done` le 2026-11-05, après la vérification de l'utilisateur. L'Epic 1 reste `in-progress` : la story 1.5 (FINITION) est en `backlog`, planifiée après E4.
