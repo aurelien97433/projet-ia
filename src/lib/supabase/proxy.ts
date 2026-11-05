@@ -39,6 +39,12 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const signedIn = Boolean(data?.claims?.sub);
 
+  // Server Action : jamais redirigée. Une redirection 307 rejouerait le POST sur /connexion et le
+  // navigateur recevrait une page au lieu du résultat. Chaque action vérifie la session elle-même
+  // (requireUser) et répond UNAUTHENTICATED avec le message de session expirée ; la RLS protège
+  // les données.
+  if (request.method === "POST" && request.headers.has("next-action")) return response;
+
   const target = accessRedirect(request.nextUrl.pathname, request.nextUrl.search, signedIn);
   if (!target) return response;
 

@@ -68,6 +68,21 @@ describe("updateSession", () => {
     expect(response.headers.get("cache-control")).toBe(NO_STORE);
   });
 
+  it("Server Action sans session : transmise sans redirection (l'action répond UNAUTHENTICATED)", async () => {
+    const action = new NextRequest(new URL("/ajouter", "http://nexamind.test"), {
+      method: "POST",
+      headers: { "next-action": "abc123" },
+    });
+    const response = await updateSession(action);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("POST ordinaire sans session (pas une Server Action) : toujours redirigé", async () => {
+    const post = new NextRequest(new URL("/ajouter", "http://nexamind.test"), { method: "POST" });
+    expect((await updateSession(post)).status).toBe(307);
+  });
+
   it("session valide sans rafraîchissement : aucun cookie posé", async () => {
     state.sub = "u1";
     const response = await updateSession(request("/bibliotheque"));

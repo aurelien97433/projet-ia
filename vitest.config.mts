@@ -13,7 +13,8 @@ export default defineConfig({
     environment: "node",
     include: ["tests/unit/**/*.test.ts", "tests/integration/**/*.test.ts"],
     // Les tests d'intégration interrogent Supabase local, parfois par la CLI (plusieurs secondes par
-    // appel) : le délai par défaut de 5 s les fait échouer sans défaut réel.
-    testTimeout: 30_000,
+    // appel, davantage quand plusieurs fichiers l'appellent en parallèle) : le délai par défaut de 5 s
+    // les fait échouer sans défaut réel.
+    testTimeout: 60_000,
   },
 });

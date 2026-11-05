@@ -10,6 +10,9 @@ import {
   missingRemoteMigrations,
   parseCliJson,
   readLinkedProjectRef,
+  runDeploy,
+  DeployError,
+  type CliRun,
 } from "../../scripts/deploy-supabase";
 
 const REF = "abcdefghijklmnopqrst";
@@ -133,5 +136,118 @@ describe("contrôle des migrations distantes", () => {
   it("ne signale rien quand toutes les migrations sont appliquées", () => {
     const output = { migrations: [{ local: "20261104094731", remote: "20261104094731" }] };
     expect(missingRemoteMigrations(["20261104094731"], output)).toEqual([]);
+  });
+});
+
+// Déploiement complet avec une CLI simulée. Comme la vraie CLI face à un projet hébergé, elle
+// refuse d'appliquer une migration en attente sans --yes quand aucun terminal ne peut confirmer
+// (échec du 2026-11-05 : « supabase db push a échoué », sans autre détail).
+describe("déploiement complet (CLI simulée)", () => {
+  let dir: string;
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const linked = (extra: Record<string, unknown> = {}): CliRun => {
+    const output = { ...extra, target: { kind: "linked", project_ref: REF, project_name: "projet-ia" } };
+    return { ok: true, output, raw: JSON.stringify(output) };
+  };
+  const cliError = (code: string, message: string): CliRun => {
+    const output = { _tag: "Error", error: { code, message } };
+    return { ok: false, output, raw: JSON.stringify(output) };
+  };
+
+  function project(migrations: string[], functions: string[] = []) {
+    dir = mkdtempSync(path.join(tmpdir(), "deploy-"));
+    mkdirSync(path.join(dir, ".temp"));
+    writeFileSync(path.join(dir, ".temp", "project-ref"), REF);
+    mkdirSync(path.join(dir, "migrations"));
+    for (const version of migrations) writeFileSync(path.join(dir, "migrations", `${version}_m.sql`), "");
+    for (const name of functions) {
+      mkdirSync(path.join(dir, "functions", name), { recursive: true });
+      writeFileSync(path.join(dir, "functions", name, "index.ts"), "");
+    }
+    return dir;
+  }
+
+  // Projet distant simulé : applique les migrations en attente seulement avec --yes.
+  function fakeCli(local: string[], remoteBefore: string[]) {
+    const calls: string[][] = [];
+    const remote = new Set(remoteBefore);
+    const cli = (args: string[]): CliRun => {
+      calls.push(args);
+      const [command, sub] = args;
+      if (command === "db" && sub === "push") {
+        const pending = local.filter((version) => !remote.has(version));
+        if (pending.length > 0 && !args.includes("--yes")) {
+          return cliError("ConfirmationRequired", "hosted changes only accept --yes or SUPABASE_YES");
+        }
+        for (const version of pending) remote.add(version);
+        return linked({ migrations: pending });
+      }
+      if (command === "migration") return linked({ migrations: local.map((v) => ({ local: v, remote: remote.has(v) ? v : "" })) });
+      if (command === "functions") return linked();
+      throw new Error(`commande inattendue : ${args.join(" ")}`);
+    };
+    return { cli, calls };
+  }
+
+  it("migration en attente : appliquée avec --yes, vérifiée à distance, fonctions déployées par nom", () => {
+    const local = ["20261104094731", "20261105105410"];
+    const { cli, calls } = fakeCli(local, ["20261104094731"]);
+    const lines: string[] = [];
+    runDeploy(project(local, ["process-document", "ai-health"]), cli, (line) => lines.push(line));
+
+    expect(calls).toEqual([
+      ["db", "push", `--remote=${REF}`, "--yes"],
+      ["migration", "list", `--remote=${REF}`],
+      ["functions", "deploy", "process-document", `--remote=${REF}`, "--yes"],
+    ]);
+    expect(lines.at(-1)).toBe(`deploy:supabase — terminé sur le projet distant ${REF}.`);
+  });
+
+  it("sans migration en attente ni fonction : succès, aucun déploiement de fonction", () => {
+    const local = ["20261104094731"];
+    const { cli, calls } = fakeCli(local, local);
+    runDeploy(project(local), cli, () => {});
+    expect(calls.map((args) => args[0])).toEqual(["db", "migration"]);
+  });
+
+  it("échec de la CLI : message d'erreur de la CLI affiché, identifiants d'URL masqués", () => {
+    const failing = (): CliRun =>
+      cliError("DbConnectError", "failed to connect to postgres://postgres.abcd:motdepasse@aws-0.pooler.supabase.com:6543/postgres");
+    let message = "";
+    try {
+      runDeploy(project(["20261104094731"]), failing, () => {});
+    } catch (error) {
+      expect(error).toBeInstanceOf(DeployError);
+      message = (error as Error).message;
+    }
+    expect(message).toContain("supabase db push a échoué");
+    expect(message).toContain("DbConnectError : failed to connect to postgres://***@aws-0.pooler.supabase.com");
+    expect(message).not.toContain("motdepasse");
+  });
+
+  it("sortie non JSON en échec : début de la sortie, masqué", () => {
+    const failing = (): CliRun => ({ ok: false, output: null, raw: "Error: connect postgres://u:secret@h/db refused" });
+    expect(() => runDeploy(project(["20261104094731"]), failing, () => {})).toThrow(/postgres:\/\/\*\*\*@h\/db refused/);
+  });
+
+  it("migration toujours absente du projet distant après le push : échec nommant la version", () => {
+    const local = ["20261104094731", "20261105105410"];
+    const cli = (args: string[]): CliRun =>
+      args[0] === "migration" ? linked({ migrations: [{ local: local[0], remote: local[0] }] }) : linked();
+    expect(() => runDeploy(project(local), cli, () => {})).toThrow("migrations absentes du projet distant : 20261105105410.");
+  });
+
+  it("push qui vise la base locale : échec, même si la CLI répond « succès »", () => {
+    const cli = (): CliRun => ({ ok: true, output: parseCliJson(LOCAL_PUSH_OUTPUT), raw: LOCAL_PUSH_OUTPUT });
+    expect(() => runDeploy(project(["20261104094731"]), cli, () => {})).toThrow(/base locale/);
+  });
+
+  it("aucun projet lié : échec explicite, aucune commande lancée", () => {
+    dir = mkdtempSync(path.join(tmpdir(), "deploy-"));
+    const cli = () => {
+      throw new Error("ne doit pas être appelée");
+    };
+    expect(() => runDeploy(dir, cli, () => {})).toThrow(/aucun projet distant lié/);
   });
 });

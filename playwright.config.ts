@@ -9,6 +9,10 @@ const supabase = localSupabase();
 
 export default defineConfig({
   testDir: "tests/e2e",
+  // Serveur de développement : chaque route est compilée à son premier appel, ce qui peut prendre
+  // plusieurs secondes quand deux workers tournent en parallèle.
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   use: { baseURL: `http://localhost:${PORT}` },
   // Deux largeurs de référence (NFR-6) : ordinateur 1 280 px et mobile 375 px.
   projects: [
@@ -16,7 +20,10 @@ export default defineConfig({
     { name: "mobile-375", use: { ...devices["Desktop Chrome"], viewport: { width: 375, height: 812 } } },
   ],
   webServer: {
-    command: `npx next dev -p ${PORT}`,
+    // Build de production plutôt que `next dev` : sans compilation à la demande, les pages ne sont
+    // plus rechargées pendant que deux workers testent en parallèle (échecs constatés en story 2.2).
+    // Les variables publiques locales sont incorporées au build ; elles priment sur .env.local.
+    command: `npx next build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     env: {
       NEXT_DIST_DIR: ".next-e2e",
@@ -25,6 +32,6 @@ export default defineConfig({
     },
     // Jamais de réutilisation : un serveur déjà présent sur ce port pourrait viser le projet distant.
     reuseExistingServer: false,
-    timeout: 120_000,
+    timeout: 300_000,
   },
 });

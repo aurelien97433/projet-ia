@@ -343,3 +343,80 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
   - Le même cas est testé pendant la vérification des modèles.
 - **Secret distant.** `supabase secrets list` affiche `OPENAI_API_KEY` avec une empreinte seulement (vérifié par l'utilisateur).
 - **Statut final.** Story 2.1 passée à `done` le 2026-11-05. Le fonctionnement de la clé distante sera prouvé au premier traitement réel (story 2.4).
+
+## Story 2.2 — Créer une Note (2026-11-05)
+
+**Objectif.** Un Collaborateur crée une Note (titre, Catégorie, texte) et arrive sur la page du Document, *en cours de traitement*. La table `documents` est protégée par la RLS et par des privilèges par colonne.
+
+**Instructions clés données à l'IA.**
+- Workflow `bmad-build`, story 2.2 uniquement, sans commencer la 2.3.
+- Fichier de story et plan présentés avant le code.
+- Points imposés :
+  - chaque Server Action protégée vérifie la session ;
+  - RLS et privilèges limités, Statut non modifiable, vue en `security_invoker` ;
+  - idempotence par `client_request_id` ;
+  - une seule création en cas de double clic ;
+  - limite de 1 000 000 octets avec un message clair ;
+  - tests RLS à deux Comptes et `anon` sans accès.
+- Décisions à l'approbation :
+  - seul l'onglet « Note » existe avant 2.6a ;
+  - message « Le texte dépasse 1 Mo, la taille maximale. » ;
+  - spec gardée entière.
+- Précisions de l'utilisateur :
+  - `author_id` vient de `auth.uid()`, et la politique `INSERT` le vérifie ;
+  - un appel direct ne peut forcer aucun champ système ;
+  - un rejeu ne renvoie jamais le Document d'un autre Auteur ;
+  - aucune donnée sensible dans les journaux.
+- Revue ciblée sur la sécurité et la RLS, sans relecteurs.
+
+**Ce que l'IA a produit.**
+- Migration `documents` :
+  - types énumérés et contraintes ;
+  - `revoke all`, puis `GRANT` par colonne ;
+  - politiques `to authenticated` ;
+  - vue `documents_list` en `security_invoker`, avec un Statut effectif à 3 min.
+- `requireUser()`, schéma `zod` (texte canonique, octets UTF-8), création idempotente.
+- Page `/ajouter` (onglet Note) :
+  - verrou contre le double clic ;
+  - focus sur le premier champ manquant ;
+  - alerte avec « Réessayer » en cas de panne ou après 10 s ;
+  - dialogue « Abandonner ce Document ? ».
+- Page `/documents/[id]` minimale : métadonnées, badge, texte brut, squelette de chargement.
+- Tests :
+  - unitaires ;
+  - RLS à deux Comptes, avec les privilèges SQL réels (32 tests) ;
+  - Playwright (24 tests).
+
+**Corrigé ou refusé, et pourquoi.**
+- **Défaut trouvé par les tests : sauts de ligne.** L'envoi d'un formulaire convertit `\n` en `\r\n`, si bien qu'une Note de 1 000 000 octets acceptée par le navigateur était refusée par le serveur. Le texte est désormais rendu canonique (AD-8) avant toute mesure.
+- **Défaut trouvé par la revue : session expirée.** Sans session, une Server Action était redirigée par le proxy, et le formulaire affichait « Le Document n'a pas pu être enregistré » avec un « Réessayer » sans issue. Le proxy laisse maintenant passer les Server Actions, qui vérifient elles-mêmes la session (`requireUser`). Le message affiché est désormais « Votre session a expiré. ». Ce point était reporté depuis la story 1.4.
+- **Next.js 16 (`cacheComponents`).**
+  - La page Document exige `connection()` et une frontière `Suspense` : c'est le `loading.tsx`, qui sert aussi de squelette prévu par l'UX.
+  - Pour un Document inconnu, E9 s'affiche (avec `noindex`), mais le statut reste 200 et non 404 : la réponse est déjà en flux. C'est un écart avec la spec, signalé.
+- **Tests e2e instables.** Avec la nouvelle route, `next dev` recompilait les routes et rechargeait les pages pendant les tests parallèles : 31 à 35 échecs, en plus de 11 min. Le passage à un build de production pour `test:e2e` donne 117 tests réussis en 1 min.
+- **Rejetés après examen :**
+  - texte non canonique stocké par un appel direct : `process-document` le reconstruira en 2.4 ;
+  - volume de Notes permis par l'inscription ouverte : à surveiller en 2.7.
+
+**Tests.**
+- `npm test` : 255 réussis.
+- `npm run test:e2e` : 117 réussis ; 5 sautés.
+- `lint` et `tsc` : 0 erreur.
+- `build:ci` et `check:secrets` : verts.
+
+**Durée.**
+- Spec et plan : de 14:48 à 15:00.
+- Implémentation et tests de la story : de 15:00 à 15:45.
+- Stabilisation de la suite e2e, en grande partie des exécutions longues attendues : de 15:45 à 16:50.
+- Revue ciblée, corrections et documentation : de 16:50 à 17:05.
+- Total : environ 2 h 15, dont environ 1 h liée à l'instabilité de `next dev` en test.
+
+**Validation et migration distante.**
+- **Validation.** L'utilisateur valide la story et accepte l'écart du statut 200 (consigné dans `deferred-work.md`).
+- **Échec de `npm run deploy:supabase`.** Il échouait avec seulement « supabase db push a échoué ». L'utilisateur a appliqué la migration avec `supabase db push --remote`, puis le script a réussi.
+  - Cause : la CLI exige `--yes` pour appliquer une migration en attente sur un projet hébergé sans terminal interactif. Le script jetait la sortie JSON qui contenait l'erreur.
+  - Correction : `--yes` sur `db push` et `functions deploy`, erreur de la CLI affichée (identifiants masqués), tests avec une CLI simulée.
+- **Leçon (déjà notée en 1.3, à nouveau).** Les chemins d'échec d'un script de déploiement doivent être testés autant que le chemin de succès. Le scénario « migration en attente » n'avait jamais été joué : la première migration avait été appliquée à la main.
+- **Durée de la correction** : de 17:05 à 17:15.
+
+**Statut.** Commit et push après validation. Story en `review` jusqu'à la vérification de l'utilisateur en production.

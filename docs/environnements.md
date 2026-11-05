@@ -19,11 +19,11 @@ Les scripts qui écrivent sur le projet distant (test de charge, mesures, tests 
 |---|---|
 | `npm run check:env` | Vérifie Docker et la CLI Supabase 3.0.0 |
 | `npm test` | Tests Vitest (unitaires, puis intégration sur Supabase local) |
-| `npm run test:e2e` | Tests Playwright sur **Supabase local** (à démarrer avant) : serveur Next.js dédié sur le port 3100, dossier `.next-e2e`, variables publiques locales lues à l'exécution ; aucun accès au projet distant. Une fois par poste : `npx playwright install chromium` |
+| `npm run test:e2e` | Tests Playwright sur **Supabase local** (à démarrer avant) : build de production dédié (`next build` puis `next start`, port 3100, dossier `.next-e2e`), avec les variables publiques locales lues à l'exécution ; aucun accès au projet distant. Le build évite les rechargements de `next dev` pendant les tests parallèles (story 2.2). Une fois par poste : `npx playwright install chromium` |
 | `npm run check:secrets` | Cherche des formats de clés dans le dépôt ; `-- --static` dans `.next/static` |
 | `npm run test:ai` | Seul test réel de l'IA : appelle la fonction **locale** `ai-health` (Supabase local démarré, clé dans `supabase/functions/.env`). Vérifie l'accès aux deux modèles (gratuit) et la dimension 1 536 (un embedding de « Bonjour »). Jamais lancé par `npm test` |
 | `npm run build:ci` | Contrôle des secrets, `next build`, contrôle du code envoyé au navigateur (commande de build Vercel) |
-| `npm run deploy:supabase` | Sur le **projet distant lié** uniquement : `db push --remote=<référence>`, contrôle de la cible dans la sortie de la CLI (échec si elle vise la base locale), contrôle des migrations présentes à distance (`migration list --remote`), puis `functions deploy <noms> --remote=<référence>` pour les Edge Functions déployables (noms explicites, `ai-health` exclue car locale). La CLI 3 vise la base locale par défaut : ne jamais lancer `supabase db push` sans `--remote` pour le projet distant |
+| `npm run deploy:supabase` | Sur le **projet distant lié** uniquement : `db push --remote=<référence> --yes` (la CLI exige `--yes` pour appliquer une migration en attente sans terminal interactif ; en cas d'échec, le message de la CLI est affiché, identifiants masqués), contrôle de la cible dans la sortie de la CLI (échec si elle vise la base locale), contrôle des migrations présentes à distance (`migration list --remote`), puis `functions deploy <noms> --remote=<référence>` pour les Edge Functions déployables (noms explicites, `ai-health` exclue car locale). La CLI 3 vise la base locale par défaut : ne jamais lancer `supabase db push` sans `--remote` pour le projet distant |
 
 ## Prérequis
 

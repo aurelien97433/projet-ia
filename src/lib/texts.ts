@@ -78,6 +78,58 @@ export const texts = {
       networkLost: "Connexion perdue. Vérifiez votre réseau, puis réessayez.",
     },
   },
+  session: {
+    expired: "Votre session a expiré. Reconnectez-vous pour continuer.",
+  },
+  addDocument: {
+    noteTab: "Note",
+    titleLabel: "Titre",
+    categoryLabel: "Catégorie",
+    categoryPlaceholder: "Choisir une Catégorie",
+    textLabel: "Texte",
+    submit: "Enregistrer",
+    submitting: "Enregistrement…",
+    cancel: "Annuler",
+    retry: "Réessayer",
+    errors: {
+      titleMissing: "Indiquez un titre.",
+      // Le catalogue ne fixe que 200 caractères au plus (§6) : texte ajouté le 2026-11-05.
+      titleTooLong: "Le titre doit contenir au plus 200 caractères.",
+      categoryMissing: "Choisissez une Catégorie.",
+      textMissing: "Le texte ne peut pas être vide.",
+      // Absent d'EXPERIENCE.md pour une Note : texte validé le 2026-11-05 (story 2.2, option A).
+      textTooLarge: "Le texte dépasse 1 Mo, la taille maximale.",
+      saveFailed: "Le Document n'a pas pu être enregistré. Votre saisie est conservée.",
+    },
+    abandon: {
+      title: "Abandonner ce Document ?",
+      text: "Votre saisie sera perdue.",
+      keep: "Continuer la saisie",
+      confirm: "Abandonner",
+    },
+  },
+  document: {
+    added: "Document ajouté. Traitement en cours.",
+    categoryLabel: "Catégorie",
+    authorLabel: "Auteur",
+    addedOnLabel: "Ajouté le",
+    statusLabel: "Statut de traitement",
+    textLabel: "Texte du Document",
+  },
+  categories: {
+    procedure: "Procédure",
+    faq: "FAQ",
+    meeting_note: "Note de réunion",
+    project_sheet: "Fiche projet",
+    client_report: "Compte rendu client",
+    business_resource: "Ressource métier",
+    other: "Autre",
+  },
+  status: {
+    ready: "prêt",
+    processing: "en cours de traitement",
+    error: "en erreur",
+  },
   notFound: {
     title: "Page introuvable",
     text: "Cette page n'existe pas ou ne vous est pas accessible.",

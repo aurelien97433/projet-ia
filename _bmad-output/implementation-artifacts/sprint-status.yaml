@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-05-2026 14:40
+last_updated: 11-05-2026 17:05
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -45,7 +45,7 @@ development_status:
 
   epic-2: in-progress
   2-1-préparer-l-accès-à-l-ia-prérequis: done  # P0 · dépend de : 1.1
-  2-2-créer-une-note: backlog  # P0 · dépend de : 1.4
+  2-2-créer-une-note: review  # P0 · dépend de : 1.4
   2-3-déclencher-le-traitement-et-suivre-le-statut: backlog  # P0 · dépend de : 2.2
   2-4-traiter-une-note-jusqu-à-prêt: backlog  # P0 · dépend de : 2.1, 2.3
   2-5-erreurs-de-traitement-expiration-et-relance: backlog  # P0 · dépend de : 2.4

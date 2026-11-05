@@ -53,7 +53,8 @@ export const test = base.extend<object, { account: Account; authState: StorageSt
       await use(await context.storageState());
       await context.close();
     },
-    { scope: "worker" },
+    // Première connexion : compile à froid /connexion, la Server Action et le Tableau de bord.
+    { scope: "worker", timeout: 120_000 },
   ],
 });
 

@@ -89,11 +89,26 @@ export function missingRemoteMigrations(local: string[], output: Record<string, 
   return local.filter((version) => !remote.has(version));
 }
 
+// Erreur rapportée par la CLI dans sa sortie JSON : {"_tag":"Error","error":{"code","message"}}
+// (forme relevée avec la CLI 3.0.0), ou un champ message. Masquée comme describeOutput.
+export function cliErrorDetails(run: CliRun): string {
+  const error = run.output?.error as { code?: unknown; message?: unknown } | undefined;
+  const message = typeof error?.message === "string" ? error.message : run.output?.message;
+  const code = typeof error?.code === "string" ? `${error.code} : ` : "";
+  return typeof message === "string" && message ? describeOutput(`${code}${message}`) : describeOutput(run.raw);
+}
+
+export type CliRun = { ok: boolean; output: Record<string, unknown> | null; raw: string };
+export type Cli = (args: string[]) => CliRun;
+
+export class DeployError extends Error {}
+
 // Lance la CLI : stdin et stderr dans le terminal (invites, ligne « Target: »), stdout capturé.
 // --output-format json force la sortie JSON même dans un terminal interactif, où la CLI écrit
 // sinon du texte (cause de l'échec « n'a pas indiqué sa cible » du 2026-11-04).
-function runCli(args: string[]): { ok: boolean; output: Record<string, unknown> | null; raw: string } {
-  // Commande en une seule chaîne via le shell (exécutable .cmd de Windows) ; arguments constants.
+function runCli(args: string[]): CliRun {
+  // Commande en une seule chaîne via le shell (exécutable .cmd de Windows) ; arguments constants
+  // ou noms de fonctions filtrés par listFunctions.
   const result = spawnSync([SUPABASE_BIN, ...args, "--output-format", "json"].join(" "), {
     stdio: ["inherit", "pipe", "inherit"],
     encoding: "utf8",
@@ -103,50 +118,61 @@ function runCli(args: string[]): { ok: boolean; output: Record<string, unknown> 
   return { ok: result.status === 0, output: parseCliJson(raw), raw };
 }
 
-function checkTarget(run: { output: Record<string, unknown> | null; raw: string }, projectRef: string): void {
+function checkTarget(run: CliRun, projectRef: string): void {
   try {
     assertRemoteTarget(run.output, projectRef);
   } catch (error) {
-    fail(`${(error as Error).message} Sortie reçue : ${describeOutput(run.raw)}`);
+    throw new DeployError(`${(error as Error).message} Sortie reçue : ${describeOutput(run.raw)}`);
   }
 }
 
-function fail(message: string): never {
-  console.error(`deploy:supabase — échec : ${message}`);
-  process.exit(1);
+function runChecked(cli: Cli, args: string[], label: string): CliRun {
+  const run = cli(args);
+  if (!run.ok) throw new DeployError(`${label} a échoué. Erreur de la CLI : ${cliErrorDetails(run)}`);
+  return run;
 }
 
-function main(): void {
-  const supabaseDir = path.join(process.cwd(), "supabase");
+// Déploiement complet sur le projet lié. --yes : la CLI demande confirmation avant d'appliquer une
+// migration en attente ou de déployer une fonction sur un projet hébergé, et refuse sans terminal
+// interactif (« hosted changes only accept this flag »), cause de l'échec du 2026-11-05. Lancer
+// deploy:supabase vaut décision : la cible reste contrôlée avant (projet lié) et après (sortie JSON).
+export function runDeploy(supabaseDir: string, cli: Cli, log: (line: string) => void = console.log): void {
   const projectRef = readLinkedProjectRef(supabaseDir);
   if (!projectRef) {
-    fail("aucun projet distant lié. Lancez d'abord : npx supabase link --project-ref <référence du projet>");
+    throw new DeployError("aucun projet distant lié. Lancez d'abord : npx supabase link --project-ref <référence du projet>");
   }
   const remote = `--remote=${projectRef}`;
 
-  console.log(`deploy:supabase — application des migrations sur le projet distant ${projectRef}…`);
-  const push = runCli(["db", "push", remote]);
-  if (!push.ok) fail("supabase db push a échoué.");
+  log(`deploy:supabase — application des migrations sur le projet distant ${projectRef}…`);
+  const push = runChecked(cli, ["db", "push", remote, "--yes"], "supabase db push");
   checkTarget(push, projectRef);
 
-  console.log("deploy:supabase — contrôle des migrations présentes sur le projet distant…");
-  const list = runCli(["migration", "list", remote]);
-  if (!list.ok) fail("supabase migration list a échoué.");
+  log("deploy:supabase — contrôle des migrations présentes sur le projet distant…");
+  const list = runChecked(cli, ["migration", "list", remote], "supabase migration list");
   checkTarget(list, projectRef);
   const missing = missingRemoteMigrations(listLocalMigrations(path.join(supabaseDir, "migrations")), list.output);
-  if (missing.length > 0) fail(`migrations absentes du projet distant : ${missing.join(", ")}.`);
+  if (missing.length > 0) throw new DeployError(`migrations absentes du projet distant : ${missing.join(", ")}.`);
 
   const functions = listFunctions(path.join(supabaseDir, "functions"));
   if (functions.length === 0) {
-    console.log("deploy:supabase — aucune Edge Function à déployer.");
+    log("deploy:supabase — aucune Edge Function à déployer.");
   } else {
-    console.log(`deploy:supabase — déploiement des Edge Functions sur ${projectRef} : ${functions.join(", ")}…`);
+    log(`deploy:supabase — déploiement des Edge Functions sur ${projectRef} : ${functions.join(", ")}…`);
     // Noms explicites : sans nom, la CLI déploierait aussi les fonctions locales (ai-health).
-    const deploy = runCli(["functions", "deploy", ...functions, remote]);
-    if (!deploy.ok) fail("supabase functions deploy a échoué.");
+    const deploy = runChecked(cli, ["functions", "deploy", ...functions, remote, "--yes"], "supabase functions deploy");
     checkTarget(deploy, projectRef);
   }
-  console.log(`deploy:supabase — terminé sur le projet distant ${projectRef}.`);
+  log(`deploy:supabase — terminé sur le projet distant ${projectRef}.`);
+}
+
+function main(): void {
+  try {
+    runDeploy(path.join(process.cwd(), "supabase"), runCli);
+  } catch (error) {
+    if (!(error instanceof DeployError)) throw error;
+    console.error(`deploy:supabase — échec : ${error.message}`);
+    process.exit(1);
+  }
 }
 
 // Exécuté seulement en ligne de commande ; casse de la lettre de lecteur ignorée sous Windows.

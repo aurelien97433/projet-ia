@@ -27,3 +27,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/1-4-se-connecter-se-déconnecter-et-protéger-les-pages.md`
   summary: Tester en e2e l'alerte « La connexion n'a pas abouti… », et la redirection de `SessionGate` sans le proxy.
   evidence: Les deux branches ne sont couvertes que par des tests unitaires ou par la seule barrière du proxy. Il faudrait un point d'injection de panne ou un banc de test pour composants serveur.
+- source_spec: `_bmad-output/implementation-artifacts/2-2-créer-une-note.md`
+  summary: Document inconnu ou inaccessible (`/documents/[id]`) : E9 est servie avec le statut HTTP 200 (plus `noindex`) au lieu de 404.
+  evidence: Accepté pour le MVP par l'utilisateur le 2026-11-05. La coquille est envoyée en flux avant que `notFound()` ne s'exécute, comportement documenté de Next.js 16 avec `cacheComponents`. Pour obtenir un 404, il faudrait vérifier l'existence avant tout envoi (proxy ou route sans flux). À reprendre si un contrôle externe (supervision, jury) exige le code 404.
