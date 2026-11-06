@@ -2,7 +2,7 @@
 title: 'Story 2.4 : Traiter une Note jusqu''à « prêt »'
 type: 'feature'
 created: '2026-11-06'
-status: 'in-review'
+status: 'done'
 baseline_commit: '4de6fbcb73029ee1d5a088a1655df4afb8bcca0a'
 route: 'dispatch'
 review_loop_iteration: 0

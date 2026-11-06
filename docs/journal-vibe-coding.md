@@ -556,4 +556,13 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Vérification finale, suivi et journal : de 14:55 à 15:05.
 - Total : environ 50 min.
 
-**Statut.** `review`. Non commitée, non déployée : en attente de la validation de l'utilisateur, de `deploy:supabase`, du push et de la vérification en production, dont la mesure.
+**Déploiement.** `deploy:supabase` lancé par l'utilisateur, puis commit `637069b` poussé sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production.**
+- Note courte passée à *prêt* sans erreur : premier appel réel depuis le projet distant, la clé OpenAI distante fonctionne.
+- Note de mesure de 60 000 caractères passée à *prêt* en 1,98 s (`updated_at - processing_started_at`), très en dessous de la minute exigée par NFR-3.
+- 73 Passages, modèle `text-embedding-3-small`, `max(end_offset)` = 60 000 : le texte est couvert jusqu'à son dernier caractère.
+- `embed_ms` et `complete_ms` n'ont pas été relevés : la répartition reste à mesurer en story 2.7.
+- Le contrôle du second Compte est couvert par le test e2e.
+
+**Statut final.** Story 2.4 passée à `done` le 2026-11-06, après la vérification de l'utilisateur.
