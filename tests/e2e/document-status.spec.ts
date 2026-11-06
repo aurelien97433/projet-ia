@@ -5,8 +5,8 @@ import { texts } from "../../src/lib/texts";
 import { createAccount, deleteAccount, expect, test } from "../support/e2e-auth";
 import { localSupabase } from "../support/local-supabase";
 
-// Suivi du Statut sur la page Document (E7), contre Supabase local. Le travail se réduisant à une
-// journalisation (story 2.3), les changements de Statut sont posés directement en base.
+// Suivi du Statut sur la page Document (E7), contre Supabase local. Pour maîtriser l'instant du
+// changement, ces Documents sont insérés sans déclencher le traitement : leur Statut est posé en base.
 test.use({ storageState: async ({ authState }, provide) => provide(authState) });
 test.describe.configure({ timeout: 60_000 });
 
@@ -70,12 +70,37 @@ test("en cours : bandeau, interrogation toutes les 3 s, arrêt au changement, sa
 
   await updateDocument(id, { status: "ready" });
   await expect(badge(page).getByText(texts.status.ready)).toBeVisible({ timeout: 8_000 });
-  await expect(banner(page)).toBeEmpty();
+  await expect(banner(page)).toHaveText(new RegExp(t.ready));
+  await expect(banner(page)).not.toContainText(t.processingTitle);
 
   const afterChange = requests.length;
   await page.waitForTimeout(4_000);
   expect(requests.length).toBe(afterChange);
   expect(loads).toBe(1);
+});
+
+test("« prêt » pour un autre Collaborateur : message sans « Votre »", async ({ page }) => {
+  const other = await createAccount("e2e-auteur-pret");
+  try {
+    const id = await insertDocument(other.id);
+    await page.goto(`/documents/${id}`);
+    await updateDocument(id, { status: "ready" });
+    await expect(banner(page)).toContainText(t.readyOther, { timeout: 8_000 });
+    await expect(banner(page)).not.toContainText(t.ready);
+  } finally {
+    await deleteAccount(other);
+  }
+});
+
+test("« prêt » n'est annoncé qu'au changement : après un rechargement, badge seul", async ({ page, account }) => {
+  const id = await insertDocument(account.id);
+  await page.goto(`/documents/${id}`);
+  await updateDocument(id, { status: "ready" });
+  await expect(banner(page)).toContainText(t.ready, { timeout: 8_000 });
+
+  await page.reload();
+  await expect(badge(page).getByText(texts.status.ready)).toBeVisible();
+  await expect(banner(page)).toBeEmpty();
 });
 
 test("une requête lente ne s'empile pas sur la suivante", async ({ page, account }) => {
@@ -226,6 +251,15 @@ test("accessibilité : bandeau en erreur, sans violation", async ({ page, accoun
   await updateDocument(id, temporaryError);
   await page.goto(`/documents/${id}`);
   await expect(banner(page)).toContainText(t.temporaryAuthor);
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});
+
+test("accessibilité : bandeau prêt, sans violation", async ({ page, account }) => {
+  const id = await insertDocument(account.id);
+  await page.goto(`/documents/${id}`);
+  await updateDocument(id, { status: "ready" });
+  await expect(banner(page)).toContainText(t.ready, { timeout: 8_000 });
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });

@@ -37,7 +37,10 @@ async function fetchStatus(documentId: string): Promise<Status | "gone" | null> 
 export function StatusBanner({ documentId, isAuthor, effectiveStatus, effectiveErrorKind }: StatusBannerProps) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>({ effectiveStatus, effectiveErrorKind });
+  // Statut à l'ouverture : « prêt » n'est annoncé que s'il vient de changer d'état (E7).
+  const [openedStatus] = useState(effectiveStatus);
   const processing = status.effectiveStatus === "processing";
+  const justReady = status.effectiveStatus === "ready" && openedStatus !== "ready";
 
   useEffect(() => {
     if (!processing) return;
@@ -79,6 +82,13 @@ export function StatusBanner({ documentId, isAuthor, effectiveStatus, effectiveE
             {t.processingTitle}
           </p>
           <p className="mt-1">{t.processingText}</p>
+        </div>
+      ) : null}
+
+      {justReady ? (
+        <div className="rounded-lg bg-success-soft p-4 text-sm font-semibold text-success">
+          <span aria-hidden="true">● </span>
+          {isAuthor ? t.ready : t.readyOther}
         </div>
       ) : null}
 

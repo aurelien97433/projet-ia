@@ -116,6 +116,9 @@ export const texts = {
     textLabel: "Texte du Document",
   },
   documentStatus: {
+    ready: "Votre Document est prêt.",
+    // Absent d'EXPERIENCE.md : variante pour un autre Collaborateur, ajoutée le 2026-11-06 (story 2.4).
+    readyOther: "Ce Document est prêt.",
     processingTitle: "En cours de traitement",
     processingText: "Le Document sera interrogeable dans quelques instants.",
     // Provisoire jusqu'à la story 2.5 : la relance n'existe pas encore (décision du 2026-11-06).

@@ -125,6 +125,16 @@ node -e "require('fs').appendFileSync('supabase/functions/.env','\nPROCESS_DOCUM
 ```
 `.env.local` vise le projet distant. Aujourd'hui, il ne contient pas ce secret : une Note créée avec `npm run dev` y passe donc *en erreur* temporaire, le comportement prévu sans secret. Ce fichier ne recevra la valeur que si le script de préchargement l'exige ; la story 2.8 décidera d'un fichier séparé (`.env.seed`), et `npm run dev` déclencherait alors la fonction distante.
 
+## Vectorisation : simulée en local, réelle en production
+
+Aucun test automatique n'appelle OpenAI. La pile locale active `EMBEDDINGS_FAKE = "1"` dans `[edge_runtime.secrets]` de `supabase/config.toml` : `process-document` passe alors par `_shared/fake-embeddings.ts`, avec des vecteurs déterministes, normalisés et de dimension 1 536, et journalise `embeddings_fake_active`.
+
+La simulation exige aussi que `SUPABASE_URL` vise l'hôte interne `kong` de la pile locale. Ailleurs, elle est rejetée : la vectorisation réelle s'applique et `embeddings_fake_rejected` apparaît dans les journaux. Ce réglage ne doit jamais être posé dans les secrets du projet distant.
+
+Seuls appels réels : `npm run test:ai` (un mot, avec la fonction locale `ai-health`) et les Documents créés en production.
+
+**Après un changement de `config.toml`** : redémarrer Supabase local (`npx supabase stop`, puis `npx supabase start`). Sans ce redémarrage, la pile locale n'aurait pas le réglage et la vectorisation serait réelle.
+
 ## Secrets et variables (noms seulement)
 
 | Nom | Où | Navigateur |
@@ -134,6 +144,7 @@ node -e "require('fs').appendFileSync('supabase/functions/.env','\nPROCESS_DOCUM
 | `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase, `.env.local` du script de préchargement | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement (`supabase/functions/.env` en local, ignoré par git) | Non |
 | `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
+| `EMBEDDINGS_FAKE` (pas un secret) | `supabase/config.toml`, pile locale uniquement, jamais sur le projet distant | Non |
 | `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*` | `.env.local` du script de préchargement et des mesures | Non |
 
 ## Contrôle des secrets

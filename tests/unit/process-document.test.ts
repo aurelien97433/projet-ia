@@ -22,10 +22,60 @@ const post = (body: unknown, secret: string | null = SECRET) =>
 
 const row = (startedAt: Date) => Response.json([{ processing_started_at: startedAt.toISOString() }]);
 
+const OPENAI_KEY_NAME = ["OPENAI", "API", "KEY"].join("_");
+
+type Backend = {
+  text?: string | null;
+  superseded?: boolean;
+  read?: () => Response;
+  fail?: () => Response;
+  embeddings?: (input: string[]) => Response;
+  complete?: () => Response;
+};
+
+// Base et fournisseur simulés, pour le travail complet : chaque appel est conservé.
+function backend({ text = "Texte de la Note.", superseded = false, read, fail, embeddings, complete }: Backend = {}) {
+  const calls = {
+    provider: [] as string[][],
+    completed: [] as Record<string, unknown>[],
+    failed: [] as Record<string, unknown>[],
+    reads: [] as string[],
+  };
+  dbFetch.mockImplementation(async (url, init) => {
+    if (url.includes("api.openai.com")) {
+      const { input } = JSON.parse(init?.body as string) as { input: string[] };
+      calls.provider.push(input);
+      if (embeddings) return embeddings(input);
+      return Response.json({ data: input.map((_, index) => ({ index, embedding: new Array(1536).fill(0.1) })) });
+    }
+    if (url.includes("rpc/complete_processing")) {
+      calls.completed.push(JSON.parse(init?.body as string));
+      return complete ? complete() : Response.json(true);
+    }
+    if (url.includes("rpc/fail_processing")) {
+      calls.failed.push(JSON.parse(init?.body as string));
+      return fail ? fail() : Response.json(true);
+    }
+    if (url.includes("content_text")) {
+      calls.reads.push(url);
+      if (read) return read();
+      return Response.json(superseded ? [] : [{ content_text: text, text_version: 3 }]);
+    }
+    return row(new Date());
+  });
+  return calls;
+}
+
+async function runDefaultWork() {
+  expect((await handle(post(BODY))).status).toBe(202);
+  await waitUntil.mock.calls[0][0];
+}
+
 beforeEach(() => {
   Object.assign(env, {
     PROCESS_DOCUMENT_SECRET: SECRET,
     SUPABASE_URL: "http://base.test",
+    [OPENAI_KEY_NAME]: "cle-de-test",
     [["SUPABASE", "SERVICE", "ROLE", "KEY"].join("_")]: "cle-de-test",
   });
   vi.stubGlobal("Deno", { env: { get: (name: string) => env[name] } });
@@ -123,12 +173,153 @@ describe("accusé et travail d'arrière-plan", () => {
 
   it("accusé et fin du travail : niveau Info, aucun journal au niveau Error", async () => {
     const info = vi.spyOn(console, "log").mockImplementation(() => {});
-    await handle(post(BODY));
-    await waitUntil.mock.calls[0][0];
+    backend();
+    await runDefaultWork();
     const output = info.mock.calls.flat().join(" ");
     expect(output).toContain("process_document_accepted");
     expect(output).toContain("process_document_work_done");
+    expect(output).toContain('"passages":1');
+    expect(output).toContain('"embed_ms":');
+    expect(output).toContain('"complete_ms":');
+    expect(output).toContain('"duration_ms":');
+    expect(output).not.toContain("Texte de la Note");
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("travail complet : texte normalisé, positions, vecteurs, modèle, en un seul appel final", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls = backend({ text: "  Bonjour  \r\ne\u0301te\u0301 \r\n" });
+    await runDefaultWork();
+
+    expect(calls.provider).toEqual([["Bonjour\nété"]]);
+    expect(calls.failed).toEqual([]);
+    expect(calls.completed).toHaveLength(1);
+    const [completion] = calls.completed;
+    expect(completion).toMatchObject({
+      p_document_id: DOCUMENT_ID,
+      p_attempt_id: ATTEMPT_ID,
+      p_content_text: "  Bonjour\nété\n",
+      p_text_version: 3,
+      p_embedding_model: "text-embedding-3-small",
+      p_embedding_version: 1,
+    });
+    const [passage] = completion.p_passages as { ordinal: number; start: number; end: number; content: string; embedding: number[] }[];
+    expect(passage).toMatchObject({ ordinal: 0, start: 2, end: 13, content: "Bonjour\nété" });
+    expect(passage.embedding).toHaveLength(1536);
+  });
+
+  it("plus de 96 Passages : deux lots, ordre conservé", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls = backend({ text: "x".repeat(1200 * 97) });
+    await runDefaultWork();
+    expect(calls.provider.map((batch) => batch.length)).toEqual([96, 1]);
+    const passages = calls.completed[0].p_passages as { ordinal: number; start: number }[];
+    expect(passages.map((passage) => passage.ordinal)).toEqual(Array.from({ length: 97 }, (_, index) => index));
+    expect(passages[96].start).toBe(1200 * 96);
+  });
+
+  it("tentative remplacée avant la lecture : rien n'est écrit, aucun appel à l'IA", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls = backend({ superseded: true });
+    await runDefaultWork();
+    expect(calls).toMatchObject({ provider: [], completed: [], failed: [] });
+    expect(vi.mocked(console.log).mock.calls.flat().join(" ")).toContain("process_document_attempt_superseded");
+  });
+
+  it("le texte n'est lu que pour la tentative courante, encore en cours", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls = backend();
+    await runDefaultWork();
+    expect(calls.reads).toHaveLength(1);
+    expect(calls.reads[0]).toContain(`attempt_id=eq.${ATTEMPT_ID}`);
+    expect(calls.reads[0]).toContain("status=eq.processing");
+  });
+
+  it("lecture du texte en échec : temporary, aucun appel à l'IA, code journalisé", async () => {
+    const calls = backend({ read: () => Response.json({ message: "panne" }, { status: 503 }) });
+    await runDefaultWork();
+    expect(calls.provider).toEqual([]);
+    expect(calls.failed[0]).toMatchObject({ p_kind: "temporary" });
+    const output = vi.mocked(console.error).mock.calls.flat().join(" ");
+    expect(output).toContain("http_503");
+    expect(output).toContain('"duration_ms":');
+  });
+
+  it("no_text enregistré : journal Info", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    backend({ text: "\n\n" });
+    await runDefaultWork();
+    expect(info.mock.calls.flat().join(" ")).toContain("process_document_no_text");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("no_text refusé (tentative plus courante) : journal Error", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    backend({ text: "\n\n", fail: () => Response.json(false) });
+    await runDefaultWork();
+    expect(vi.mocked(console.error).mock.calls.flat().join(" ")).toContain("fail_processing_refused");
+    expect(info.mock.calls.flat().join(" ")).not.toContain("process_document_no_text");
+  });
+
+  it("écriture finale avec un délai de 30 s, les autres appels à la base avec 4 s", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    backend();
+    await runDefaultWork();
+    const delays = timeout.mock.calls.map(([delay]) => delay);
+    expect(delays).toContain(30_000);
+    expect(delays.filter((delay) => delay === 4_000)).toHaveLength(2);
+  });
+
+  it.each([
+    ["blanc", " \n\n\t"],
+    ["absent", null],
+  ])("texte %s : no_text, aucun appel à l'IA", async (_label, text) => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls = backend({ text });
+    await runDefaultWork();
+    expect(calls.provider).toEqual([]);
+    expect(calls.completed).toEqual([]);
+    expect(calls.failed).toHaveLength(1);
+    expect(calls.failed[0]).toMatchObject({ p_kind: "no_text" });
+  });
+
+  it.each([
+    ["refus", () => new Response("{}", { status: 401 }), "AI_UNAVAILABLE"],
+    ["panne 5xx, après les nouvelles tentatives", () => new Response("{}", { status: 500 }), "AI_UNAVAILABLE"],
+    ["plafond atteint", () => Response.json({ error: { code: "insufficient_quota" } }, { status: 429 }), "AI_BUDGET_EXHAUSTED"],
+  ])("IA en échec (%s) : temporary, code journalisé, rien d'écrit", async (_label, response, code) => {
+    const calls = backend({ embeddings: response });
+    await runDefaultWork();
+    expect(calls.completed).toEqual([]);
+    expect(calls.failed[0]).toMatchObject({ p_kind: "temporary" });
+    expect(vi.mocked(console.error).mock.calls.flat().join(" ")).toContain(code);
+  });
+
+  it("dimension fausse : AI_OUTPUT_INVALID, temporary, rien d'écrit", async () => {
+    const calls = backend({
+      embeddings: (input) => Response.json({ data: input.map((_, index) => ({ index, embedding: new Array(1535).fill(0.1) })) }),
+    });
+    await runDefaultWork();
+    expect(calls.completed).toEqual([]);
+    expect(calls.failed[0]).toMatchObject({ p_kind: "temporary" });
+    expect(vi.mocked(console.error).mock.calls.flat().join(" ")).toContain("AI_OUTPUT_INVALID");
+  });
+
+  it("complete_processing refusé : journal Error, aucun fail_processing", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls = backend({ complete: () => Response.json(false) });
+    await runDefaultWork();
+    expect(calls.failed).toEqual([]);
+    expect(vi.mocked(console.error).mock.calls.flat().join(" ")).toContain("complete_processing_refused");
+    expect(info.mock.calls.flat().join(" ")).not.toContain("process_document_work_done");
+  });
+
+  it("complete_processing en erreur : temporary", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls = backend({ complete: () => new Response("", { status: 400 }) });
+    await runDefaultWork();
+    expect(calls.failed[0]).toMatchObject({ p_kind: "temporary" });
   });
 
   it("lit la tentative avec la clé service_role, sans lire le texte du Document", async () => {

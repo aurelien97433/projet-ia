@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { texts } from "@/lib/texts";
+import { buildMeasureText } from "../../scripts/generate-measure-note";
 import { failProcessing } from "../../supabase/functions/_shared/processing.ts";
 import { localProcessSecret, localSupabase, uniqueEmail } from "../support/local-supabase";
 
@@ -16,10 +17,10 @@ let userId: string;
 
 type Doc = { id: string; attempt_id: string; status: string; updated_at: string };
 
-async function newDocument(): Promise<Doc> {
+async function newDocument(text = "Texte."): Promise<Doc> {
   const { data, error } = await author
     .from("documents")
-    .insert({ title: "Note", category: "procedure", content_text: "Texte.", client_request_id: crypto.randomUUID() })
+    .insert({ title: "Note", category: "procedure", content_text: text, client_request_id: crypto.randomUUID() })
     .select("id, attempt_id, status, updated_at")
     .single();
   if (error || !data) throw new Error(`Création du Document de test impossible : ${error?.code}`);
@@ -37,6 +38,23 @@ const call = (body: unknown, secret?: string) =>
   });
 
 const payload = (doc: Doc) => ({ document_id: doc.id, attempt_id: doc.attempt_id });
+
+async function untilFinished(id: string, timeout = 10_000) {
+  await vi.waitFor(async () => expect((await row(id)).status).not.toBe("processing"), { timeout, interval: 100 });
+  return (await row(id)).status;
+}
+
+async function storedPassages(id: string) {
+  const { data } = await admin
+    .from("passages")
+    .select("ordinal, start_offset, end_offset, content, embedding, embedding_model, embedding_version")
+    .eq("document_id", id)
+    .order("ordinal");
+  return data!;
+}
+
+const storedText = async (id: string) =>
+  (await admin.from("documents").select("content_text").eq("id", id).single()).data!.content_text as string;
 
 beforeAll(async () => {
   const { url, publishableKey, serviceRoleKey } = localSupabase();
@@ -56,6 +74,60 @@ function functionLogs(documentId: string): string[] {
   const output = execSync("docker logs --since 2m supabase_edge_runtime_projet-ia 2>&1", { encoding: "utf8" });
   return output.split(/\r?\n/).filter((line) => line.includes(documentId));
 }
+
+describe("chaîne locale complète, avec vecteurs simulés", () => {
+  it("texte non canonique : Document prêt, texte normalisé, positions exactes, 1 536 dimensions", async () => {
+    const doc = await newDocument("  Première ligne.  \r\n\r\nDeuxie\u0300me ligne.\t\r\n");
+    expect((await call(payload(doc), localProcessSecret())).status).toBe(202);
+    expect(await untilFinished(doc.id)).toBe("ready");
+
+    const text = await storedText(doc.id);
+    expect(text).toBe("  Première ligne.\n\nDeuxième ligne.\n");
+    const passages = await storedPassages(doc.id);
+    expect(passages).toHaveLength(1);
+    for (const passage of passages) {
+      expect(text.slice(passage.start_offset, passage.end_offset)).toBe(passage.content);
+      expect(passage.embedding_model).toBe("text-embedding-3-small");
+      expect(passage.embedding_version).toBe(1);
+      expect(JSON.parse(passage.embedding)).toHaveLength(1536);
+    }
+    expect(functionLogs(doc.id).join(" ")).toContain('"passages":1');
+  });
+
+  it("mode simulé actif, et journalisé clairement", async () => {
+    const doc = await newDocument();
+    await call(payload(doc), localProcessSecret());
+    await untilFinished(doc.id);
+    const output = functionLogs(doc.id).join(" ");
+    expect(output).toContain("embeddings_fake_active");
+    expect(output).not.toContain("embeddings_fake_rejected");
+  });
+
+  it("Document d'environ 60 000 caractères : prêt en moins d'une minute, Passages contigus", async () => {
+    const doc = await newDocument(buildMeasureText(60_000));
+    const started = Date.now();
+    expect((await call(payload(doc), localProcessSecret())).status).toBe(202);
+    expect(await untilFinished(doc.id, 60_000)).toBe("ready");
+    expect(Date.now() - started).toBeLessThan(60_000);
+
+    const text = await storedText(doc.id);
+    const passages = await storedPassages(doc.id);
+    expect(passages.length).toBeGreaterThan(50);
+    expect(passages.map((passage) => passage.ordinal)).toEqual(passages.map((_, index) => index));
+    for (const passage of passages) {
+      expect(text.slice(passage.start_offset, passage.end_offset)).toBe(passage.content);
+    }
+  });
+
+  it("texte blanc inséré directement : no_text, sans Passage", async () => {
+    const doc = await newDocument("\n\n");
+    expect((await call(payload(doc), localProcessSecret())).status).toBe(202);
+    expect(await untilFinished(doc.id)).toBe("error");
+    const { data } = await admin.from("documents").select("error_kind").eq("id", doc.id).single();
+    expect(data?.error_kind).toBe("no_text");
+    expect(await storedPassages(doc.id)).toEqual([]);
+  });
+});
 
 describe("travail d'arrière-plan", () => {
   it("se termine après l'accusé : il n'est pas interrompu à la fin de la requête (per_worker)", async () => {
@@ -96,13 +168,13 @@ describe("failProcessing sur la vraie fonction SQL", () => {
 });
 
 describe("process-document", () => {
-  it("bon secret, tentative courante : 202 en moins de 5 s, Document toujours en cours", async () => {
+  it("bon secret, tentative courante : 202 en moins de 5 s, puis Document prêt", async () => {
     const doc = await newDocument();
     const started = Date.now();
     const response = await call(payload(doc), localProcessSecret());
     expect(response.status).toBe(202);
     expect(Date.now() - started).toBeLessThan(5_000);
-    expect(await row(doc.id)).toEqual(doc);
+    expect(await untilFinished(doc.id)).toBe("ready");
   });
 
   it("sans secret : 401 de la fonction, pas de la passerelle, rien de modifié", async () => {

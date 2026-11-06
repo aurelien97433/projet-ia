@@ -55,6 +55,14 @@ describe("appel à process-document", () => {
   });
 });
 
+describe("vectorisation simulée", () => {
+  it("n'existe que dans son module et la pile locale, jamais côté Next.js", () => {
+    expect(containing("supabase/functions", "EMBEDDINGS_FAKE")).toEqual(["supabase/functions/_shared/fake-embeddings.ts"]);
+    expect(containing("src", "EMBEDDINGS_FAKE")).toEqual([]);
+    expect(readFileSync(path.join(root, ".env.example"), "utf8")).not.toContain("EMBEDDINGS_FAKE");
+  });
+});
+
 describe("supabase/config.toml", () => {
   const config = readFileSync(path.join(root, "supabase", "config.toml"), "utf8");
 

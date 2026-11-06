@@ -8,6 +8,10 @@ export const EMBEDDING_DIMENSION = 1536;
 export const EMBEDDING_VERSION = 1;
 export const EMBEDDING_BATCH_SIZE = 96;
 
+// Découpage en Passages (architecture §4), en unités de code JavaScript.
+export const CHUNK_TARGET_LENGTH = 800;
+export const CHUNK_MAX_LENGTH = 1200;
+
 // Génération : remplaçable par le secret Supabase GENERATION_MODEL, sans changer le code.
 export const DEFAULT_GENERATION_MODEL = "gpt-5.4-mini";
 

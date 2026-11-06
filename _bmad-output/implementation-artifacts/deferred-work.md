@@ -39,3 +39,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-3-déclencher-le-traitement-et-suivre-le-statut.md`
   summary: Tester le passage d'un Document à un autre (`key={document.id}` du bandeau) quand un lien entre Documents existera.
   evidence: Aucun lien de ce type à ce jour ; le cas devient atteignable avec la Bibliothèque (story 3.3).
+- source_spec: `_bmad-output/implementation-artifacts/2-4-traiter-une-note-jusqu-à-prêt.md`
+  summary: Évaluer en story 2.7 une écriture des Passages par lots, au lieu d'un seul appel à `complete_processing` contenant tous les vecteurs.
+  evidence: Une Note de 1 Mo donnerait environ 1 250 Passages, soit environ 25 Mo de JSON, avec une limite de 2 s de calcul sur le plan gratuit. La piste doit conserver l'atomicité et le refus d'une tentative périmée : par exemple des Passages écrits en lots pour cette tentative, puis validés en une seule opération finale.
+- source_spec: `_bmad-output/implementation-artifacts/2-4-traiter-une-note-jusqu-à-prêt.md`
+  summary: Tester le verrou `for update` de `complete_processing` face à un abandon concurrent.
+  evidence: maybe-false, gravité medium si c'est confirmé. Le `update` final dépend de ce verrou, mais aucun test ne tient une transaction ouverte. Pour trancher : deux connexions directes à Postgres, un abandon lancé pendant que la première transaction tient le verrou.

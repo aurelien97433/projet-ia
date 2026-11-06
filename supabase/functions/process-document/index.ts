@@ -1,34 +1,89 @@
 // Traitement asynchrone d'un Document (AD-5). Appelée par Next.js seulement, avec
 // PROCESS_DOCUMENT_SECRET (verify_jwt = false dans supabase/config.toml : seul ce secret fait foi).
 // La fonction contrôle l'appel, lance le travail en arrière-plan et répond aussitôt 202.
+import { embed } from "../_shared/ai.ts";
 import { readEnv } from "../_shared/config.ts";
-import { errorResponse, logEvent, logInfo } from "../_shared/errors.ts";
-import { type Attempt, failProcessing, isCurrentAttempt } from "../_shared/processing.ts";
+import { AiError, errorResponse, logEvent, logInfo } from "../_shared/errors.ts";
+import { embeddingDeps } from "../_shared/fake-embeddings.ts";
+import {
+  type Attempt,
+  completeProcessing,
+  DbError,
+  failProcessing,
+  isCurrentAttempt,
+  readDocumentText,
+} from "../_shared/processing.ts";
+import { chunkText } from "../_shared/rag/chunk.ts";
+import { normalizeText } from "../_shared/rag/normalize.ts";
 import { hasBearerSecret } from "../_shared/secret.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FAILURE_MESSAGE = "Le traitement n'a pas pu aboutir. Vous pouvez le relancer.";
-const WORK_DELAY_MS = 200;
+const NO_TEXT_MESSAGE = "Ce fichier ne contient aucun texte exploitable. Il ne peut pas être interrogé.";
 
 type Work = (attempt: Attempt) => Promise<void>;
 
-// Story 2.3 : le travail se réduit à une journalisation, après une courte attente qui le fait finir
-// après la réponse 202 : les journaux prouvent ainsi qu'il survit à la requête. La story 2.4 le remplace.
-const logOnlyWork: Work = async ({ documentId, attemptId }) => {
-  await new Promise((resolve) => setTimeout(resolve, WORK_DELAY_MS));
-  logInfo("process_document_work_done", { document_id: documentId, attempt_id: attemptId });
+// Traitement d'une tentative : texte canonique, Passages, vecteurs, puis fin atomique (AD-5). Le texte
+// normalisé est l'unique référence pour l'affichage, le découpage et les positions (AD-8).
+const processDocument: Work = async (attempt) => {
+  const started = Date.now();
+  const ids = { document_id: attempt.documentId, attempt_id: attempt.attemptId };
+
+  const source = await readDocumentText(attempt);
+  if (!source) {
+    logInfo("process_document_attempt_superseded", ids);
+    return;
+  }
+
+  const text = normalizeText(source.text);
+  const chunks = chunkText(text);
+  if (chunks.length === 0) {
+    const recorded = await failProcessing(attempt, "no_text", NO_TEXT_MESSAGE);
+    if (recorded) logInfo("process_document_no_text", ids);
+    else logEvent("fail_processing_refused", ids);
+    return;
+  }
+
+  const embedStarted = Date.now();
+  const { vectors, model, version } = await embed(
+    chunks.map((chunk) => chunk.content),
+    { deps: embeddingDeps(attempt.documentId) },
+  );
+  const completeStarted = Date.now();
+  const completed = await completeProcessing(attempt, {
+    text,
+    textVersion: source.textVersion,
+    embeddingModel: model,
+    embeddingVersion: version,
+    passages: chunks.map((chunk, ordinal) => ({ ordinal, ...chunk, embedding: vectors[ordinal] })),
+  });
+
+  const finished = Date.now();
+  const details = {
+    ...ids,
+    passages: chunks.length,
+    embed_ms: completeStarted - embedStarted,
+    complete_ms: finished - completeStarted,
+    duration_ms: finished - started,
+  };
+  if (completed) logInfo("process_document_work_done", details);
+  else logEvent("complete_processing_refused", details);
 };
 
-// Cause d'un échec pour les journaux : le nom de l'erreur, jamais son message, qui pourrait citer
-// du texte de Document.
-const causeOf = (error: unknown) => (error instanceof Error ? error.name : "unknown");
+// Cause d'un échec pour les journaux : le code de l'IA ou le nom de l'erreur, jamais son message,
+// qui pourrait citer du texte de Document.
+function causeOf(error: unknown): string {
+  if (error instanceof AiError || error instanceof DbError) return error.code;
+  return error instanceof Error ? error.name : "unknown";
+}
 
 async function runAttempt(attempt: Attempt, work: Work): Promise<void> {
   const ids = { document_id: attempt.documentId, attempt_id: attempt.attemptId };
+  const started = Date.now();
   try {
     await work(attempt);
   } catch (error) {
-    logEvent("process_document_work_failed", { ...ids, code: causeOf(error) });
+    logEvent("process_document_work_failed", { ...ids, code: causeOf(error), duration_ms: Date.now() - started });
     try {
       const recorded = await failProcessing(attempt, "temporary", FAILURE_MESSAGE);
       if (!recorded) logEvent("fail_processing_refused", ids);
@@ -51,7 +106,7 @@ async function readAttempt(request: Request): Promise<Attempt | null> {
   }
 }
 
-export async function handle(request: Request, work: Work = logOnlyWork): Promise<Response> {
+export async function handle(request: Request, work: Work = processDocument): Promise<Response> {
   if (request.method !== "POST") return errorResponse("VALIDATION_FAILED", "Méthode non autorisée.", false, 405);
 
   const expected = readEnv("PROCESS_DOCUMENT_SECRET");
@@ -67,11 +122,7 @@ export async function handle(request: Request, work: Work = logOnlyWork): Promis
       return errorResponse("NOT_FOUND", "Tentative inconnue.", false, 404);
     }
   } catch (error) {
-    logEvent("process_document_attempt_check_failed", {
-      document_id: attempt.documentId,
-      // Message écrit par _shared/processing.ts (code HTTP de la base), sans donnée de Document.
-      code: error instanceof Error ? error.message : "unknown",
-    });
+    logEvent("process_document_attempt_check_failed", { document_id: attempt.documentId, code: causeOf(error) });
     return errorResponse("INTERNAL", "Le traitement n'a pas pu démarrer.", true, 500);
   }
 

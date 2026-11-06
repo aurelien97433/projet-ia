@@ -503,3 +503,57 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - **Leçon.** Un journal de succès classé en erreur noie les vraies erreurs : le niveau fait partie du contrat, au même titre que le contenu.
 
 **Statut final.** Story 2.3 passée à `done` le 2026-11-06, après la vérification de l'utilisateur.
+
+## Story 2.4 — Traiter une Note jusqu'à « prêt » (2026-11-06)
+
+**Objectif.** Découper une Note en Passages, les vectoriser et faire passer le Document à *prêt* en une seule opération, pour qu'elle devienne interrogeable.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter le plan, les fichiers et les risques avant de coder.
+- Vérifier la normalisation, les positions exactes, la coupure des phrases trop longues, les lots, la dimension 1 536, la RLS, l'atomicité, le refus d'une tentative périmée et l'affichage de *prêt* sans rechargement.
+- Mesurer un Document d'environ 60 000 caractères et prouver le secret distant par un premier appel réel.
+- Limiter le coût des tests réels au strict nécessaire.
+- Faire la revue à trois relecteurs. Aucun commit ni push sans validation. Ne pas commencer 2.5.
+
+**Décisions de l'utilisateur.**
+- Vectorisation simulée en local, rejetée si `SUPABASE_URL` n'est pas l'hôte local, avec un test qui le prouve et un journal clair à l'activation.
+- Vecteurs simulés déterministes, normalisés et de dimension 1 536, pour des tests de recherche reproductibles.
+- Le texte normalisé est l'unique référence pour l'affichage, le découpage et les positions.
+- Piste d'une écriture des Passages par lots notée pour la story 2.7.
+
+**Ce que l'IA a produit.**
+- Migration : pgvector, table `passages` (RLS, index HNSW cosinus), `complete_processing` atomique.
+- `normalize.ts`, `chunk.ts`, `fake-embeddings.ts`, travail complet dans `process-document`.
+- Bandeau « Votre Document est prêt. », script et protocole de mesure.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Risque repéré avant de coder.** Sans précaution, chaque Note des tests aurait appelé OpenAI : d'où la simulation limitée à la pile locale.
+- **Test sans valeur corrigé par l'IA.** Un test « valeur figée » comparait un résultat à lui-même. Il compare désormais à une valeur réelle.
+- **Revue : 24 constats triés, 18 corrigés.** Notamment :
+  - Passage de 2 caractères (« M. ») reproduit, corrigé par un plancher de 400 caractères ;
+  - `complete_processing` pouvait passer à `ready` sans Passage et effacer les anciens ;
+  - le protocole de mesure aurait abîmé les accents sous PowerShell 5.1 ;
+  - des tests restaient verts sans la préférence pour les paragraphes (mutants vérifiés par un relecteur) ;
+  - « Votre Document » s'affichait à un non-Auteur.
+- **Rejetés ou renvoyés.** Abréviations (calibrage en 4.2), dépense d'une tentative périmée, libellé de `no_text` (2.5). Le verrou `for update` reste sans test observable (`deferred-work.md`).
+- **Accepté.** Une Note très courte peut être prête avant l'ouverture de la page : badge seul, sans bandeau vert.
+- **Écart de méthode.** L'implémentation a été faite directement, sans sous-agent.
+
+**Leçon.** Un test doit pouvoir échouer pour la raison annoncée : un test d'invariants reste vert si une préférence de découpage disparaît. La vérification par mutants des relecteurs l'a montré.
+
+**Tests.**
+- `npm test` : 458 réussis.
+- `npm run test:e2e` : 151 réussis ; 5 sautés.
+- `lint` et `tsc` : 0 erreur.
+- `build:ci` et `check:secrets` : verts.
+- Appel réel à OpenAI pendant la story : un seul, `npm run test:ai` (un mot).
+- Chaîne complète sur 60 000 caractères avec vecteurs simulés : verte. La mesure réelle reste à faire en production (`docs/mesures/traitement-60000.md`).
+
+**Durée.**
+- Lecture, spec et plan : de 14:15 à 14:21, attente de la validation comprise.
+- Implémentation et tests : de 14:21 à 14:38.
+- Revue par les trois relecteurs, tri et corrections : de 14:38 à 14:55.
+- Vérification finale, suivi et journal : de 14:55 à 15:05.
+- Total : environ 50 min.
+
+**Statut.** `review`. Non commitée, non déployée : en attente de la validation de l'utilisateur, de `deploy:supabase`, du push et de la vérification en production, dont la mesure.

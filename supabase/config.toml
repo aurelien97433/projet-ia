@@ -392,8 +392,10 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# [edge_runtime.secrets]
-# secret_key = "env(SECRET_VALUE)"
+# Vectorisation simulée pour la pile locale, aucun appel à OpenAI (voir _shared/fake-embeddings.ts).
+# Sans effet ailleurs : la fonction la rejette si SUPABASE_URL n'est pas l'hôte local. Ce n'est pas un secret.
+[edge_runtime.secrets]
+EMBEDDINGS_FAKE = "1"
 
 [analytics]
 # Désactivé : le conteneur Logflare ne devient pas sain sous Windows, et les journaux locaux ne servent pas au projet.

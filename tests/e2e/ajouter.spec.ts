@@ -51,7 +51,7 @@ function textOfBytes(n: number): string {
 
 const DOCUMENT_URL = /\/documents\/[0-9a-f-]{36}$/;
 
-test("crée une Note : page du Document, bandeau, badge « en cours de traitement », texte brut", async ({ page, account }) => {
+test("crée une Note : page du Document, Statut final « prêt », texte brut", async ({ page, account }) => {
   const title = uniqueTitle("Procédure de facturation");
   await page.goto("/ajouter");
   await expect(page.getByRole("tab", { name: t.noteTab })).toHaveAttribute("aria-selected", "true");
@@ -61,17 +61,15 @@ test("crée une Note : page du Document, bandeau, badge « en cours de traitemen
 
   await expect(page).toHaveURL(DOCUMENT_URL, { timeout: 30_000 });
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("status").filter({ hasText: texts.documentStatus.processingTitle })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
   const metadata = page.locator("main dl");
-  await expect(metadata.getByText(texts.status.processing)).toBeVisible();
-  await expect(metadata.getByText("◔")).toBeVisible();
+  await expect(metadata.getByText(texts.status.ready)).toBeVisible({ timeout: 20_000 });
   await expect(metadata.getByText(texts.categories.procedure, { exact: true })).toBeVisible();
   await expect(page.locator("main article").getByText("<b>pas du HTML</b>")).toBeVisible();
   await expect(page.locator("main b")).toHaveCount(0);
 
   const { data } = await admin().from("documents").select("author_id, status, attempt_id").eq("title", title).single();
-  expect(data?.status).toBe("processing");
+  expect(data?.status).toBe("ready");
   expect(data?.attempt_id).toBeTruthy();
   expect(data?.author_id).toBe(account.id);
 });

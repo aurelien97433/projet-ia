@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { triggerProcessing } from "@/server/documents/trigger-processing";
 import { localProcessSecret, localSupabase, uniqueEmail } from "../support/local-supabase";
 
@@ -68,10 +68,13 @@ describe("triggerProcessing", () => {
     expect(await row(doc.id)).toEqual({ status: "error", error_kind: "temporary" });
   });
 
-  it("vraie fonction, bon secret : Document toujours en cours, aucun abandon", async () => {
+  it("vraie fonction, bon secret : aucun abandon, le Document devient prêt", async () => {
     const doc = await newDocument();
     const url = `${localSupabase().url}/functions/v1/process-document`;
     await triggerProcessing(doc.id, doc.attempt_id, author, { url, secret: localProcessSecret() });
-    expect(await row(doc.id)).toEqual({ status: "processing", error_kind: null });
+    await vi.waitFor(async () => expect(await row(doc.id)).toEqual({ status: "ready", error_kind: null }), {
+      timeout: 10_000,
+      interval: 100,
+    });
   });
 });
