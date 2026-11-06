@@ -57,3 +57,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
   summary: Fiabiliser la copie du secret de `setup-seed-env.ps1` : au collage dans Vercel, le presse-papiers ne contenait pas le secret, et l'utilisateur a dû recopier la valeur depuis `.env.seed`.
   evidence: Constaté par l'utilisateur le 2026-11-06, longueur de 64 caractères vérifiée après recopie. Cause non établie (le test du script ne couvre pas `Set-Clipboard`). Tant que ce n'est pas corrigé, toute rotation doit prévoir ce recours et contrôler la longueur de la valeur collée. Piste : relire le presse-papiers après `Set-Clipboard` et comparer sans afficher, avant de demander le collage.
+- source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
+  summary: Story 7.1a : le Jeu complet doit inclure des Documents plus longs, pour démontrer des Sources à plusieurs Passages et la navigation entre Passages.
+  evidence: Relevé par l'utilisateur le 2026-11-06 : les 8 Documents du mini Jeu ne produisent qu'un Passage chacun, tous étant sous 1 200 caractères. Les stories 5.7 (panneau Source) et 5.12 (navigation entre Passages) arrivent avant 7.1a : elles auront besoin de leurs propres Documents de test longs, ou d'un Document long ajouté au mini Jeu.

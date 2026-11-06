@@ -636,4 +636,13 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Secret posé dans Supabase, Vercel et `.env.seed`, depuis une seule session PowerShell. `EMBEDDINGS_FAKE` n'apparaît pas dans `supabase secrets list`.
 - **Fragilité constatée par l'utilisateur.** Le presse-papiers ne contenait pas le secret au moment du collage dans Vercel : valeur recopiée depuis `.env.seed`, longueur de 64 caractères vérifiée. Cause non établie, consignée dans `deferred-work.md`.
 
-**Statut.** `review`. Préchargement distant à faire par l'utilisateur après le déploiement.
+**Déploiement.** Commit `bed350d` poussé sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production.**
+- Premier préchargement : « contrôle final réussi : 8 Documents prêts, 8 Passages », avec de vrais vecteurs.
+- Requête de contrôle : 8 Documents `ready`, chacun avec au moins 1 Passage et `text-embedding-3-small`.
+- Relance : tous les Documents affichent « déjà prêt », sans doublon.
+
+**Remarque de l'utilisateur.** Les Documents du mini Jeu ne produisent qu'un Passage chacun. Le Jeu complet (7.1a) devra inclure des Documents plus longs, pour démontrer des Sources à plusieurs Passages et la navigation entre Passages. Noté dans `deferred-work.md`, avec un point d'attention : 5.7 et 5.12 arrivent avant 7.1a.
+
+**Statut final.** Story 2.8 passée à `done` le 2026-11-06, après la vérification de l'utilisateur.

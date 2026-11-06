@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-06-2026 16:40
+last_updated: 11-06-2026 17:16
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -52,7 +52,7 @@ development_status:
   2-6a-déposer-et-importer-un-fichier-txt-ou-md: backlog  # P0 · dépend de : 2.5
   2-6b-lire-le-texte-des-fichiers-importés: backlog  # P0 · dépend de : 2.6a
   2-7-test-de-charge-de-la-limite-de-1-mo: backlog  # P0 · dépend de : 2.6b
-  2-8-mini-jeu-de-démonstration: review  # P0 · dépend de : 2.4 (mini Jeu en Notes, décision du 2026-11-04)
+  2-8-mini-jeu-de-démonstration: done  # P0 · dépend de : 2.4 (mini Jeu en Notes, décision du 2026-11-04)
   2-9-protéger-une-saisie-en-cours-finition: backlog  # P0 FINITION · dépend de : 2.6a
   epic-2-retrospective: optional
 

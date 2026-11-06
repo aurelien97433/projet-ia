@@ -2,7 +2,7 @@
 title: 'Story 2.8 : Mini Jeu de démonstration'
 type: 'feature'
 created: '2026-11-06'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'd5b19c93e7fb2fd892e8c2180d7b04f703d9631f'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -117,7 +117,8 @@ context:
 - **Environnement local.** Plusieurs *workers* e2e peuvent saturer la passerelle locale (`invalid response … upstream server`).
 - **Non testé automatiquement.** `Invoke-Setup` de bout en bout (saisie masquée, presse-papiers, vraie CLI) : procédure manuelle, reportée dans `deferred-work.md`.
 - **Premier lancement de `setup-seed-env.ps1`.** La CLI a refusé sans `--yes` et annoncé 2 secrets, sans rien modifier. Le second serait `EMBEDDINGS_FAKE` de `config.toml` (hypothèse, vérification refusée par le contrôle automatique). Le script travaille désormais dans un dossier temporaire, contrôle la cible, puis passe `--yes`.
-- **Résultat distant.** À compléter après l'exécution par l'utilisateur.
+- **Résultat distant (relevé par l'utilisateur le 2026-11-06).** `contrôle final réussi : 8 Documents prêts, 8 Passages`, donc de vrais vecteurs. Requête de contrôle : 8 Documents `ready`, chacun avec au moins 1 Passage et `text-embedding-3-small`. Relance : tous `déjà prêt`, sans doublon.
+- **Limite.** Chaque Document tient en un seul Passage (moins de 1 200 caractères) : aucune Source à plusieurs Passages n'est encore démontrable.
 
 ## Spec Change Log
 
