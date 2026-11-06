@@ -11,6 +11,7 @@ export const DOCUMENT_CATEGORIES = [
 
 export type DocumentCategory = (typeof DOCUMENT_CATEGORIES)[number];
 export type DocumentStatus = "processing" | "ready" | "error";
+export type DocumentErrorKind = "temporary" | "no_text";
 
 // 1 Mo = 1 000 000 octets UTF-8, même définition dans tous les contrôles (décision du 2026-11-03).
 export const MAX_TEXT_BYTES = 1_000_000;

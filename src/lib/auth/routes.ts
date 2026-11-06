@@ -4,6 +4,8 @@ import { DEFAULT_NEXT_PATH, NEXT_PARAM } from "./safe-redirect";
 export const SIGN_IN_PATH = "/connexion";
 export const SIGN_UP_PATH = "/inscription";
 export const PUBLIC_PATHS: readonly string[] = [SIGN_IN_PATH, SIGN_UP_PATH];
+// Routes de données : jamais redirigées, chacune vérifie la session et répond en JSON (401).
+export const API_PREFIX = "/api/";
 
 // Paramètre posé après la déconnexion pour afficher « Vous êtes déconnecté. ».
 export const SIGNED_OUT_PARAM = "deconnecte";
@@ -12,6 +14,7 @@ export const SIGNED_OUT_PARAM = "deconnecte";
 // redirection. Une page publique n'est jamais redirigée vers elle-même ni vers une autre page
 // publique, et un Collaborateur connecté n'est jamais renvoyé vers une page publique : aucune boucle.
 export function accessRedirect(pathname: string, search: string, signedIn: boolean): string | null {
+  if (pathname.startsWith(API_PREFIX)) return null;
   const isPublic = PUBLIC_PATHS.includes(pathname);
   if (signedIn) return isPublic ? DEFAULT_NEXT_PATH : null;
   if (isPublic) return null;

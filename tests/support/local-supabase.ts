@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 // Accès à Supabase local pour les tests. Les clés locales sont lues à l'exécution avec
@@ -24,6 +25,17 @@ export function localSupabase(): LocalSupabase {
   }
   cached = { url: status.API_URL, publishableKey: status.PUBLISHABLE_KEY, serviceRoleKey: status.SERVICE_ROLE_KEY };
   return cached;
+}
+
+// Secret de process-document pour la fonction locale, lu à l'exécution dans le fichier des Edge
+// Functions (ignoré par git). Seule cette ligne est retenue, et la valeur n'est jamais affichée.
+export function localProcessSecret(): string {
+  const file = path.join(repoRoot, "supabase", "functions", ".env");
+  const lines = existsSync(file) ? readFileSync(file, "utf8").split(/\r?\n/) : [];
+  const prefix = "PROCESS_DOCUMENT_SECRET=";
+  const value = lines.find((line) => line.startsWith(prefix))?.slice(prefix.length);
+  if (!value) throw new Error("Variable absente de supabase/functions/.env : voir docs/environnements.md.");
+  return value;
 }
 
 // Requête SQL en lecture sur la base locale (contrôle des privilèges), via la CLI Supabase.

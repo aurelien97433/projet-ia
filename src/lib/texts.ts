@@ -109,12 +109,22 @@ export const texts = {
     },
   },
   document: {
-    added: "Document ajouté. Traitement en cours.",
     categoryLabel: "Catégorie",
     authorLabel: "Auteur",
     addedOnLabel: "Ajouté le",
     statusLabel: "Statut de traitement",
     textLabel: "Texte du Document",
+  },
+  documentStatus: {
+    processingTitle: "En cours de traitement",
+    processingText: "Le Document sera interrogeable dans quelques instants.",
+    // Provisoire jusqu'à la story 2.5 : la relance n'existe pas encore (décision du 2026-11-06).
+    temporaryAuthor: "Le traitement n'a pas pu aboutir. La relance sera bientôt disponible.",
+    // Raison enregistrée en base (AD-5), non affichée avant la story 2.5.
+    temporaryReason: "Le traitement n'a pas pu aboutir. Vous pouvez le relancer.",
+    temporaryOther: "Le traitement n'a pas pu aboutir. Seul l'Auteur de ce Document peut relancer le traitement.",
+    retry: "Relancer le traitement",
+    statusUnavailable: "Le Statut n'a pas pu être actualisé.",
   },
   categories: {
     procedure: "Procédure",

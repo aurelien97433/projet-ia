@@ -428,3 +428,8 @@ enabled = true
 # La clé service_role est comparée dans la fonction, qui ne passe donc pas par la vérification JWT.
 [functions.ai-health]
 verify_jwt = false
+
+# Traitement des Documents (story 2.3) : appelée par Next.js avec PROCESS_DOCUMENT_SECRET, comparé
+# dans la fonction. Elle ne reçoit jamais de jeton de Collaborateur (AD-1).
+[functions.process-document]
+verify_jwt = false

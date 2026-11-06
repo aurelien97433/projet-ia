@@ -31,5 +31,11 @@
   summary: Document inconnu ou inaccessible (`/documents/[id]`) : E9 est servie avec le statut HTTP 200 (plus `noindex`) au lieu de 404.
   evidence: Accepté pour le MVP par l'utilisateur le 2026-11-05. La coquille est envoyée en flux avant que `notFound()` ne s'exécute, comportement documenté de Next.js 16 avec `cacheComponents`. Pour obtenir un 404, il faudrait vérifier l'existence avant tout envoi (proxy ou route sans flux). À reprendre si un contrôle externe (supervision, jury) exige le code 404.
 - source_spec: `_bmad-output/implementation-artifacts/2-2-créer-une-note.md`
-  summary: À traiter en story 2.3. La notification « Document ajouté. Traitement en cours. » (`?ajoute=1`) reste affichée quand le Statut effectif change (par exemple *en erreur* après 3 min) ; le bandeau de Statut doit prendre le relais selon l'état réel.
+  summary: Traité en story 2.3 (le bandeau de Statut remplace `?ajoute=1`). La notification « Document ajouté. Traitement en cours. » (`?ajoute=1`) reste affichée quand le Statut effectif change (par exemple *en erreur* après 3 min) ; le bandeau de Statut doit prendre le relais selon l'état réel.
   evidence: Constaté en production par l'utilisateur le 2026-11-05. Après 3 min, le badge passe correctement à « en erreur », mais la notification liée au paramètre `?ajoute=1` reste visible, ce qui contredit l'état réel.
+- source_spec: `_bmad-output/implementation-artifacts/2-3-déclencher-le-traitement-et-suivre-le-statut.md`
+  summary: Relever la sortie JSON réelle de `supabase functions deploy` au premier déploiement et la figer dans `tests/unit/deploy-supabase.test.ts`.
+  evidence: maybe-false, gravité medium si c'est confirmé. Commande « remote only », jamais jouée : si la sortie ne contient pas `target`, `deploy:supabase` signalerait un échec après un déploiement réussi. La première exécution le tranche.
+- source_spec: `_bmad-output/implementation-artifacts/2-3-déclencher-le-traitement-et-suivre-le-statut.md`
+  summary: Tester le passage d'un Document à un autre (`key={document.id}` du bandeau) quand un lien entre Documents existera.
+  evidence: Aucun lien de ce type à ce jour ; le cas devient atteignable avec la Bibliothèque (story 3.3).

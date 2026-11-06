@@ -4,9 +4,10 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/server/auth/require-user";
 import { createNote, type CreateNoteResult } from "@/server/documents/create-note";
+import { triggerProcessing } from "@/server/documents/trigger-processing";
 
 // Server Action de création d'une Note (FR-4). La session est vérifiée ici même : une action peut
-// être appelée sans passer par la page. En cas de succès, page du Document avec la notification.
+// être appelée sans passer par la page. En cas de succès, traitement déclenché puis page du Document.
 export async function createNoteAction(formData: FormData): Promise<CreateNoteResult> {
   const auth = await requireUser();
   if (!auth.user) return { status: "error", error: auth.error };
@@ -22,6 +23,9 @@ export async function createNoteAction(formData: FormData): Promise<CreateNoteRe
     auth.user.id,
     supabase,
   );
-  if (result.status === "created") redirect(`/documents/${result.id}?ajoute=1`);
+  if (result.status === "created") {
+    if (result.attemptToStart) await triggerProcessing(result.id, result.attemptToStart, supabase);
+    redirect(`/documents/${result.id}`);
+  }
   return result;
 }

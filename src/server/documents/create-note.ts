@@ -7,8 +7,9 @@ import { texts } from "@/lib/texts";
 export type NoteFieldErrors = { title?: string; category?: string; content?: string };
 
 // Résultat renvoyé au navigateur : identifiant du Document, ou messages du catalogue.
+// attemptToStart : tentative à déclencher ; null pour un rejeu, déjà déclenché par le premier envoi.
 export type CreateNoteResult =
-  | { status: "created"; id: string }
+  | { status: "created"; id: string; attemptToStart: string | null }
   | { status: "invalid"; fieldErrors: NoteFieldErrors }
   | ({ status: "error" } & AppError);
 
@@ -51,9 +52,11 @@ export async function createNote(
     const { data, error } = await db
       .from("documents")
       .insert({ title, category, content_text: content, client_request_id: clientRequestId })
-      .select("id")
+      .select("id, attempt_id")
       .single();
-    if (!error && data) return { status: "created", id: data.id as string };
+    if (!error && data) {
+      return { status: "created", id: data.id as string, attemptToStart: data.attempt_id as string };
+    }
 
     if (error?.code === UNIQUE_VIOLATION) {
       const { data: existing } = await db
@@ -64,7 +67,7 @@ export async function createNote(
         .maybeSingle();
       if (existing) {
         logEvent("create_note_replayed", { user_id: userId, document_id: existing.id as string });
-        return { status: "created", id: existing.id as string };
+        return { status: "created", id: existing.id as string, attemptToStart: null };
       }
     }
     logEvent("create_note_failed", { user_id: userId, code: error?.code ?? "no_data" });

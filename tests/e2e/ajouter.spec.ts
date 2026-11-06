@@ -49,9 +49,9 @@ function textOfBytes(n: number): string {
   return line.repeat(lines) + "a".repeat(n - lines * 199);
 }
 
-const DOCUMENT_URL = /\/documents\/[0-9a-f-]{36}\?ajoute=1$/;
+const DOCUMENT_URL = /\/documents\/[0-9a-f-]{36}$/;
 
-test("crée une Note : page du Document, notification, badge « en cours de traitement », texte brut", async ({ page, account }) => {
+test("crée une Note : page du Document, bandeau, badge « en cours de traitement », texte brut", async ({ page, account }) => {
   const title = uniqueTitle("Procédure de facturation");
   await page.goto("/ajouter");
   await expect(page.getByRole("tab", { name: t.noteTab })).toHaveAttribute("aria-selected", "true");
@@ -61,7 +61,7 @@ test("crée une Note : page du Document, notification, badge « en cours de trai
 
   await expect(page).toHaveURL(DOCUMENT_URL, { timeout: 30_000 });
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("status").filter({ hasText: texts.document.added })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: texts.documentStatus.processingTitle })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
   const metadata = page.locator("main dl");
   await expect(metadata.getByText(texts.status.processing)).toBeVisible();
@@ -243,6 +243,7 @@ test("E8 et E7 : axe sans violation, sans défilement horizontal (texte sans esp
   await fillNote(page, uniqueTitle("Largeur"), `https://exemple.test/${"x".repeat(400)}`);
   await page.getByRole("button", { name: t.submit }).click();
   await expect(page).toHaveURL(DOCUMENT_URL, { timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   const results = await new AxeBuilder({ page }).exclude("nextjs-portal").analyze();
   expect(results.violations.map((v) => `E7 ${v.id}`)).toEqual([]);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

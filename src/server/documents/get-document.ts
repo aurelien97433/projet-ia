@@ -1,16 +1,18 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import type { DocumentCategory, DocumentStatus } from "@/lib/documents";
+import type { DocumentCategory, DocumentErrorKind, DocumentStatus } from "@/lib/documents";
 import { logEvent } from "@/lib/errors";
 
 export type DocumentView = {
   id: string;
   title: string;
   category: DocumentCategory;
+  authorId: string;
   authorName: string;
   createdAt: string;
   effectiveStatus: DocumentStatus;
+  effectiveErrorKind: DocumentErrorKind | null;
   content: string;
 };
 
@@ -24,7 +26,7 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
   const [meta, body] = await Promise.all([
     db
       .from("documents_list")
-      .select("id, title, category, author_name, created_at, effective_status")
+      .select("id, title, category, author_id, author_name, created_at, effective_status, effective_error_kind")
       .eq("id", id)
       .maybeSingle(),
     db.from("documents").select("content_text").eq("id", id).maybeSingle(),
@@ -39,9 +41,11 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
     id: meta.data.id,
     title: meta.data.title,
     category: meta.data.category,
+    authorId: meta.data.author_id,
     authorName: meta.data.author_name ?? "",
     createdAt: meta.data.created_at,
     effectiveStatus: meta.data.effective_status,
+    effectiveErrorKind: meta.data.effective_error_kind,
     content: body.data.content_text ?? "",
   };
 }

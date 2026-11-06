@@ -4,27 +4,12 @@
 import { checkModelAccess, embed } from "../_shared/ai.ts";
 import { EMBEDDING_DIMENSION, EMBEDDING_MODEL, generationModel, readEnv } from "../_shared/config.ts";
 import { AiError, errorResponse, logEvent } from "../_shared/errors.ts";
+import { hasBearerSecret } from "../_shared/secret.ts";
 
 const PROBE_TEXT = "Bonjour";
 
-// Comparaison à durée constante, pour ne rien révéler de la clé attendue.
-function sameSecret(a: string, b: string): boolean {
-  const left = new TextEncoder().encode(a);
-  const right = new TextEncoder().encode(b);
-  let diff = left.length ^ right.length;
-  for (let i = 0; i < Math.max(left.length, right.length); i += 1) diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
-  return diff === 0;
-}
-
-function isServiceRole(request: Request): boolean {
-  const expected = readEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const header = request.headers.get("Authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-  return Boolean(expected) && token !== "" && sameSecret(token, expected!);
-}
-
 export async function handle(request: Request): Promise<Response> {
-  if (!isServiceRole(request)) return errorResponse("UNAUTHENTICATED", "Accès refusé.", false, 401);
+  if (!hasBearerSecret(request, readEnv("SUPABASE_SERVICE_ROLE_KEY"))) return errorResponse("UNAUTHENTICATED", "Accès refusé.", false, 401);
 
   try {
     const models = await checkModelAccess([EMBEDDING_MODEL, generationModel()]);

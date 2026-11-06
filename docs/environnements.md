@@ -79,15 +79,58 @@ La clé n'est jamais tapée sur une ligne de commande, collée dans un fichier s
    ```
    Le fichier est écrit sans BOM, qui fausserait le nom de la variable.
 2. **Contrôle** : `git check-ignore -v supabase/functions/.env` cite `.gitignore` (`.env*`). `git status --short` ne liste pas le fichier.
-3. **Projet distant** : `npx supabase secrets set --env-file supabase\functions\.env` lit la valeur dans le fichier et vise le projet lié (commande « remote only »). Ensuite, `npx supabase secrets list` doit afficher `OPENAI_API_KEY` avec une empreinte, jamais la valeur.
+3. **Projet distant** : **ne jamais** passer `supabase\functions\.env` à `supabase secrets set`. Depuis la story 2.3, ce fichier contient aussi le `PROCESS_DOCUMENT_SECRET` **local** : la commande remplacerait le secret de production et chaque Note passerait *en erreur*. Écrire la clé dans un fichier temporaire hors du dépôt, comme pour `PROCESS_DOCUMENT_SECRET` (section suivante), puis lancer `npx supabase secrets set --env-file <ce fichier>`, qui vise le projet lié (commande « remote only »), et supprimer le fichier. Ensuite, `npx supabase secrets list` doit afficher `OPENAI_API_KEY` avec une empreinte, jamais la valeur.
 4. **Après une pose ou un changement de clé** : redémarrer Supabase local (`npx supabase stop`, puis `npx supabase start`) et lancer `npm run test:ai`.
+
+## `PROCESS_DOCUMENT_SECRET` : création sans affichage
+
+Ce secret autorise Next.js à appeler `process-document`. Il est lu côté serveur uniquement, n'est jamais préfixé `NEXT_PUBLIC_` et ne figure dans aucun fichier suivi. La valeur de production est différente de la valeur locale et n'est jamais communiquée à l'IA.
+
+**Ordre obligatoire : secret (Supabase et Vercel), puis `npm run deploy:supabase`, puis push.** Si le code arrive sur Vercel avant la fonction ou le secret, chaque Note créée passe *en erreur* temporaire.
+
+**Production (PowerShell, à la racine du projet lié).** À exécuter dans une seule session, sans fermer la fenêtre entre les étapes :
+
+1. Générer la valeur (rien ne s'affiche) :
+   ```powershell
+   $bytes = New-Object byte[] 32
+   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+   $secret = -join ($bytes | ForEach-Object { $_.ToString("x2") })
+   ```
+2. La poser dans Supabase, par un fichier temporaire hors du dépôt, sans BOM :
+   ```powershell
+   $file = Join-Path $env:TEMP "process-document-secret.env"
+   [IO.File]::WriteAllText($file, "PROCESS_DOCUMENT_SECRET=$secret`n", (New-Object Text.UTF8Encoding $false))
+   npx supabase secrets set --env-file $file
+   Remove-Item $file
+   npx supabase secrets list
+   ```
+   La liste doit afficher `PROCESS_DOCUMENT_SECRET` avec une empreinte, jamais la valeur.
+3. La copier dans le presse-papiers :
+   ```powershell
+   Set-Clipboard -Value $secret
+   ```
+4. Dans Vercel › projet › Settings › Environment Variables : `Add`, nom `PROCESS_DOCUMENT_SECRET`, valeur collée, environnements **Production** et **Preview**, option **Sensitive** activée, puis `Save`.
+5. Effacer la valeur :
+   ```powershell
+   Set-Clipboard -Value " "
+   Remove-Variable secret, bytes
+   ```
+   Si l'historique du presse-papiers de Windows est activé (`Win + V`), y supprimer aussi l'entrée.
+
+**Changer le secret** : reprendre ces étapes, puis redéployer sur Vercel : une variable Vercel ne s'applique qu'aux déploiements suivants. Entre le changement côté Supabase et la fin du redéploiement, chaque Note créée passe *en erreur* temporaire (`401`). Ensuite, créer une Note : elle doit rester *en cours* sans passer *en erreur* immédiatement.
+
+**Local.** La fonction locale lit `supabase/functions/.env` (ignoré par git), et les tests y lisent cette seule ligne à l'exécution. Après un ajout ou un changement : `npx supabase stop`, puis `npx supabase start`. Sans la variable, ajouter une valeur aléatoire sans ouvrir le fichier :
+```powershell
+node -e "require('fs').appendFileSync('supabase/functions/.env','\nPROCESS_DOCUMENT_SECRET='+require('crypto').randomBytes(32).toString('hex')+'\n')"
+```
+`.env.local` vise le projet distant. Aujourd'hui, il ne contient pas ce secret : une Note créée avec `npm run dev` y passe donc *en erreur* temporaire, le comportement prévu sans secret. Ce fichier ne recevra la valeur que si le script de préchargement l'exige ; la story 2.8 décidera d'un fichier séparé (`.env.seed`), et `npm run dev` déclencherait alors la fonction distante.
 
 ## Secrets et variables (noms seulement)
 
 | Nom | Où | Navigateur |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `.env.local`, Vercel | Oui (publiques) |
-| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase, `.env.local` du script de préchargement | Non |
+| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase (`supabase/functions/.env` en local, ignoré par git), `.env.local` du script de préchargement | Non |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase, `.env.local` du script de préchargement | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement (`supabase/functions/.env` en local, ignoré par git) | Non |
 | `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |

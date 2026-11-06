@@ -66,6 +66,12 @@ describe("safeNextPath : chemin interne uniquement", () => {
 });
 
 describe("accessRedirect : protection des routes sans boucle", () => {
+  it("ne redirige jamais une route /api/ : elle vérifie la session et répond en JSON", () => {
+    expect(accessRedirect("/api/documents/abc/status", "", false)).toBeNull();
+    expect(accessRedirect("/api/documents/abc/status", "", true)).toBeNull();
+    expect(accessRedirect("/apiculture", "", false)).toContain("/connexion");
+  });
+
   it.each(["/", "/bibliotheque", "/assistant", "/recherche", "/ajouter", "/route-inconnue"])(
     "Visiteur sur %s : redirigé vers /connexion",
     (path) => {

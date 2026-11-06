@@ -81,6 +81,18 @@ describe("scanText", () => {
     expect(kinds(text)).toEqual([]);
   });
 
+  it("noms interdits (code envoyé au navigateur) : refusés même sans valeur", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "noms-"));
+    try {
+      writeFileSync(path.join(dir, "app.js"), 'const a = 1;\nprocess.env["PROCESS_DOCUMENT_SECRET"];\n');
+      const options = { forbiddenNames: ["PROCESS_DOCUMENT_SECRET"] };
+      expect(scanFiles(dir, ["app.js"], options)).toEqual([{ file: "app.js", line: 2, kind: "nom d'un secret" }]);
+      expect(scanFiles(dir, ["app.js"])).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuse la valeur exacte d'un secret de l'environnement, quel que soit son format", () => {
     const value = `${randomChars(12)}!@#`;
     expect(scanText(`window.x = "${value}";`, "app.js", [value]).map((f) => f.kind)).toEqual([

@@ -11,6 +11,8 @@ export type ScanOptions = {
   // Valeurs exactes des secrets présents dans l'environnement (build Vercel) : un secret sans
   // format reconnaissable (PROCESS_DOCUMENT_SECRET) est tout de même repéré s'il est recopié.
   secretValues?: string[];
+  // Noms interdits partout dans le texte, même sans valeur (code envoyé au navigateur).
+  forbiddenNames?: string[];
   // Reçoit les fichiers non contrôlés (trop gros ou binaires), pour les signaler.
   skipped?: string[];
 };
@@ -140,6 +142,10 @@ export function scanFiles(root: string, files: string[], options: ScanOptions = 
       continue;
     }
     findings.push(...scanText(text, file, options.secretValues));
+    for (const name of options.forbiddenNames ?? []) {
+      const index = text.indexOf(name);
+      if (index !== -1) findings.push({ file, line: text.slice(0, index).split("\n").length, kind: "nom d'un secret" });
+    }
   }
   return findings;
 }
@@ -161,7 +167,11 @@ function main(): void {
   }
 
   const skipped: string[] = [];
-  const findings = scanFiles(scanRoot, files, { secretValues: secretValuesFromEnv(), skipped });
+  const findings = scanFiles(scanRoot, files, {
+    secretValues: secretValuesFromEnv(),
+    forbiddenNames: staticMode ? SECRET_NAMES : [],
+    skipped,
+  });
   const label = staticMode ? "code envoyé au navigateur (.next/static)" : "dépôt";
   const prefix = staticMode ? ".next/static/" : "";
   if (skipped.length > 0) {

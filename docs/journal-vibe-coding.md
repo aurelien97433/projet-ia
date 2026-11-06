@@ -429,3 +429,56 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - **Leçon.** Un message lié à un paramètre d'URL décrit l'instant de l'action, pas l'état réel. Tout message d'état doit dériver du Statut effectif.
 
 **Statut final.** Story 2.2 passée à `done` le 2026-11-05, après la vérification de l'utilisateur.
+
+## Story 2.3 — Déclencher le traitement et suivre le Statut (2026-11-06)
+
+**Objectif.** Faire déclencher le traitement par l'enregistrement d'une Note, et faire suivre le Statut automatiquement, sans encore traiter le texte (story 2.4).
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter le plan, les fichiers et les risques avant de coder.
+- Vérifier le `202` et `EdgeRuntime.waitUntil`, `PROCESS_DOCUMENT_SECRET`, `abandon_processing` à 5 s, le suivi automatique, le bandeau à la place de `?ajoute=1`, `deploy:supabase` et l'absence de secret dans le navigateur ou le dépôt.
+- Faire la revue à trois relecteurs (règle 11).
+- Aucun commit ni push sans validation. Ne pas commencer 2.4.
+
+**Décisions de l'utilisateur.**
+- « Relancer le traitement » est visible pour l'Auteur seulement, avec `aria-disabled` et une explication courte, jusqu'à la story 2.5.
+- Le secret local est généré sans être affiché, uniquement dans un fichier ignoré par git.
+- Chaque route `/api/` vérifie elle-même la session, et `process-document` n'est appelée que côté serveur.
+- Spec gardée entière, malgré sa longueur.
+
+**Ce que l'IA a produit.**
+- Migration `fail_processing` (`service_role`) et `abandon_processing` (Auteur), en une seule mise à jour conditionnelle.
+- Edge Function `process-document` : secret, tentative, `waitUntil`, `202`. Le travail se réduit à une journalisation.
+- Appel serveur limité à 5 s, abandon avec le jeton de l'Auteur, route `GET /api/documents/[id]/status`, `StatusBanner` et interrogation toutes les 3 s.
+- Procédure de création du secret en production dans `docs/environnements.md`, sans que la valeur soit communiquée.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Fausse preuve détectée par la revue.** Le journal de fin de travail partait **avant** le `202`, parce que le travail s'exécutait de façon synchrone. La lecture des journaux ne prouvait donc pas qu'il survit à la requête, alors que l'IA l'avait présentée comme une preuve. Corrigé : le travail attend 200 ms, et un test d'intégration lit l'ordre réel des journaux.
+- **Procédure dangereuse.** La commande documentée pour la clé OpenAI aurait envoyé le secret **local** en production. Procédure réécrite.
+- **Autres corrections de revue.** Privilège `service_role` retiré d'`abandon_processing`, arrêt du suivi sur `401` et `404`, délai de 2 s sur l'abandon, cause des échecs dans les journaux, espacement du bandeau vide, nom des secrets refusé dans `.next/static`.
+- **Rejetés ou renvoyés.** Pannes passagères répétées et `no_text` (2.5), rejeu après une panne (décision de la spec), limite de 10 s du formulaire (valeur UX). 28 constats sont consignés dans le fichier de story.
+- **Écart de méthode.** L'implémentation a été faite directement, sans sous-agent, car tout le contexte était déjà chargé.
+- **Test fragile.** Le contrôle axe de la page Document s'exécutait sur le squelette de chargement : il attend désormais le titre.
+
+**Leçon.** Une preuve doit pouvoir échouer. Avant de présenter une observation comme une preuve, se demander si elle resterait vraie sans le comportement à prouver.
+
+**Tests.**
+- `npm test` : 341 réussis.
+- `npm run test:e2e` : 145 réussis ; 5 sautés.
+- `lint` et `tsc` : 0 erreur.
+- `build:ci` et `check:secrets` : verts. Ni le nom ni la valeur locale du secret dans le code envoyé au navigateur.
+- Mesure locale : `202` en 37 à 107 ms à chaud, environ 1 070 ms à froid.
+
+**Durée.**
+- Lecture, spec et plan : de 10:59 à 11:09.
+- Implémentation et tests : de 11:09 à 11:48.
+- Revue par les trois relecteurs, tri et corrections : de 11:48 à 12:05.
+- Vérification finale, suivi et journal : de 12:05 à 12:25.
+- Total : environ 1 h 25.
+
+**Validation de l'utilisateur.**
+- Story validée, avec une correction : tant que `retry_processing` n'existe pas, le message de l'Auteur devient « Le traitement n'a pas pu aboutir. La relance sera bientôt disponible. ». Le paragraphe séparé sous le bouton disparaît, et le bouton est décrit par ce message.
+- La raison enregistrée en base garde le texte d'AD-5 : elle n'est pas affichée avant la story 2.5.
+- L'utilisateur passe les vérifications locales, déjà couvertes par les tests.
+
+**Statut.** `review`. Commit local, sans push : l'utilisateur pose d'abord le secret de production et lance `deploy:supabase`, puis donne le feu vert pour le push. Vérification en production ensuite.

@@ -85,8 +85,8 @@ function fakeDb(insertResult: { data: unknown; error: unknown }, existing: { dat
 
 describe("createNote", () => {
   it("insère seulement les colonnes accordées, jamais l'Auteur, le Statut ni la tentative", async () => {
-    const { db, calls } = fakeDb({ data: { id: "doc-1" }, error: null });
-    expect(await createNote(valid, USER, db)).toEqual({ status: "created", id: "doc-1" });
+    const { db, calls } = fakeDb({ data: { id: "doc-1", attempt_id: "tentative-1" }, error: null });
+    expect(await createNote(valid, USER, db)).toEqual({ status: "created", id: "doc-1", attemptToStart: "tentative-1" });
     const inserted = calls.find((call) => call.op === "insert")?.args[0];
     expect(inserted).toEqual({
       title: valid.title,
@@ -109,7 +109,7 @@ describe("createNote", () => {
   it("rejeu (23505) : renvoie le Document de CE Collaborateur, filtré sur author_id", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { db, calls } = fakeDb({ data: null, error: { code: "23505" } }, { data: { id: "doc-existant" } });
-    expect(await createNote(valid, USER, db)).toEqual({ status: "created", id: "doc-existant" });
+    expect(await createNote(valid, USER, db)).toEqual({ status: "created", id: "doc-existant", attemptToStart: null });
     const filters = calls.filter((call) => call.op === "eq").map((call) => call.args);
     expect(filters).toEqual([
       ["author_id", USER],

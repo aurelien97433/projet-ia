@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { localSupabase } from "./tests/support/local-supabase";
+import { localProcessSecret, localSupabase } from "./tests/support/local-supabase";
 
 // Les tests de bout en bout tournent sur Supabase local (npx supabase start), jamais sur le projet
 // distant de démonstration : un serveur Next.js dédié, sur un autre port, reçoit les variables
@@ -29,6 +29,8 @@ export default defineConfig({
       NEXT_DIST_DIR: ".next-e2e",
       NEXT_PUBLIC_SUPABASE_URL: supabase.url,
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: supabase.publishableKey,
+      // Secret de la fonction locale : next start le lit à l'exécution, jamais incorporé au build.
+      PROCESS_DOCUMENT_SECRET: localProcessSecret(),
     },
     // Jamais de réutilisation : un serveur déjà présent sur ce port pourrait viser le projet distant.
     reuseExistingServer: false,
