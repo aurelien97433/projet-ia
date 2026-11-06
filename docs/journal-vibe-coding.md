@@ -481,4 +481,14 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - La raison enregistrée en base garde le texte d'AD-5 : elle n'est pas affichée avant la story 2.5.
 - L'utilisateur passe les vérifications locales, déjà couvertes par les tests.
 
-**Statut.** `review`. Commit local, sans push : l'utilisateur pose d'abord le secret de production et lance `deploy:supabase`, puis donne le feu vert pour le push. Vérification en production ensuite.
+**Premier déploiement : échec sur Vercel.**
+- Après la pose du secret et un `deploy:supabase` réussi, le commit `3973977` a échoué sur Vercel. Le build passait sous Windows et sous Linux (Docker), sans reproduire le problème.
+- **Cause, trouvée par l'utilisateur dans les journaux Vercel.** La valeur posée dans Vercel était le nom de la variable. `check:secrets` compare la valeur exacte du secret : il la trouvait à chaque mention du nom, dans 55 fichiers. Le contrôle a bien bloqué le build, mais avec un message trompeur.
+- **Correction de l'utilisateur.** Nouveau secret de 64 caractères hexadécimaux, posé dans Supabase et Vercel depuis une seule session PowerShell.
+- **Garde-fou demandé.** `check:secrets` échoue d'abord, avec un message clair et sans afficher la valeur, si un secret connu fait moins de 32 caractères ou ressemble au nom d'une variable (majuscules, séparateurs et valeur collée après le nom compris).
+- **Leçon.** La procédure reposait sur un copier-coller manuel, que rien ne vérifiait. Une configuration erronée doit être dénoncée comme telle, et pas seulement faire échouer un contrôle en aval.
+- **Durée de la correction** : de 13:15 à 13:55 environ, exécutions longues comprises.
+
+**Contrôles après le garde-fou.** `npm test` : 353 réussis. `npm run test:e2e` : 145 réussis ; 5 sautés. `lint`, `tsc`, `build:ci` et `check:secrets` : verts.
+
+**Statut.** `review`, en attente de la vérification de l'utilisateur en production.

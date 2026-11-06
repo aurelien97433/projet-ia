@@ -40,6 +40,8 @@ const EXCLUDED_DIRS = new Set(["node_modules", ".next", ".next-e2e", ".git", ".v
 const EXCLUDED_FILES = new Set<string>([]);
 const MAX_BYTES = 10 * 1024 * 1024;
 const MIN_SECRET_VALUE_LENGTH = 8;
+// Longueur minimale d'un secret défini dans l'environnement du build.
+export const MIN_VALID_SECRET_LENGTH = 32;
 
 function jwtRole(payloadPart: string): string | undefined {
   try {
@@ -76,6 +78,28 @@ export function scanText(text: string, file: string, secretValues: string[] = []
 // Valeurs des secrets définis dans l'environnement courant, assez longues pour être distinctives.
 export function secretValuesFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
   return SECRET_NAMES.map((name) => env[name]?.trim() ?? "").filter((v) => v.length >= MIN_SECRET_VALUE_LENGTH);
+}
+
+const compact = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+export type InvalidSecret = { name: string; reason: string };
+
+// Secrets de l'environnement dont la valeur ne peut pas être la bonne : trop courte, ou contenant
+// le nom d'une variable (nom collé à la place de la valeur, cause de l'échec du 2026-11-06). Un
+// secret absent ou vide n'est pas concerné : tous ne sont pas définis à chaque build. La valeur
+// n'apparaît jamais dans le résultat.
+export function invalidSecretsFromEnv(env: Record<string, string | undefined> = process.env): InvalidSecret[] {
+  const invalid: InvalidSecret[] = [];
+  for (const name of SECRET_NAMES) {
+    const value = env[name]?.trim();
+    if (!value) continue;
+    if (SECRET_NAMES.some((known) => compact(value).includes(compact(known)))) {
+      invalid.push({ name, reason: "la valeur ressemble au nom d'une variable" });
+    } else if (value.length < MIN_VALID_SECRET_LENGTH) {
+      invalid.push({ name, reason: `la valeur fait moins de ${MIN_VALID_SECRET_LENGTH} caractères` });
+    }
+  }
+  return invalid;
 }
 
 // Texte du fichier, ou null s'il est binaire. Un texte UTF-16 (avec BOM, fréquent sous Windows)
@@ -151,6 +175,14 @@ export function scanFiles(root: string, files: string[], options: ScanOptions = 
 }
 
 function main(): void {
+  const invalid = invalidSecretsFromEnv();
+  if (invalid.length > 0) {
+    console.error(`check:secrets — ${invalid.length} secret(s) mal configuré(s) dans l'environnement :`);
+    for (const { name, reason } of invalid) console.error(`  ${name} : ${reason} (valeur masquée)`);
+    console.error("Régénérez la valeur : docs/environnements.md.");
+    process.exit(1);
+  }
+
   const root = process.cwd();
   const staticMode = process.argv.includes("--static");
   let files: string[];

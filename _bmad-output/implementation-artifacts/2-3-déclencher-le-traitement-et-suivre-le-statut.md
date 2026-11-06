@@ -129,6 +129,8 @@ context:
 - **`check:secrets --static`** refuse désormais aussi le **nom** des secrets dans `.next/static`.
 - **Secret local** : ajouté à `supabase/functions/.env` sans lire le fichier ni afficher la valeur.
 - **Mesures locales** : `202` en 37 à 107 ms à chaud, environ 1 070 ms à froid.
+- **Échec Vercel de `3973977`.** La valeur posée dans Vercel était le nom de la variable : `check:secrets` la trouvait dans 55 fichiers. Secret régénéré par l'utilisateur. Garde-fou `invalidSecretsFromEnv` ajouté à sa demande : moins de 32 caractères, ou valeur ressemblant au nom d'une variable, avec un échec clair avant tout parcours et sans afficher la valeur.
+- **`deploy:supabase`** a réussi au premier vrai déploiement de la fonction : la crainte sur la sortie de `functions deploy` ne s'est pas confirmée.
 
 ## Spec Change Log
 

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listRepoFiles, scanFiles, scanText } from "../../scripts/check-secrets";
+import { invalidSecretsFromEnv, listRepoFiles, scanFiles, scanText } from "../../scripts/check-secrets";
 
 // Les fausses clés sont construites à l'exécution : aucune n'est écrite telle quelle dans le dépôt.
 const randomChars = (n: number) =>
@@ -15,6 +15,44 @@ const fakeOpenAiKey = () => ["sk", "proj", randomChars(32)].join("-");
 const fakeSupabaseSecret = () => ["sb", "secret", randomChars(24)].join("_");
 
 const kinds = (text: string) => scanText(text, "f.txt").map((f) => f.kind);
+
+describe("invalidSecretsFromEnv", () => {
+  const NAME = "PROCESS_DOCUMENT_SECRET";
+  const reasons = (value: string, name = NAME) => invalidSecretsFromEnv({ [name]: value }).map((i) => i.reason);
+
+  it("accepte un secret long et aléatoire, ainsi qu'un secret absent ou vide", () => {
+    expect(reasons("0123456789abcdef".repeat(4))).toEqual([]);
+    expect(reasons("a".repeat(32))).toEqual([]);
+    expect(reasons("")).toEqual([]);
+    expect(reasons("   ")).toEqual([]);
+    expect(invalidSecretsFromEnv({})).toEqual([]);
+  });
+
+  it("refuse une valeur de moins de 32 caractères", () => {
+    expect(reasons("a".repeat(31))).toEqual(["la valeur fait moins de 32 caractères"]);
+  });
+
+  it.each([
+    ["le nom exact", NAME],
+    ["le nom en minuscules", NAME.toLowerCase()],
+    ["le nom sans séparateur", "ProcessDocumentSecret"],
+    ["le nom avec des tirets", "process-document-secret"],
+    ["le nom suivi d'une valeur longue", `${NAME}=${"a".repeat(40)}`],
+    ["le nom d'une autre variable", `${"x".repeat(20)}OPENAI_API_KEY`],
+  ])("refuse %s", (_label, value) => {
+    expect(reasons(value)).toEqual(["la valeur ressemble au nom d'une variable"]);
+  });
+
+  it("contrôle aussi les autres secrets connus", () => {
+    expect(reasons("court", "OPENAI_API_KEY")).toHaveLength(1);
+    expect(reasons("court", "SUPABASE_SERVICE_ROLE_KEY")).toHaveLength(1);
+  });
+
+  it("le résultat ne contient jamais la valeur", () => {
+    const value = `${NAME}-valeur-privee`;
+    expect(JSON.stringify(invalidSecretsFromEnv({ [NAME]: value }))).not.toContain("valeur-privee");
+  });
+});
 
 describe("scanText", () => {
   it("accepte le dépôt sain : noms de secrets sans valeur, expressions documentées", () => {
@@ -195,7 +233,7 @@ describe("check-secrets en ligne de commande", { timeout: 30_000 }, () => {
   it("--static contrôle .next/static, y compris la valeur exacte d'un secret de l'environnement", () => {
     dir = mkdtempSync(path.join(tmpdir(), "check-secrets-cli-"));
     mkdirSync(path.join(dir, ".next", "static", "chunks"), { recursive: true });
-    const secret = randomChars(24);
+    const secret = randomChars(40);
     writeFileSync(path.join(dir, ".next", "static", "chunks", "app.js"), `var s="${secret}";`);
     writeFileSync(path.join(dir, "a.ts"), `var s="${secret}";`);
 
@@ -206,5 +244,21 @@ describe("check-secrets en ligne de commande", { timeout: 30_000 }, () => {
     expect(leaked.status).toBe(1);
     expect(leaked.stderr).toMatch(/\.next\/static\/chunks\/app\.js:1 — valeur d'un secret de l'environnement/);
     expect(leaked.stdout + leaked.stderr).not.toContain(secret);
+  });
+
+  it.each([
+    ["nom de la variable", ["PROCESS", "DOCUMENT", "SECRET"].join("_"), /ressemble au nom d'une variable/],
+    ["valeur trop courte", "valeur-courte", /moins de 32 caractères/],
+  ])("%s : échec clair avant tout parcours, valeur masquée", (_label, value, message) => {
+    dir = mkdtempSync(path.join(tmpdir(), "check-secrets-cli-"));
+    writeFileSync(path.join(dir, "a.ts"), "export const a = 1;\n");
+
+    for (const args of [[], ["--static"]]) {
+      const result = run(dir, args, { PROCESS_DOCUMENT_SECRET: value });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(message);
+      expect(result.stderr).toContain("(valeur masquée)");
+      if (value === "valeur-courte") expect(result.stdout + result.stderr).not.toContain(value);
+    }
   });
 });
