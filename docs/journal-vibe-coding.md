@@ -566,3 +566,74 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Le contrôle du second Compte est couvert par le test e2e.
 
 **Statut final.** Story 2.4 passée à `done` le 2026-11-06, après la vérification de l'utilisateur.
+
+## Story 2.8 — Mini Jeu de démonstration (2026-11-06)
+
+**Objectif.** Ouvrir la séquence 9 : disposer d'un petit Jeu de démonstration reproductible, pour tester la Recherche et l'Assistant bien avant la dernière semaine.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter le plan, les fichiers et les risques avant de coder.
+- Fichier séparé `.env.seed`, ignoré par git et non lu par Next.js.
+- Documents fictifs, dont deux contradictoires et un Document piège à marqueur vérifiable.
+- Script idempotent, Documents *prêts*, avec Passages et vrais vecteurs.
+- « Je ne t'enverrai jamais de secret » : proposer une méthode sûre pour le préchargement distant.
+- Aucun commit ni push sans validation. Ne pas commencer 2.5.
+
+**Décisions de l'utilisateur.**
+- 8 Notes : les 6 du mini Jeu et les 2 Documents de test.
+- Notes de test de production supprimées par l'utilisateur : `SELECT` d'abord, `DELETE` séparé ensuite.
+- Revue à trois relecteurs, bien que 2.8 ne soit pas dans la liste de la règle 11, car la story touche aux secrets.
+- `setup-seed-env.ps1` : refus hors de la racine, aucune valeur affichée, format de la clé vérifié, presse-papiers effacé après confirmation.
+- Ordre : pose du secret, Vercel, redéploiement, vérification, puis préchargement distant.
+
+**Ce que l'IA a produit.**
+- `.env.seed.example`, 8 Notes et leur manifeste, `demo/questions-mini.json`.
+- `scripts/seed-demo.ts`, `scripts/setup-seed-env.ps1`, contrôle de `.env.seed` par `check:secrets`.
+- Mise à jour d'AD-20, d'AD-21 et de `docs/environnements.md`.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Trouvé par les tests.** `--env-file` est aussi une option de Node : `tsx` l'aurait chargé dans `process.env`, ce que la story interdit. Option renommée `--seed-file`, toute option inconnue refusée. `util.parseEnv` absorbait la ligne suivante après une valeur faite d'espaces : remplacé.
+- **Défaut réel des stories 2.3 et 2.4.** Un test e2e, instable depuis la 2.3, montrait une page incohérente : bandeau « prêt », badge « en cours ». L'IA avait rejeté ce risque en 2.3. Hypothèse d'un rafraîchissement coupé réfutée par un test ; symptôme reproduit par une réponse périmée, échec avant la correction, succès après. La cause exacte sous charge n'est pas établie.
+- **Revue : 37 constats triés, 24 corrigés.** Notamment :
+  - e-mails de démo en dur, qui auraient cassé `build:ci` juste après l'étape 1 ;
+  - une relance remplaçait une tentative vivante ;
+  - un déclenchement refusé laissait le Document *en cours* ;
+  - `--remote` acceptait `http://` ;
+  - Ctrl+C laissait le secret dans le presse-papiers ;
+  - l'indentation de la requête SQL cassait la procédure.
+- **Rejetés ou renvoyés.** Changement d'Auteur au manifeste, horloge du poste, valeurs entre guillemets. Déroulé complet du script PowerShell : à vérifier à sa première exécution (`deferred-work.md`).
+- **Écart de méthode.** L'implémentation a été faite directement, sans sous-agent.
+
+**Leçons.**
+- Un test « instable » est un défaut jusqu'à preuve du contraire : l'IA l'avait fiabilisé en 2.3 sans en chercher la cause.
+- Rejeter un constat de revue comme improbable reste un pari : ce risque, écarté en 2.3, s'est produit.
+
+**Tests.**
+- `npm test` : 549 réussis.
+- `npm run test:e2e` : 153 réussis ; 5 sautés.
+- `lint` et `tsc` : 0 erreur.
+- `build:ci` et `check:secrets` : verts.
+- Préchargement réel sur Supabase local, avec vecteurs simulés. Aucun appel à OpenAI.
+
+**Durée.**
+- Lecture, spec et plan : de 15:15 à 15:29 environ, attente de la validation comprise.
+- Implémentation et tests : de 15:29 à 15:53 environ.
+- Enquête sur le badge figé et correction : de 15:53 à 16:15 environ.
+- Revue par les trois relecteurs, tri et corrections : de 16:15 à 16:33 environ.
+- Vérification finale, suivi et journal : de 16:33 à 16:40.
+- Total : environ 1 h 25, exécutions longues comprises.
+
+**Premier lancement de `setup-seed-env.ps1`.**
+- Échec chez l'utilisateur : la CLI exige `--yes` hors terminal, et annonçait « 2 secrets » alors qu'un seul était prévu. Rien n'a été modifié : ni le projet distant, ni `.env.seed`.
+- **Hypothèse sur le second secret, non prouvée.** La CLI ajouterait `EMBEDDINGS_FAKE`, lu dans `[edge_runtime.secrets]` de `config.toml`. L'IA a voulu comparer le décompte avec et sans ce fichier : le contrôle automatique a refusé cet appel au magasin de secrets distant, et l'IA n'a pas insisté.
+- **Correction.** Dossier de travail temporaire sans cette section, `--remote=<référence>`, `--yes`, cible contrôlée par `secrets list`, affichée puis confirmée par l'utilisateur, qui retape la référence. Échec et réussite testés avec une fausse commande `npx`.
+- **Second échec, avant toute saisie.** Sous PowerShell 5.1 avec `$ErrorActionPreference = "Stop"`, la ligne `Target:` écrite par la CLI sur stderr devenait une erreur bloquante, sur une commande de lecture. Diagnostic de l'utilisateur, confirmé. Rien n'a été écrit.
+- **Correction.** `Invoke-Cli` lance la CLI dans un processus enfant, capture stdout et stderr en UTF-8, et seul le code de sortie décide. La vérification avec la vraie CLI, en lecture seule, a révélé un troisième défaut invisible avec une fausse CLI : `npx.cmd` calculait mal son dossier. Le script appelle désormais `node_modules\.bin\supabase.cmd`.
+- **Leçon.** Une fausse commande prouve le contrat que l'on a imaginé, pas celui de l'outil réel : dès qu'une lecture réelle est possible sans risque, la faire.
+- **Leçon.** Le texte d'une invite de la CLI compte : sans ce « 2 secrets », un simple `--yes` aurait pu envoyer un réglage local en production.
+
+**Pose du secret réussie.**
+- Secret posé dans Supabase, Vercel et `.env.seed`, depuis une seule session PowerShell. `EMBEDDINGS_FAKE` n'apparaît pas dans `supabase secrets list`.
+- **Fragilité constatée par l'utilisateur.** Le presse-papiers ne contenait pas le secret au moment du collage dans Vercel : valeur recopiée depuis `.env.seed`, longueur de 64 caractères vérifiée. Cause non établie, consignée dans `deferred-work.md`.
+
+**Statut.** `review`. Préchargement distant à faire par l'utilisateur après le déploiement.

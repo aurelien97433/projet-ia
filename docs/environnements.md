@@ -123,7 +123,7 @@ Ce secret autorise Next.js à appeler `process-document`. Il est lu côté serve
 ```powershell
 node -e "require('fs').appendFileSync('supabase/functions/.env','\nPROCESS_DOCUMENT_SECRET='+require('crypto').randomBytes(32).toString('hex')+'\n')"
 ```
-`.env.local` vise le projet distant. Aujourd'hui, il ne contient pas ce secret : une Note créée avec `npm run dev` y passe donc *en erreur* temporaire, le comportement prévu sans secret. Ce fichier ne recevra la valeur que si le script de préchargement l'exige ; la story 2.8 décidera d'un fichier séparé (`.env.seed`), et `npm run dev` déclencherait alors la fonction distante.
+`.env.local` vise le projet distant et ne contient pas ce secret : une Note créée avec `npm run dev` y passe donc *en erreur* temporaire, le comportement prévu sans secret. Le script de préchargement lit son propre fichier, `.env.seed`.
 
 ## Vectorisation : simulée en local, réelle en production
 
@@ -133,20 +133,87 @@ La simulation exige aussi que `SUPABASE_URL` vise l'hôte interne `kong` de la p
 
 Seuls appels réels : `npm run test:ai` (un mot, avec la fonction locale `ai-health`) et les Documents créés en production.
 
+**`supabase secrets set` et `config.toml`.** Lancée à la racine du projet, cette commande annonce aussi les secrets de `[edge_runtime.secrets]` : `EMBEDDINGS_FAKE` partirait sur le projet distant. Elle y serait rejetée, mais chaque traitement écrirait une erreur dans les journaux. Toujours passer par un dossier temporaire, comme `setup-seed-env.ps1`, et ne jamais confirmer avec `--yes` un nombre de secrets inattendu.
+
 **Après un changement de `config.toml`** : redémarrer Supabase local (`npx supabase stop`, puis `npx supabase start`). Sans ce redémarrage, la pile locale n'aurait pas le réglage et la vectorisation serait réelle.
+
+## Préchargement du mini Jeu (`seed:demo`)
+
+`npm run seed:demo -- --mini` crée 2 Comptes de démo, 3 Comptes de mesure et 8 Notes (`demo/documents/`), déclenche `process-document` comme Next.js et attend *prêt*. Il est relançable sans doublon, ne supprime jamais rien, n'appelle jamais OpenAI et n'affiche ni identifiant ni secret. Sa dernière ligne, `contrôle final réussi`, confirme que chaque Document est *prêt* et a des Passages ; avec `--remote`, elle confirme aussi que les vecteurs sont réels.
+
+`.env.seed` est ignoré par git et n'est pas lu par Next.js. La clé `service_role` et les identifiants de démo n'entrent jamais dans `.env.local` ni dans Vercel. Pour se connecter avec un Compte de démo, lire le fichier localement.
+
+Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. Pour la pile locale, utiliser un second fichier ignoré par git (par exemple `.env.seed.local`, avec `--seed-file`), contenant `SEED_SUPABASE_URL=http://127.0.0.1:54321`, la clé donnée par `npx supabase status` et le `PROCESS_DOCUMENT_SECRET` de `supabase/functions/.env`. `check:secrets` ne contrôle que `.env.seed`.
+
+**Projet distant : ordre obligatoire.**
+
+1. **Pose du secret.** À la racine du projet, dans une seule session PowerShell :
+   ```powershell
+   powershell -NoProfile -File scripts\setup-seed-env.ps1
+   ```
+   Le script refuse de s'exécuter hors de la racine. Il demande la clé `service_role` en saisie masquée (Supabase › Project Settings › API Keys) et vérifie son format sans l'afficher. Il contrôle que la CLI vise bien le projet lié, l'affiche et demande de retaper sa référence. Il génère ensuite le nouveau secret et les mots de passe, pose ce seul secret dans Supabase, puis écrit `.env.seed` ; en cas d'échec, ce fichier reste inchangé. Relancé plus tard, il conserve les identifiants, mais **régénère toujours le secret** : reprendre alors les étapes 2 à 4.
+2. **Vercel.** Le secret est dans le presse-papiers : Settings › Environment Variables › `PROCESS_DOCUMENT_SECRET`, Production et Preview, **Sensitive**. Enregistrer, puis taper `OK` dans le terminal : le presse-papiers est effacé.
+3. **Redéploiement.** Vercel › Deployments › dernier déploiement de production › Redeploy. Une variable Vercel ne s'applique qu'aux déploiements suivants. Jusqu'à la fin du redéploiement, chaque Note créée passe *en erreur*.
+4. **Vérification.** Créer une Note courte sur Vercel : elle doit passer à *prêt*. Sinon, les secrets diffèrent : ne pas continuer.
+5. **Nettoyage des Notes de test.** Dans l'éditeur SQL de Supabase, lister d'abord ce qui serait supprimé :
+   ```sql
+   select id, title, status, created_at
+   from public.documents
+   where title not in (
+     'Procédure de facturation',
+     'FAQ comptabilité',
+     'Procédure congés et absences',
+     'Compte rendu client : Atelier Lumen',
+     'Note de réunion : finance de mars',
+     'Guide des relances clients',
+     'Document de test : .md piège',
+     'Document de test : piège à 375 px'
+   )
+   order by created_at desc;
+   ```
+   Puis, **seulement après avoir vérifié cette liste**, lancer séparément :
+   ```sql
+   delete from public.documents
+   where title not in (
+     'Procédure de facturation',
+     'FAQ comptabilité',
+     'Procédure congés et absences',
+     'Compte rendu client : Atelier Lumen',
+     'Note de réunion : finance de mars',
+     'Guide des relances clients',
+     'Document de test : .md piège',
+     'Document de test : piège à 375 px'
+   );
+   ```
+   Les Passages sont supprimés avec leur Document. Cette requête retire **tout** Document dont le titre n'est pas dans cette liste : ne plus la lancer une fois le projet utilisé.
+6. **Préchargement distant.**
+   ```powershell
+   npm run seed:demo -- --mini --remote
+   ```
+7. **Contrôle.** Le script doit finir par `contrôle final réussi : 8 Documents prêts`. Dans l'éditeur SQL :
+   ```sql
+   select d.title, d.status, count(p.id) as passages, min(p.embedding_model) as modele
+   from public.documents d
+   left join public.passages p on p.document_id = d.id
+   group by d.id
+   order by d.title;
+   ```
+   Attendu : 8 lignes, toutes `ready`, avec au moins 1 Passage et `text-embedding-3-small`.
+
+**Coût.** 8 Notes courtes, moins d'un millième de dollar.
 
 ## Secrets et variables (noms seulement)
 
 | Nom | Où | Navigateur |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `.env.local`, Vercel | Oui (publiques) |
-| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase (`supabase/functions/.env` en local, ignoré par git), `.env.local` du script de préchargement | Non |
-| `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase, `.env.local` du script de préchargement | Non |
+| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase (`supabase/functions/.env` en local, ignoré par git), `.env.seed` | Non |
+| `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase, `.env.seed` | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement (`supabase/functions/.env` en local, ignoré par git) | Non |
 | `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
 | `EMBEDDINGS_FAKE` (pas un secret) | `supabase/config.toml`, pile locale uniquement, jamais sur le projet distant | Non |
-| `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*` | `.env.local` du script de préchargement et des mesures | Non |
+| `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*`, `SEED_SUPABASE_URL` | `.env.seed` (préchargement et mesures), jamais lu par Next.js | Non |
 
 ## Contrôle des secrets
 
-`npm run check:secrets` refuse : une clé OpenAI (`sk-` suivi d'au moins 20 caractères), une clé secrète Supabase (`sb_secret_`), un jeton JWT dont le rôle est `service_role`, une affectation avec valeur de `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` ou `PROCESS_DOCUMENT_SECRET`, et le motif témoin `NEXAMIND_CANARY_DO_NOT_DEPLOY` lorsqu'il reçoit une valeur. La clé publique Supabase (`sb_publishable_…`, ou JWT de rôle `anon` ou `authenticated`) est autorisée. Il échoue aussi, avant tout parcours et donc avant `next build`, si l'un de ces trois secrets est défini dans l'environnement du build avec une valeur de moins de 32 caractères ou ressemblant au nom d'une variable (nom collé à la place de la valeur, cause de l'échec Vercel du 2026-11-06). Un secret absent ou vide n'est pas concerné. Le script n'affiche jamais une valeur détectée : seulement le fichier, la ligne et le type de clé.
+`npm run check:secrets` refuse : une clé OpenAI (`sk-` suivi d'au moins 20 caractères), une clé secrète Supabase (`sb_secret_`), un jeton JWT dont le rôle est `service_role`, une affectation avec valeur de `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` ou `PROCESS_DOCUMENT_SECRET`, et le motif témoin `NEXAMIND_CANARY_DO_NOT_DEPLOY` lorsqu'il reçoit une valeur. La clé publique Supabase (`sb_publishable_…`, ou JWT de rôle `anon` ou `authenticated`) est autorisée. Si `.env.seed` existe sur le poste, ses valeurs secrètes et ses identifiants de démo sont aussi cherchés dans le dépôt et dans `.next/static`. Il échoue aussi, avant tout parcours et donc avant `next build`, si l'un de ces trois secrets est défini dans l'environnement du build avec une valeur de moins de 32 caractères ou ressemblant au nom d'une variable (nom collé à la place de la valeur, cause de l'échec Vercel du 2026-11-06). Un secret absent ou vide n'est pas concerné. Le script n'affiche jamais une valeur détectée : seulement le fichier, la ligne et le type de clé.

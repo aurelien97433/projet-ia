@@ -8,6 +8,8 @@ import { texts } from "@/lib/texts";
 
 const POLL_INTERVAL_MS = 3_000;
 const POLL_TIMEOUT_MS = 5_000;
+const REFRESH_RETRY_MS = 2_000;
+const MAX_REFRESH_RETRIES = 5;
 
 type Status = { effectiveStatus: DocumentStatus; effectiveErrorKind: DocumentErrorKind | null };
 
@@ -32,8 +34,8 @@ async function fetchStatus(documentId: string): Promise<Status | "gone" | null> 
 
 // Bandeau de Statut de la page Document (E7). Tant que le Statut est « en cours », il l'interroge
 // toutes les 3 s : chaque requête attend la fin de la précédente. Une panne passagère n'interrompt
-// pas le suivi. Au changement, router.refresh() met à jour le reste de la page (badge). Session
-// expirée ou Document inaccessible : le suivi s'arrête et le serveur décide de la page à afficher.
+// pas le suivi. Session expirée ou Document inaccessible : le suivi s'arrête et le serveur décide de
+// la page à afficher.
 export function StatusBanner({ documentId, isAuthor, effectiveStatus, effectiveErrorKind }: StatusBannerProps) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>({ effectiveStatus, effectiveErrorKind });
@@ -57,7 +59,6 @@ export function StatusBanner({ documentId, isAuthor, effectiveStatus, effectiveE
         }
         if (next && next.effectiveStatus !== "processing") {
           setStatus(next);
-          router.refresh();
           return;
         }
         schedule();
@@ -70,6 +71,20 @@ export function StatusBanner({ documentId, isAuthor, effectiveStatus, effectiveE
       clearTimeout(timer);
     };
   }, [documentId, processing, router]);
+
+  // Le reste de la page (badge) vient du serveur : un rafraîchissement peut renvoyer un état périmé.
+  // Tant que le serveur n'a pas rattrapé le Statut suivi, on recommence, dans une limite fixe.
+  useEffect(() => {
+    if (status.effectiveStatus === effectiveStatus) return;
+    router.refresh();
+    let retries = 0;
+    const timer = setInterval(() => {
+      retries += 1;
+      router.refresh();
+      if (retries >= MAX_REFRESH_RETRIES) clearInterval(timer);
+    }, REFRESH_RETRY_MS);
+    return () => clearInterval(timer);
+  }, [status.effectiveStatus, effectiveStatus, router]);
 
   // Zone toujours présente : un lecteur d'écran n'annonce que les changements d'une zone déjà là.
   // Vide, elle ne doit pas ajouter d'espace : la marge négative annule l'écart de la page.

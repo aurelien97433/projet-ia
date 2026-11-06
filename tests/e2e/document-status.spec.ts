@@ -103,6 +103,25 @@ test("« prêt » n'est annoncé qu'au changement : après un rechargement, badg
   await expect(banner(page)).toBeEmpty();
 });
 
+test("rafraîchissement périmé : le badge finit par suivre le bandeau", async ({ page, account }) => {
+  const id = await insertDocument(account.id);
+  let stale = 0;
+  // Premier router.refresh() : le serveur répond avec l'ancien Statut, puis la base redevient à jour.
+  await page.route(`**/documents/${id}**`, async (route) => {
+    if (!route.request().headers().rsc || stale > 0) return route.continue();
+    stale += 1;
+    await updateDocument(id, { status: "processing" });
+    const response = await route.fetch();
+    await updateDocument(id, { status: "ready" });
+    await route.fulfill({ response });
+  });
+  await page.goto(`/documents/${id}`);
+  await updateDocument(id, { status: "ready" });
+  await expect(banner(page)).toContainText(t.ready, { timeout: 8_000 });
+  await expect.poll(() => stale, { timeout: 5_000 }).toBe(1);
+  await expect(badge(page).getByText(texts.status.ready)).toBeVisible({ timeout: 8_000 });
+});
+
 test("une requête lente ne s'empile pas sur la suivante", async ({ page, account }) => {
   const id = await insertDocument(account.id);
   let active = 0;

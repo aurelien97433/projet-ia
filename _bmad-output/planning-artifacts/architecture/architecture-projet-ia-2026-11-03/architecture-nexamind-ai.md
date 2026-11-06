@@ -252,7 +252,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 - **Exigences (Binds) :** NFR-4, NFR-5.
 
 ### AD-20 — Secrets et environnements `[ADOPTED]`
-- **Règle (Rule) :** voir le tableau des secrets (§6). `OPENAI_API_KEY` n'existe que dans les secrets Supabase : aucun script local ne la reçoit, et elle n'est jamais écrite dans un document ni dans une conversation. `SUPABASE_SERVICE_ROLE_KEY` n'existe que dans les secrets Supabase (Edge Functions) et dans l'environnement local du script de préchargement, qui reçoit aussi `PROCESS_DOCUMENT_SECRET` pour déclencher le traitement (AD-21). Seules les variables `NEXT_PUBLIC_SUPABASE_URL` et la clé publique Supabase sont exposées au navigateur. `.env*` est ignoré par git ; un `.env.example` liste les noms, sans valeurs.
+- **Règle (Rule) :** voir le tableau des secrets (§6). `OPENAI_API_KEY` n'existe que dans les secrets Supabase : aucun script local ne la reçoit, et elle n'est jamais écrite dans un document ni dans une conversation. `SUPABASE_SERVICE_ROLE_KEY` n'existe que dans les secrets Supabase (Edge Functions) et dans le fichier séparé `.env.seed` du script de préchargement, ignoré par git et non lu par Next.js, qui contient aussi `PROCESS_DOCUMENT_SECRET` pour déclencher le traitement (AD-21, décision de la story 2.8). Seules les variables `NEXT_PUBLIC_SUPABASE_URL` et la clé publique Supabase sont exposées au navigateur. `.env*` est ignoré par git ; `.env.example` et `.env.seed.example` listent les noms, sans valeurs.
 - **Raison — ce qu'on évite (Prevents) :** NFR-2.
 - **Écarté :** clé `service_role` dans Next.js.
 - **Risque restant :** une fuite par erreur de commit ; vérification de `.gitignore` dès la première story.
@@ -264,7 +264,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
   - **Région.** Le projet Supabase distant est en `eu-central-1` (Francfort), relevé dans son tableau de bord le 2026-11-04. Les fonctions Vercel sont placées dans la même zone par `vercel.json` : `"regions": ["fra1"]`.
   - **Déploiement côté Supabase.** `npm run deploy:supabase` enchaîne `supabase db push --remote=<référence liée>` (migrations) et `supabase functions deploy --remote=<référence liée>` sur le projet distant ; la CLI 3 visant la base locale par défaut, le script vérifie la cible dans la sortie de la CLI et la présence des migrations à distance, et échoue sinon. Il fait partie de la définition de « terminé » de toute story qui modifie la base ou une Edge Function, avant le déploiement Vercel. Les secrets distants (`supabase secrets set`) et les réglages d'Auth (confirmation de l'e-mail désactivée) sont posés une fois, à la main, et consignés dans `docs/environnements.md` sans aucune valeur.
   - **Hébergement.** Next.js sur Vercel Hobby (URL HTTPS par défaut) ; Supabase Free ; migrations SQL versionnées dans `supabase/migrations`.
-  - **Préchargement.** Le script `scripts/seed-demo.ts` précharge le Jeu de démonstration, deux Comptes de démo fictifs et les Comptes de mesure. Il crée chaque Document avec la clé `service_role` (Statut *en cours*, nouvelle tentative), appelle `process-document` avec `PROCESS_DOCUMENT_SECRET`, comme Next.js, puis attend que chaque Document soit *prêt* (échec explicite après 3 min). Il n'appelle jamais OpenAI lui-même. Il est relançable sans doublon (clés naturelles) et prend ses identifiants dans l'environnement.
+  - **Préchargement.** Le script `scripts/seed-demo.ts` précharge le Jeu de démonstration, deux Comptes de démo fictifs et les Comptes de mesure. Il crée chaque Document avec la clé `service_role` (Statut *en cours*, nouvelle tentative), appelle `process-document` avec `PROCESS_DOCUMENT_SECRET`, comme Next.js, puis attend que chaque Document soit *prêt* (échec explicite après 3 min). Il n'appelle jamais OpenAI lui-même. Il est relançable sans doublon (clés naturelles) et lit ses identifiants dans le seul fichier `.env.seed`, jamais dans l'environnement du terminal ; il exige `--remote` pour écrire hors de la machine locale.
   - **Comptes de mesure.** Les mesures (4.2, 5.8, 7.2) utilisent plusieurs Comptes de mesure (`MEASURE_ACCOUNT_*`), chacun soumis au quota normal de 60 appels ; le quota global n'est jamais relevé. Le plafond fournisseur (AD-15) reste la borne de coût.
   - **Avant le rendu :** vérification du projet Supabase 48 h avant et la veille, réactivation manuelle si besoin, rejeu complet d'UJ-2 après chaque vérification, et vidéo de secours enregistrée sur l'environnement final.
 - **Raison — ce qu'on évite (Prevents) :** coût nul, PRD §9.3.
@@ -520,11 +520,11 @@ vercel.json                             # région des fonctions alignée sur Sup
 | Nom | Où | Navigateur |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Vercel | Oui (publics) |
-| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase et `.env.local` du script de préchargement | Non |
+| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase et `.env.seed` du script de préchargement | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement | Non |
-| `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase (fournie à l'exécution) ; `.env.local` du script de préchargement | Non |
+| `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase (fournie à l'exécution) ; `.env.seed` du script de préchargement | Non |
 | `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
-| `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*` | `.env.local` du script de préchargement et des scripts de mesure | Non |
+| `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*` | `.env.seed` du script de préchargement et des scripts de mesure | Non |
 
 **Tests**
 

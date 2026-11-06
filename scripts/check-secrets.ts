@@ -18,6 +18,7 @@ export type ScanOptions = {
 };
 
 export const SECRET_NAMES = ["OPENAI_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "PROCESS_DOCUMENT_SECRET"];
+export const SEED_ENV_FILE = ".env.seed";
 
 const OPENAI_KEY = /\bsk-[A-Za-z0-9_-]{20,}/;
 const SUPABASE_SECRET_KEY = /\bsb_secret_[A-Za-z0-9_-]{8,}/;
@@ -78,6 +79,28 @@ export function scanText(text: string, file: string, secretValues: string[] = []
 // Valeurs des secrets définis dans l'environnement courant, assez longues pour être distinctives.
 export function secretValuesFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
   return SECRET_NAMES.map((name) => env[name]?.trim() ?? "").filter((v) => v.length >= MIN_SECRET_VALUE_LENGTH);
+}
+
+// Lecture ligne à ligne d'un fichier NOM=valeur. util.parseEnv n'est pas utilisé : une valeur faite
+// d'espaces y absorbe la ligne suivante.
+export function parseEnvLines(text: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const line of text.replace(/^\ufeff/, "").split(/\r?\n/)) {
+    const match = /^([A-Z0-9_]+)=(.*)$/.exec(line);
+    if (match) values[match[1]] = match[2].trim();
+  }
+  return values;
+}
+
+// Valeurs du fichier de préchargement, s'il existe sur ce poste : secrets et identifiants de démo.
+// L'URL du projet n'est pas un secret.
+export function secretValuesFromSeedFile(root: string): string[] {
+  const file = path.join(root, SEED_ENV_FILE);
+  if (!existsSync(file)) return [];
+  return Object.entries(parseEnvLines(readFileSync(file, "utf8")))
+    .filter(([name]) => name !== "SEED_SUPABASE_URL")
+    .map(([, value]) => value)
+    .filter((value) => value.length >= MIN_SECRET_VALUE_LENGTH);
 }
 
 const compact = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -200,7 +223,7 @@ function main(): void {
 
   const skipped: string[] = [];
   const findings = scanFiles(scanRoot, files, {
-    secretValues: secretValuesFromEnv(),
+    secretValues: [...secretValuesFromEnv(), ...secretValuesFromSeedFile(root)],
     forbiddenNames: staticMode ? SECRET_NAMES : [],
     skipped,
   });

@@ -7,7 +7,7 @@
   summary: Vérifier si le postinstall du paquet `supabase` s'exécute sur Vercel et, si oui, l'éviter (dépendance optionnelle ou installation sans scripts).
   evidence: Non vérifié : à lire dans les journaux du premier build Vercel (durée de l'installation, téléchargement de la CLI).
 - source_spec: `_bmad-output/implementation-artifacts/1-1-chaîne-de-vérification-et-premier-déploiement.md`
-  summary: Séparer les variables du script de préchargement (`SUPABASE_SERVICE_ROLE_KEY`, `PROCESS_DOCUMENT_SECRET`, comptes) dans un fichier distinct de `.env.local`, lu par Next.js.
+  summary: Traité en story 2.8 (`.env.seed`). Séparer les variables du script de préchargement (`SUPABASE_SERVICE_ROLE_KEY`, `PROCESS_DOCUMENT_SECRET`, comptes) dans un fichier distinct de `.env.local`, lu par Next.js.
   evidence: AD-20 place ces variables dans « le .env.local du script de préchargement » ; Next.js chargerait alors la clé service_role dans son environnement serveur local. Décision d'architecture à prendre avant la story 2.8.
 - source_spec: `_bmad-output/implementation-artifacts/1-1-chaîne-de-vérification-et-premier-déploiement.md`
   summary: Aligner `major_version` de `supabase/config.toml` (17) sur la version Postgres du projet distant.
@@ -45,3 +45,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-4-traiter-une-note-jusqu-à-prêt.md`
   summary: Tester le verrou `for update` de `complete_processing` face à un abandon concurrent.
   evidence: maybe-false, gravité medium si c'est confirmé. Le `update` final dépend de ce verrou, mais aucun test ne tient une transaction ouverte. Pour trancher : deux connexions directes à Postgres, un abandon lancé pendant que la première transaction tient le verrou.
+- source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
+  summary: En story 2.5, resynchroniser l'état du bandeau de Statut quand le Document repasse *en cours* (relance), pour que l'interrogation reprenne.
+  evidence: `StatusBanner` n'initialise son état qu'à l'ouverture de la page. Après une relance, la propriété redevient `processing`, mais l'état reste terminal : aucune interrogation ne repart.
+- source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
+  summary: Exécuter `scripts/setup-seed-env.ps1` de bout en bout et consigner le résultat ; seules ses fonctions sont testées.
+  evidence: maybe-false, gravité medium si c'est confirmé. Le déroulé complet exige une saisie masquée, le presse-papiers et la vraie CLI. La première exécution de l'utilisateur le tranche.
+- source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
+  summary: Tester le plafond de rafraîchissement de `StatusBanner` (6 requêtes au plus si le serveur reste périmé).
+  evidence: Le test e2e couvre une réponse périmée suivie d'une réponse à jour, pas un serveur durablement périmé. Page et route lisent les mêmes colonnes : cas très improbable.
+- source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
+  summary: Fiabiliser la copie du secret de `setup-seed-env.ps1` : au collage dans Vercel, le presse-papiers ne contenait pas le secret, et l'utilisateur a dû recopier la valeur depuis `.env.seed`.
+  evidence: Constaté par l'utilisateur le 2026-11-06, longueur de 64 caractères vérifiée après recopie. Cause non établie (le test du script ne couvre pas `Set-Clipboard`). Tant que ce n'est pas corrigé, toute rotation doit prévoir ce recours et contrôler la longueur de la valeur collée. Piste : relire le presse-papiers après `Set-Clipboard` et comparer sans afficher, avant de demander le collage.
