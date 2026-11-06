@@ -41,7 +41,14 @@ export function errorResponse(code: ErrorCode, message: string, retryable: boole
   });
 }
 
+type LogDetails = Record<string, string | number | boolean | undefined>;
+
 // Journalisation structurée (§6) : jamais de secret, de jeton, ni de texte de Document.
-export function logEvent(event: string, details: Record<string, string | number | boolean | undefined>): void {
+// logEvent : un échec ou un refus, au niveau Error. logInfo : un événement normal, au niveau Info.
+export function logEvent(event: string, details: LogDetails): void {
   console.error(JSON.stringify({ event, ...details }));
+}
+
+export function logInfo(event: string, details: LogDetails): void {
+  console.log(JSON.stringify({ event, ...details }));
 }

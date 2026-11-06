@@ -2,7 +2,7 @@
 // PROCESS_DOCUMENT_SECRET (verify_jwt = false dans supabase/config.toml : seul ce secret fait foi).
 // La fonction contrôle l'appel, lance le travail en arrière-plan et répond aussitôt 202.
 import { readEnv } from "../_shared/config.ts";
-import { errorResponse, logEvent } from "../_shared/errors.ts";
+import { errorResponse, logEvent, logInfo } from "../_shared/errors.ts";
 import { type Attempt, failProcessing, isCurrentAttempt } from "../_shared/processing.ts";
 import { hasBearerSecret } from "../_shared/secret.ts";
 
@@ -16,7 +16,7 @@ type Work = (attempt: Attempt) => Promise<void>;
 // après la réponse 202 : les journaux prouvent ainsi qu'il survit à la requête. La story 2.4 le remplace.
 const logOnlyWork: Work = async ({ documentId, attemptId }) => {
   await new Promise((resolve) => setTimeout(resolve, WORK_DELAY_MS));
-  logEvent("process_document_work_done", { document_id: documentId, attempt_id: attemptId });
+  logInfo("process_document_work_done", { document_id: documentId, attempt_id: attemptId });
 };
 
 // Cause d'un échec pour les journaux : le nom de l'erreur, jamais son message, qui pourrait citer
@@ -75,7 +75,7 @@ export async function handle(request: Request, work: Work = logOnlyWork): Promis
     return errorResponse("INTERNAL", "Le traitement n'a pas pu démarrer.", true, 500);
   }
 
-  logEvent("process_document_accepted", { document_id: attempt.documentId, attempt_id: attempt.attemptId });
+  logInfo("process_document_accepted", { document_id: attempt.documentId, attempt_id: attempt.attemptId });
   // Le travail continue après la réponse (AD-5) ; en local, policy = "per_worker" est requis.
   (globalThis as unknown as { EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime.waitUntil(
     runAttempt(attempt, work),

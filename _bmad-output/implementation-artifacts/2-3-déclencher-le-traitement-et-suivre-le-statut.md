@@ -2,7 +2,7 @@
 title: 'Story 2.3 : Déclencher le traitement et suivre le Statut'
 type: 'feature'
 created: '2026-11-06'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'b9022cfddb88e0fd38951e7ee60fabf69b9b012d'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -130,6 +130,7 @@ context:
 - **Secret local** : ajouté à `supabase/functions/.env` sans lire le fichier ni afficher la valeur.
 - **Mesures locales** : `202` en 37 à 107 ms à chaud, environ 1 070 ms à froid.
 - **Échec Vercel de `3973977`.** La valeur posée dans Vercel était le nom de la variable : `check:secrets` la trouvait dans 55 fichiers. Secret régénéré par l'utilisateur. Garde-fou `invalidSecretsFromEnv` ajouté à sa demande : moins de 32 caractères, ou valeur ressemblant au nom d'une variable, avec un échec clair avant tout parcours et sans afficher la valeur.
+- **Journaux.** `logInfo` (`console.log`) ajouté pour les événements normaux, signalés au niveau Error par l'utilisateur sur Vercel : `process_document_accepted`, `process_document_work_done`, `create_note_replayed`.
 - **`deploy:supabase`** a réussi au premier vrai déploiement de la fonction : la crainte sur la sortie de `functions deploy` ne s'est pas confirmée.
 
 ## Spec Change Log

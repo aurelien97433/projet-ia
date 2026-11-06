@@ -491,4 +491,15 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 
 **Contrôles après le garde-fou.** `npm test` : 353 réussis. `npm run test:e2e` : 145 réussis ; 5 sautés. `lint`, `tsc`, `build:ci` et `check:secrets` : verts.
 
-**Statut.** `review`, en attente de la vérification de l'utilisateur en production.
+**Déploiement.** Commit `f72be03` poussé sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production.**
+- Note créée sans erreur immédiate, bandeau correct, URL sans `?ajoute=1`.
+- Journal Vercel `process_document_accepted` avec `duration_ms` à 735, sans `process_document_call_failed`.
+- Passage en erreur après 3 min sans rechargement, avec le message et le bouton inactif pour l'Auteur.
+- Pour un second Compte : « Seul l'Auteur de ce Document peut relancer le traitement. », sans bouton.
+
+**Remarque de l'utilisateur.** Vercel classait `process_document_accepted` au niveau Error, car toute la journalisation passait par `console.error`. Une fonction `logInfo` place désormais les événements normaux au niveau Info, des deux côtés, avec des tests sur le niveau.
+- **Leçon.** Un journal de succès classé en erreur noie les vraies erreurs : le niveau fait partie du contrat, au même titre que le contenu.
+
+**Statut final.** Story 2.3 passée à `done` le 2026-11-06, après la vérification de l'utilisateur.

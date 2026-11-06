@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { logEvent } from "@/lib/errors";
+import { logEvent, logInfo } from "@/lib/errors";
 
 const TRIGGER_TIMEOUT_MS = 5_000;
 const ABANDON_TIMEOUT_MS = 2_000;
@@ -49,7 +49,7 @@ export async function triggerProcessing(
   const failure = await callFunction(documentId, attemptId, target);
   const duration_ms = Date.now() - startedAt;
   if (!failure) {
-    logEvent("process_document_accepted", { document_id: documentId, duration_ms });
+    logInfo("process_document_accepted", { document_id: documentId, duration_ms });
     return;
   }
 

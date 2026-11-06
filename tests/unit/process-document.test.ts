@@ -121,6 +121,16 @@ describe("accusé et travail d'arrière-plan", () => {
     await expect(waitUntil.mock.calls[0][0]).resolves.toBeUndefined();
   });
 
+  it("accusé et fin du travail : niveau Info, aucun journal au niveau Error", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    await handle(post(BODY));
+    await waitUntil.mock.calls[0][0];
+    const output = info.mock.calls.flat().join(" ");
+    expect(output).toContain("process_document_accepted");
+    expect(output).toContain("process_document_work_done");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it("lit la tentative avec la clé service_role, sans lire le texte du Document", async () => {
     await handle(post(BODY));
     const [url, init] = dbFetch.mock.calls[0];

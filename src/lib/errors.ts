@@ -35,7 +35,15 @@ export function appError(code: ErrorCode, message: string, retryable: boolean, r
   return { error: resetAt ? { code, message, retryable, resetAt } : { code, message, retryable } };
 }
 
+type LogDetails = Record<string, string | number | boolean | undefined>;
+
 // Journalisation structurée (§6) : jamais de secret, de jeton, de mot de passe ni d'e-mail.
-export function logEvent(event: string, details: Record<string, string | number | boolean | undefined>): void {
+// logEvent : un échec ou un refus, au niveau Error de Vercel. logInfo : un événement normal, au
+// niveau Info.
+export function logEvent(event: string, details: LogDetails): void {
   console.error(JSON.stringify({ event, ...details }));
+}
+
+export function logInfo(event: string, details: LogDetails): void {
+  console.log(JSON.stringify({ event, ...details }));
 }

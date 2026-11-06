@@ -42,6 +42,22 @@ describe("triggerProcessing", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it("202 : succès journalisé au niveau Info, jamais au niveau Error", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
+    await triggerProcessing("doc", "tentative", db, TARGET);
+    expect(info.mock.calls.flat().join(" ")).toContain("process_document_accepted");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("échec : journalisé au niveau Error, jamais au niveau Info", async () => {
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+    await triggerProcessing("doc", "tentative", db, TARGET);
+    expect(logged()).toContain("process_document_call_failed");
+    expect(info).not.toHaveBeenCalled();
+  });
+
   it.each([200, 401, 404, 500, 503])("réponse %i : abandon avec le client du Collaborateur", async (status) => {
     fetchMock.mockResolvedValue(new Response(null, { status }));
     await triggerProcessing("doc", "tentative", db, TARGET);

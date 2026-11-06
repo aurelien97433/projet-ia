@@ -107,9 +107,12 @@ describe("createNote", () => {
   });
 
   it("rejeu (23505) : renvoie le Document de CE Collaborateur, filtré sur author_id", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    const info = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { db, calls } = fakeDb({ data: null, error: { code: "23505" } }, { data: { id: "doc-existant" } });
     expect(await createNote(valid, USER, db)).toEqual({ status: "created", id: "doc-existant", attemptToStart: null });
+    expect(info.mock.calls.flat().join(" ")).toContain("create_note_replayed");
+    expect(error).not.toHaveBeenCalled();
     const filters = calls.filter((call) => call.op === "eq").map((call) => call.args);
     expect(filters).toEqual([
       ["author_id", USER],

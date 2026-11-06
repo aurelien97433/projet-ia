@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { appError, logEvent, type AppError } from "@/lib/errors";
+import { appError, logEvent, logInfo, type AppError } from "@/lib/errors";
 import { noteSchema } from "@/lib/schemas/documents";
 import { texts } from "@/lib/texts";
 
@@ -66,7 +66,7 @@ export async function createNote(
         .eq("client_request_id", clientRequestId)
         .maybeSingle();
       if (existing) {
-        logEvent("create_note_replayed", { user_id: userId, document_id: existing.id as string });
+        logInfo("create_note_replayed", { user_id: userId, document_id: existing.id as string });
         return { status: "created", id: existing.id as string, attemptToStart: null };
       }
     }
