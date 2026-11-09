@@ -646,3 +646,48 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 **Remarque de l'utilisateur.** Les Documents du mini Jeu ne produisent qu'un Passage chacun. Le Jeu complet (7.1a) devra inclure des Documents plus longs, pour démontrer des Sources à plusieurs Passages et la navigation entre Passages. Noté dans `deferred-work.md`, avec un point d'attention : 5.7 et 5.12 arrivent avant 7.1a.
 
 **Statut final.** Story 2.8 passée à `done` le 2026-11-06, après la vérification de l'utilisateur.
+
+## Story 2.5 — Erreurs de traitement, expiration et relance (2026-11-09)
+
+**Objectif.** Ne plus laisser un Document bloqué en erreur : relance réelle par l'Auteur, message après 60 s, « Actualiser » si le Statut ne répond plus.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter le plan, les fichiers et les risques avant de coder.
+- `retry_processing` fondé sur le Statut effectif, réservé à l'Auteur, avec une nouvelle tentative et un état propre.
+- Aucune relance pour un `no_text`. Tests de refus pour un non-Auteur et pour un `no_text`.
+- Message de 60 s calculé depuis l'horodatage serveur. « Actualiser » après trois échecs. Reprise du suivi du bandeau.
+- Revue à trois relecteurs (règle 11). Aucun commit ni push sans validation. Ne pas commencer 3.1.
+
+**Décisions de l'utilisateur.**
+- Aucun bouton « Supprimer » pour un `no_text` avant la story 3.4 : critère reporté explicitement, avec son test. 2.6b crée les premiers cas réels, la veille de 3.4.
+- Textes d'échec : « La relance n'a pas abouti. Veuillez réessayer. » et « Cette action n'est pas autorisée. ».
+- Story gardée entière, au-dessus du repère de taille.
+- Tâche ajoutée à `epics.md` avant 4.1a : un 9ᵉ Document d'environ 4 000 caractères au mini Jeu, pour avoir plusieurs Passages réels.
+
+**Ce que l'IA a produit.**
+- Migration `20261109090000_retry_processing.sql` : colonne `last_retry_request_id`, vue avec `effective_error_message`, fonction `retry_processing`.
+- Server Action de relance, bandeau complet (relance, 60 s, « Actualiser », resynchronisation, `no_text`).
+- Tests d'intégration, unitaires et Playwright.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Revue : 24 constats triés, 12 corrigés.** Notamment : focus clavier perdu quand le bouton activé disparaît ; verrou de la relance jamais exercé ; test des échecs « consécutifs » qui validait aussi un compteur cassé ; branches session expirée et Document supprimé jamais exécutées.
+- **Rejetés.** Cumuls rares de pannes, couverts par l'expiration de 3 min. Absence de délai sur la RPC, bornée par la durée maximale de la fonction Vercel.
+- **Reporté.** Test e2e de la branche du bandeau « déclenchement refusé » : il demande un nouveau banc de test.
+
+**Tests.**
+- `npm test` : 600 réussis. `lint`, `tsc`, `build:ci` et `check:secrets` : verts.
+- `npm run test:e2e` : **pas entièrement stable**. Trois suites complètes (193 tests exécutés, 5 sautés) : 2 échecs, 1 échec, puis aucun. Spec du Statut seule, répétée : 152 sur 152.
+- **Enquête sur ces échecs.** Toujours le badge qui suit le bandeau, comme en 2.8. Une trace montre deux rafraîchissements répondus sans changement du badge. Une mesure temporaire montre que le serveur renvoie bien « prêt », mais jusqu'à 2,8 s après sous charge. **La cause n'est pas prouvée** : la suite instrumentée n'a pas échoué.
+
+**Leçon.** Élargir un délai de test pour le faire passer sans preuve de la cause reviendrait à masquer le défaut : la décision est laissée à l'utilisateur.
+
+**Durée.**
+- Lecture, spec, plan et attente des décisions : de 08:55 à 09:04 environ.
+- Implémentation et tests par l'agent : de 09:04 à 09:29 environ.
+- Revue par les trois relecteurs, tri et corrections : de 09:29 à 09:42 environ.
+- Vérification complète : de 09:42 à 09:49 environ.
+- Enquête sur les échecs e2e : de 09:49 à 10:09 environ.
+- Suivi et journal : de 10:09 à 10:12.
+- Total : environ 1 h 20, exécutions longues comprises.
+
+**Statut.** Story 2.5 en `review`, non commitée et non déployée, en attente de la validation de l'utilisateur et de sa vérification en production.

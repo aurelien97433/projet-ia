@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDocumentStatus } from "@/server/documents/get-document-status";
+import { getDocumentStatus, processingElapsedMs } from "@/server/documents/get-document-status";
 
 // Lecture du Statut : une panne de la base n'est jamais présentée comme un Document absent.
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -22,10 +22,31 @@ afterEach(() => {
 
 describe("getDocumentStatus", () => {
   it("lit le Statut effectif dans documents_list", async () => {
-    const { db, from, eq } = fakeDb({ data: { effective_status: "error", effective_error_kind: "temporary" }, error: null });
-    expect(await getDocumentStatus(ID, db)).toEqual({ effectiveStatus: "error", effectiveErrorKind: "temporary" });
+    const { db, from, eq } = fakeDb({
+      data: {
+        effective_status: "error",
+        effective_error_kind: "temporary",
+        effective_error_message: "Raison.",
+        processing_started_at: "2026-11-09T10:00:00.000000+00:00",
+        server_now: "2026-11-09T10:01:01.500000+00:00",
+      },
+      error: null,
+    });
+    expect(await getDocumentStatus(ID, db)).toEqual({
+      effectiveStatus: "error",
+      effectiveErrorKind: "temporary",
+      effectiveErrorMessage: "Raison.",
+      processingElapsedMs: 61_500,
+    });
     expect(from).toHaveBeenCalledWith("documents_list");
     expect(eq).toHaveBeenCalledWith("id", ID);
+  });
+
+  it("durée : calculée entre les deux horodatages de la base, jamais négative", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    expect(processingElapsedMs("2026-11-09T10:01:00+00:00", "2026-11-09T10:00:00+00:00")).toBe(60_000);
+    expect(processingElapsedMs("2026-11-09T10:00:00+00:00", "2026-11-09T10:00:01+00:00")).toBe(0);
+    expect(now).not.toHaveBeenCalled();
   });
 
   it("identifiant invalide : null, sans appel à la base", async () => {

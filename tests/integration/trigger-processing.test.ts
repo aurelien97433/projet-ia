@@ -68,6 +68,20 @@ describe("triggerProcessing", () => {
     expect(await row(doc.id)).toEqual({ status: "error", error_kind: "temporary" });
   });
 
+  it("déclenchement refusé sur une relance : la nouvelle tentative est abandonnée", async () => {
+    const doc = await newDocument();
+    await admin.from("documents").update({ status: "error", error_kind: "temporary" }).eq("id", doc.id);
+    const { data: attemptId, error } = await author.rpc("retry_processing", {
+      p_document_id: doc.id,
+      p_client_request_id: crypto.randomUUID(),
+    });
+    expect(error).toBeNull();
+    expect(await row(doc.id)).toEqual({ status: "processing", error_kind: null });
+
+    await triggerProcessing(doc.id, attemptId as string, author, { url: silentUrl, secret: "secret-de-test" });
+    expect(await row(doc.id)).toEqual({ status: "error", error_kind: "temporary" });
+  });
+
   it("vraie fonction, bon secret : aucun abandon, le Document devient prêt", async () => {
     const doc = await newDocument();
     const url = `${localSupabase().url}/functions/v1/process-document`;

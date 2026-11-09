@@ -154,7 +154,7 @@ describe("failProcessing sur la vraie fonction SQL", () => {
     try {
       const doc = await newDocument();
       const attempt = { documentId: doc.id, attemptId: doc.attempt_id };
-      const message = texts.documentStatus.temporaryReason;
+      const message = texts.documentStatus.temporaryAuthor;
 
       expect(await failProcessing(attempt, "temporary", message)).toBe(true);
       const { data } = await admin.from("documents").select("status, error_kind, error_message").eq("id", doc.id).single();

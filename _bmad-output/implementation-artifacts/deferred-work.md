@@ -46,7 +46,7 @@
   summary: Tester le verrou `for update` de `complete_processing` face à un abandon concurrent.
   evidence: maybe-false, gravité medium si c'est confirmé. Le `update` final dépend de ce verrou, mais aucun test ne tient une transaction ouverte. Pour trancher : deux connexions directes à Postgres, un abandon lancé pendant que la première transaction tient le verrou.
 - source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
-  summary: En story 2.5, resynchroniser l'état du bandeau de Statut quand le Document repasse *en cours* (relance), pour que l'interrogation reprenne.
+  summary: Traité en story 2.5. Resynchroniser l'état du bandeau de Statut quand le Document repasse *en cours* (relance), pour que l'interrogation reprenne.
   evidence: `StatusBanner` n'initialise son état qu'à l'ouverture de la page. Après une relance, la propriété redevient `processing`, mais l'état reste terminal : aucune interrogation ne repart.
 - source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
   summary: Exécuter `scripts/setup-seed-env.ps1` de bout en bout et consigner le résultat ; seules ses fonctions sont testées.
@@ -60,3 +60,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-8-mini-jeu-de-démonstration.md`
   summary: Story 7.1a : le Jeu complet doit inclure des Documents plus longs, pour démontrer des Sources à plusieurs Passages et la navigation entre Passages.
   evidence: Relevé par l'utilisateur le 2026-11-06 : les 8 Documents du mini Jeu ne produisent qu'un Passage chacun, tous étant sous 1 200 caractères. Les stories 5.7 (panneau Source) et 5.12 (navigation entre Passages) arrivent avant 7.1a : elles auront besoin de leurs propres Documents de test longs, ou d'un Document long ajouté au mini Jeu.
+- source_spec: `_bmad-output/implementation-artifacts/2-5-erreurs-de-traitement-expiration-et-relance.md`
+  summary: Story 3.4 : ajouter l'action « Supprimer » dans le bandeau d'un Document `no_text`, pour l'Auteur, avec son test.
+  evidence: Décision de l'utilisateur du 2026-11-09 : critère de 2.5 reporté, car la suppression appartient à 3.4. La story 2.6b crée les premiers cas `no_text` réels, la veille de 3.4.
+- source_spec: `_bmad-output/implementation-artifacts/2-5-erreurs-de-traitement-expiration-et-relance.md`
+  summary: Tester en e2e la branche du bandeau « déclenchement refusé » après une relance : message d'échec et bouton de nouveau proposé.
+  evidence: Le secret du serveur e2e est fixé au démarrage et Vitest n'a pas d'environnement de composants : forcer une réponse autre que 202 pour un seul test demande un nouveau banc. Les données sont couvertes par `tests/integration/trigger-processing.test.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/2-5-erreurs-de-traitement-expiration-et-relance.md`
+  summary: Fiabiliser les deux tests e2e où le badge doit suivre le bandeau (`en cours : bandeau…` et `rafraîchissement périmé…`), qui échouent parfois dans la suite complète.
+  evidence: Sur 3 suites complètes sans changement du code applicatif : 2, 1 et 0 échec ; 152 sur 152 sur la spec seule répétée. Dans une suite instrumentée, le serveur renvoie bien « prêt », mais le premier rafraîchissement prend jusqu'à 2,8 s sous charge, sur une fenêtre de 8 s qui inclut l'attente de l'interrogation. Le lien entre cette lenteur et un échec n'a pas été observé sur un échec réel (la suite instrumentée n'a pas échoué). Symptôme déjà rencontré en 2.3 et 2.8.
+- source_spec: `_bmad-output/implementation-artifacts/2-5-erreurs-de-traitement-expiration-et-relance.md`
+  summary: Story 3.2 : faire dépendre le badge et le bandeau d'une seule source d'état du Document, puis vérifier que les deux tests e2e intermittents deviennent stables sans augmenter leur délai.
+  evidence: Décision de l'utilisateur du 2026-11-09 : les deux tests restent tels quels en 2.5. Tâche inscrite dans la story 3.2 d'`epics.md`.

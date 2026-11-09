@@ -55,6 +55,8 @@ export default async function DocumentPage({ params }: PageProps<"/documents/[id
         isAuthor={document.authorId === user?.id}
         effectiveStatus={document.effectiveStatus}
         effectiveErrorKind={document.effectiveErrorKind}
+        effectiveErrorMessage={document.effectiveErrorMessage}
+        processingElapsedMs={document.processingElapsedMs}
       />
 
       {/* Texte brut (AD-8) : nœud texte React, jamais de HTML interprété. */}

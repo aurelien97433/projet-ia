@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { createClient } from "@supabase/supabase-js";
-import { request as playwrightRequest, type Page } from "@playwright/test";
+import { request as playwrightRequest, type Page, type Route } from "@playwright/test";
 import { texts } from "../../src/lib/texts";
 import { createAccount, deleteAccount, expect, test } from "../support/e2e-auth";
 import { localSupabase } from "../support/local-supabase";
@@ -35,7 +35,14 @@ async function updateDocument(id: string, values: Record<string, unknown>) {
   expect(error).toBeNull();
 }
 
-const temporaryError = { status: "error", error_kind: "temporary", error_message: t.temporaryReason };
+const temporaryError = { status: "error", error_kind: "temporary", error_message: t.temporaryAuthor };
+
+// Rafraîchit la page sans la recharger : seul le Statut reçu du serveur change pour le bandeau.
+const routerRefresh = (page: Page) =>
+  page.evaluate(() => (window as unknown as { next: { router: { refresh(): void } } }).next.router.refresh());
+
+// Requêtes POST de la page Document : Server Action de relance.
+const retryActionUrl = (id: string) => (url: URL) => url.pathname === `/documents/${id}`;
 
 // Instants des requêtes de Statut envoyées par la page.
 function recordStatusRequests(page: Page) {
@@ -157,13 +164,191 @@ test.describe("session expirée ou Document inaccessible", () => {
   }
 });
 
-test("erreur sans texte exploitable : aucune proposition de relance", async ({ page, account }) => {
+test("erreur sans texte exploitable : raison lue en base, ni relance ni suppression", async ({ page, account }) => {
   const id = await insertDocument(account.id);
-  await updateDocument(id, { status: "error", error_kind: "no_text", error_message: "Sans texte." });
+  await updateDocument(id, { status: "error", error_kind: "no_text", error_message: "Raison enregistrée en base." });
   await page.goto(`/documents/${id}`);
   await expect(badge(page).getByText(texts.status.error)).toBeVisible();
-  await expect(banner(page)).toBeEmpty();
-  await expect(page.getByRole("button", { name: t.retry })).toHaveCount(0);
+  await expect(banner(page)).toContainText("Raison enregistrée en base.");
+  await expect(banner(page).getByRole("button")).toHaveCount(0);
+});
+
+test("sans texte exploitable, autre Collaborateur : même raison, sans action", async ({ page }) => {
+  const other = await createAccount("e2e-auteur-sans-texte");
+  try {
+    const id = await insertDocument(other.id);
+    await updateDocument(id, { status: "error", error_kind: "no_text", error_message: t.noText });
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.noText);
+    await expect(banner(page).getByRole("button")).toHaveCount(0);
+  } finally {
+    await deleteAccount(other);
+  }
+});
+
+test.describe("traitement long, compté depuis l'horodatage serveur", () => {
+  test("plus de 60 s : le message remplace le texte, à l'ouverture et après rechargement", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, { processing_started_at: new Date(Date.now() - 65_000).toISOString() });
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.processingLong);
+    await expect(banner(page)).not.toContainText(t.processingText);
+
+    await page.reload();
+    await expect(banner(page)).toContainText(t.processingLong);
+  });
+
+  test("le seuil est franchi pendant le suivi, selon la durée renvoyée par le serveur", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.processingText);
+
+    await updateDocument(id, { processing_started_at: new Date(Date.now() - 65_000).toISOString() });
+    await expect(banner(page)).toContainText(t.processingLong, { timeout: 8_000 });
+  });
+
+  test("moins de 60 s : texte habituel, même si l'horloge du poste est décalée", async ({ page, account }) => {
+    await page.clock.install({ time: new Date(Date.now() + 3_600_000) });
+    const id = await insertDocument(account.id);
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.processingText);
+    await expect(banner(page)).not.toContainText(t.processingLong);
+  });
+});
+
+test.describe("trois échecs consécutifs de l'interrogation", () => {
+  for (const [label, fail] of [
+    ["réseau", (route: Route) => route.abort()],
+    ["5xx", (route: Route) => route.fulfill({ status: 503, body: "" })],
+  ] as const) {
+    test(`${label} : message après le troisième, retiré au retour, sans rechargement`, async ({ page, account }) => {
+      const id = await insertDocument(account.id);
+      let failing = true;
+      let calls = 0;
+      let loads = 0;
+      page.on("load", () => (loads += 1));
+      await page.route(`**/api/documents/${id}/status`, async (route) => {
+        if (!failing) return route.continue();
+        calls += 1;
+        await fail(route);
+      });
+
+      await page.goto(`/documents/${id}`);
+      await expect.poll(() => calls, { timeout: 12_000 }).toBeGreaterThanOrEqual(2);
+      await expect(banner(page)).not.toContainText(t.statusUnavailable);
+      await expect(banner(page)).toContainText(t.statusUnavailable, { timeout: 8_000 });
+      await expect(banner(page).getByRole("button", { name: t.refresh })).toBeVisible();
+      expect(calls).toBe(3);
+
+      // Le suivi continue pendant la panne.
+      await expect.poll(() => calls, { timeout: 8_000 }).toBeGreaterThanOrEqual(4);
+
+      failing = false;
+      await expect(banner(page)).not.toContainText(t.statusUnavailable, { timeout: 8_000 });
+      await expect(banner(page)).toContainText(t.processingTitle);
+      expect(loads).toBe(1);
+    });
+  }
+
+  test("« Actualiser » interroge aussitôt, sans recharger la page", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    let failing = true;
+    let calls = 0;
+    let loads = 0;
+    let rscRequests = 0;
+    page.on("load", () => (loads += 1));
+    page.on("request", (request) => {
+      if (request.headers().rsc) rscRequests += 1;
+    });
+    await page.route(`**/api/documents/${id}/status`, async (route) => {
+      calls += 1;
+      if (failing) return route.abort();
+      return route.continue();
+    });
+
+    await page.goto(`/documents/${id}`);
+    const refresh = banner(page).getByRole("button", { name: t.refresh });
+    await expect(refresh).toBeVisible({ timeout: 15_000 });
+
+    failing = false;
+    const before = calls;
+    const rscBefore = rscRequests;
+    await refresh.click();
+    await expect.poll(() => calls, { timeout: 1_500 }).toBeGreaterThan(before);
+    await expect(banner(page)).not.toContainText(t.statusUnavailable, { timeout: 2_000 });
+    expect(rscRequests).toBe(rscBefore);
+    expect(loads).toBe(1);
+  });
+
+  test("le troisième échec n'est atteint que consécutivement", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    let calls = 0;
+    await page.route(`**/api/documents/${id}/status`, async (route) => {
+      calls += 1;
+      if (calls % 3 === 0) return route.continue();
+      return route.abort();
+    });
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.processingTitle);
+    // Observateur posé avant le premier échec : il retient une apparition, même brève, du message.
+    await page.evaluate((message) => {
+      const zone = document.querySelector('main [role="status"]')!;
+      const seen = window as unknown as { unavailableSeen: boolean };
+      const look = () => {
+        seen.unavailableSeen ||= zone.textContent.includes(message);
+      };
+      look();
+      new MutationObserver(look).observe(zone, { childList: true, subtree: true, characterData: true });
+    }, t.statusUnavailable);
+    expect(calls).toBeLessThan(3);
+
+    await expect.poll(() => calls, { timeout: 25_000 }).toBeGreaterThanOrEqual(6);
+    expect(await page.evaluate(() => (window as unknown as { unavailableSeen: boolean }).unavailableSeen)).toBe(false);
+  });
+
+  test("accessibilité : panne de l'interrogation, sans violation", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await page.route(`**/api/documents/${id}/status`, (route) => route.abort());
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.statusUnavailable, { timeout: 15_000 });
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  });
+});
+
+test.describe("resynchronisation sur le Statut reçu du serveur", () => {
+  test("erreur puis en cours : le suivi reprend et « prêt » est annoncé", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.temporaryAuthor);
+
+    await updateDocument(id, {
+      status: "processing",
+      error_kind: null,
+      error_message: null,
+      processing_started_at: new Date().toISOString(),
+    });
+    await routerRefresh(page);
+    await expect(banner(page)).toContainText(t.processingTitle, { timeout: 8_000 });
+
+    await updateDocument(id, { status: "ready", error_kind: null });
+    await expect(banner(page)).toContainText(t.ready, { timeout: 8_000 });
+  });
+
+  test("prêt à l'ouverture puis en cours : « prêt » est de nouveau annoncé", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, { status: "ready" });
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toBeEmpty();
+
+    await updateDocument(id, { status: "processing", processing_started_at: new Date().toISOString() });
+    await routerRefresh(page);
+    await expect(banner(page)).toContainText(t.processingTitle, { timeout: 8_000 });
+
+    await updateDocument(id, { status: "ready" });
+    await expect(banner(page)).toContainText(t.ready, { timeout: 8_000 });
+  });
 });
 
 test("une panne de l'interrogation n'interrompt pas le suivi", async ({ page, account }) => {
@@ -194,22 +379,160 @@ test("expiration : le Statut effectif passe en erreur et le bandeau remplace l'a
   await expect(badge(page).getByText(texts.status.error)).toBeVisible();
 });
 
-test("Auteur en erreur temporaire : raison et bouton inactif, expliqué, sans effet", async ({ page, account }) => {
-  const id = await insertDocument(account.id);
-  await updateDocument(id, temporaryError);
-  const requests = recordStatusRequests(page);
+test.describe("relance", () => {
+  test("Auteur : « Relance… » pendant l'action, second clic sans effet, en cours puis prêt sans rechargement", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    let loads = 0;
+    let actions = 0;
+    page.on("load", () => (loads += 1));
+    await page.route(retryActionUrl(id), async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      actions += 1;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await route.continue();
+    });
 
-  await page.goto(`/documents/${id}`);
-  await expect(banner(page)).toContainText(t.temporaryAuthor);
-  const retry = banner(page).getByRole("button", { name: t.retry });
-  await expect(retry).toHaveAttribute("aria-disabled", "true");
-  await expect(retry).toHaveAccessibleDescription(new RegExp(t.temporaryAuthor));
-  await expect(page.getByText("Vous pouvez le relancer")).toHaveCount(0);
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.temporaryAuthor);
+    const retry = banner(page).getByRole("button", { name: t.retry });
+    await expect(retry).not.toHaveAttribute("aria-disabled", "true");
+    await expect(retry).toHaveAccessibleDescription(new RegExp(t.temporaryAuthor));
 
-  await retry.click({ force: true });
-  await expect(banner(page)).toContainText(t.temporaryAuthor);
-  await page.waitForTimeout(3_500);
-  expect(requests).toEqual([]);
+    await retry.click();
+    const busy = banner(page).getByRole("button", { name: t.retrying });
+    await expect(busy).toHaveAttribute("aria-disabled", "true");
+    // force : Playwright attend sinon qu'un bouton aria-disabled redevienne actif.
+    await busy.click({ force: true });
+
+    await expect(banner(page)).toContainText(t.ready, { timeout: 20_000 });
+    await expect(badge(page).getByText(texts.status.ready)).toBeVisible({ timeout: 8_000 });
+    expect(actions).toBe(1);
+    expect(loads).toBe(1);
+  });
+
+  test("clavier : relance à la touche Entrée, le focus passe au bandeau quand le bouton disparaît", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    await page.goto(`/documents/${id}`);
+    const retry = banner(page).getByRole("button", { name: t.retry });
+    await retry.focus();
+    await page.keyboard.press("Enter");
+
+    await expect(retry).toHaveCount(0, { timeout: 20_000 });
+    await expect(banner(page)).toBeFocused();
+  });
+
+  test("session expirée au moment du clic : retour à la connexion", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    await page.goto(`/documents/${id}`);
+    const retry = banner(page).getByRole("button", { name: t.retry });
+    await expect(retry).toBeVisible();
+
+    await page.context().clearCookies();
+    await retry.click();
+    await expect(page).toHaveURL(/\/connexion/, { timeout: 15_000 });
+  });
+
+  test("Document supprimé au moment du clic : page E9", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    await page.goto(`/documents/${id}`);
+    const retry = banner(page).getByRole("button", { name: t.retry });
+    await expect(retry).toBeVisible();
+
+    const { error } = await admin().from("documents").delete().eq("id", id);
+    expect(error).toBeNull();
+    await retry.click();
+    await expect(page.getByText(texts.notFound.title)).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("Document expiré : l'Auteur relance jusqu'à « prêt »", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, { processing_started_at: new Date(Date.now() - 181_000).toISOString() });
+    await page.goto(`/documents/${id}`);
+    await expect(banner(page)).toContainText(t.temporaryAuthor);
+    await banner(page).getByRole("button", { name: t.retry }).click();
+    await expect(banner(page)).toContainText(t.ready, { timeout: 20_000 });
+  });
+
+  test("Document expiré, autre Collaborateur : « Seul l'Auteur… », sans bouton", async ({ page }) => {
+    const other = await createAccount("e2e-auteur-expire");
+    try {
+      const id = await insertDocument(other.id);
+      await updateDocument(id, { processing_started_at: new Date(Date.now() - 181_000).toISOString() });
+      await page.goto(`/documents/${id}`);
+      await expect(banner(page)).toContainText(t.temporaryOther);
+      await expect(banner(page).getByRole("button")).toHaveCount(0);
+    } finally {
+      await deleteAccount(other);
+    }
+  });
+
+  test("échec de l'action : message, bouton de nouveau proposé, même identifiant au nouvel essai", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    const bodies: (string | null)[] = [];
+    await page.route(retryActionUrl(id), async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      bodies.push(route.request().postData());
+      if (bodies.length === 1) return route.abort();
+      return route.continue();
+    });
+
+    await page.goto(`/documents/${id}`);
+    await banner(page).getByRole("button", { name: t.retry }).click();
+    await expect(banner(page)).toContainText(t.retryFailed);
+    await expect(banner(page).getByRole("button", { name: t.retry })).not.toHaveAttribute("aria-disabled", "true");
+
+    await banner(page).getByRole("button", { name: t.retry }).click();
+    await expect(banner(page)).toContainText(t.ready, { timeout: 20_000 });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
+  });
+
+  test("Statut déjà « en cours » côté serveur : le bandeau s'aligne, sans message d'échec", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    await page.goto(`/documents/${id}`);
+    const retry = banner(page).getByRole("button", { name: t.retry });
+    await expect(retry).toBeVisible();
+
+    await updateDocument(id, {
+      status: "processing",
+      error_kind: null,
+      error_message: null,
+      processing_started_at: new Date().toISOString(),
+    });
+    await retry.click();
+    await expect(banner(page)).toContainText(t.processingTitle, { timeout: 8_000 });
+    await expect(banner(page)).not.toContainText(t.retryFailed);
+  });
+
+  test("le déclenchement porte un nouvel identifiant après une réponse reçue", async ({ page, account }) => {
+    const id = await insertDocument(account.id);
+    await updateDocument(id, temporaryError);
+    const bodies: (string | null)[] = [];
+    await page.route(retryActionUrl(id), async (route) => {
+      if (route.request().method() === "POST") bodies.push(route.request().postData());
+      await route.continue();
+    });
+
+    await page.goto(`/documents/${id}`);
+    await banner(page).getByRole("button", { name: t.retry }).click();
+    await expect(banner(page)).toContainText(t.ready, { timeout: 20_000 });
+    // Le badge vient du serveur : attendre qu'il ait rattrapé le bandeau avant de changer le Statut.
+    await expect(badge(page).getByText(texts.status.ready)).toBeVisible({ timeout: 8_000 });
+    await updateDocument(id, temporaryError);
+    await routerRefresh(page);
+    await expect(banner(page).getByRole("button", { name: t.retry })).toBeVisible({ timeout: 8_000 });
+
+    await banner(page).getByRole("button", { name: t.retry }).click();
+    await expect(banner(page)).toContainText(t.ready, { timeout: 20_000 });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).not.toBe(bodies[0]);
+  });
 });
 
 test("autre Collaborateur : raison adaptée, sans bouton", async ({ page }) => {
@@ -220,7 +543,6 @@ test("autre Collaborateur : raison adaptée, sans bouton", async ({ page }) => {
     await page.goto(`/documents/${id}`);
     await expect(banner(page)).toContainText(t.temporaryOther);
     await expect(page.getByRole("button", { name: t.retry })).toHaveCount(0);
-    await expect(page.getByText("La relance sera bientôt disponible")).toHaveCount(0);
   } finally {
     await deleteAccount(other);
   }
@@ -243,7 +565,12 @@ test("route de Statut : session, Document inconnu, identifiant invalide, cache",
 
   const known = await page.request.get(`/api/documents/${id}/status`);
   expect(known.status()).toBe(200);
-  expect(await known.json()).toEqual({ effectiveStatus: "processing", effectiveErrorKind: null });
+  expect(await known.json()).toEqual({
+    effectiveStatus: "processing",
+    effectiveErrorKind: null,
+    effectiveErrorMessage: null,
+    processingElapsedMs: expect.any(Number),
+  });
   expect(known.headers()["cache-control"]).toContain("no-store");
 
   const unknown = await page.request.get(`/api/documents/${crypto.randomUUID()}/status`);
@@ -270,6 +597,15 @@ test("accessibilité : bandeau en erreur, sans violation", async ({ page, accoun
   await updateDocument(id, temporaryError);
   await page.goto(`/documents/${id}`);
   await expect(banner(page)).toContainText(t.temporaryAuthor);
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});
+
+test("accessibilité : bandeau sans texte exploitable, sans violation", async ({ page, account }) => {
+  const id = await insertDocument(account.id);
+  await updateDocument(id, { status: "error", error_kind: "no_text", error_message: t.noText });
+  await page.goto(`/documents/${id}`);
+  await expect(banner(page)).toContainText(t.noText);
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });

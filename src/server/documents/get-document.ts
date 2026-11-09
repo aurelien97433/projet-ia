@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { DocumentCategory, DocumentErrorKind, DocumentStatus } from "@/lib/documents";
 import { logEvent } from "@/lib/errors";
+import { processingElapsedMs } from "./get-document-status";
 
 export type DocumentView = {
   id: string;
@@ -13,6 +14,8 @@ export type DocumentView = {
   createdAt: string;
   effectiveStatus: DocumentStatus;
   effectiveErrorKind: DocumentErrorKind | null;
+  effectiveErrorMessage: string | null;
+  processingElapsedMs: number;
   content: string;
 };
 
@@ -26,7 +29,9 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
   const [meta, body] = await Promise.all([
     db
       .from("documents_list")
-      .select("id, title, category, author_id, author_name, created_at, effective_status, effective_error_kind")
+      .select(
+        "id, title, category, author_id, author_name, created_at, effective_status, effective_error_kind, effective_error_message, processing_started_at, server_now",
+      )
       .eq("id", id)
       .maybeSingle(),
     db.from("documents").select("content_text").eq("id", id).maybeSingle(),
@@ -46,6 +51,8 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
     createdAt: meta.data.created_at,
     effectiveStatus: meta.data.effective_status,
     effectiveErrorKind: meta.data.effective_error_kind,
+    effectiveErrorMessage: meta.data.effective_error_message,
+    processingElapsedMs: processingElapsedMs(meta.data.server_now, meta.data.processing_started_at),
     content: body.data.content_text ?? "",
   };
 }

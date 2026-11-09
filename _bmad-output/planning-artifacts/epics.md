@@ -696,7 +696,7 @@ afin de ne jamais rester bloqué devant un Document en attente.
 **Alors** « Le Statut n'a pas pu être actualisé. » et « Actualiser » s'affichent, et l'interrogation reprend au retour de la connexion
 
 **Tâches techniques :** `effective_status` complet dans la vue (expiration 3 min, messages) ; `retry_processing` (`security definer`, Statut effectif) ; Server Action de relance ; bandeau (variantes Auteur/non-Auteur, 60 s, « Actualiser ») ; tests d'intégration (expiration, relance, refus) et Playwright.
-**Dépendances :** 2.4.
+**Dépendances :** 2.4. **Note (2026-11-09) :** le « Supprimer » du critère `no_text` est reporté à la story 3.4, décision de l'utilisateur. D'ici là, le bandeau indique seulement que le fichier ne contient aucun texte exploitable. La story 2.6b crée les premiers cas `no_text` réels, la veille de 3.4.
 **Références :** FR-7, FR-13 · NFR-1, NFR-4 · SM-5 · AR-6, AR-7 · AD-5, AD-6 · UX-DR7 · **Priorité :** P0
 
 ### Story 2.6a : Déposer et importer un fichier .txt ou .md
@@ -905,7 +905,7 @@ afin de le consulter même s'il a été ajouté par un collègue.
 **Quand** je la lis
 **Alors** métadonnées et actions s'empilent, sans défilement horizontal
 
-**Tâches techniques :** lecture du Document par `src/server/documents` (texte complet hors vue de liste) ; paramètres de Passages ; `Skeleton`, message 10 s ; barre d'actions (emplacements « Poser une question », « Générer le Résumé », « Supprimer » selon le rôle) ; tests Playwright.
+**Tâches techniques :** lecture du Document par `src/server/documents` (texte complet hors vue de liste) ; paramètres de Passages ; `Skeleton`, message 10 s ; barre d'actions (emplacements « Poser une question », « Générer le Résumé », « Supprimer » selon le rôle) ; une seule source d'état du Document pour le badge et le bandeau de Statut, puis vérification que les tests e2e `en cours : bandeau…` et `rafraîchissement périmé…` deviennent stables sur plusieurs suites complètes, sans augmenter leur délai (décision du 2026-11-09, voir `deferred-work.md`) ; tests Playwright.
 **Dépendances :** 3.1.
 **Références :** CH-3, CH-17 · FR-10, FR-7 · NFR-4, NFR-6, NFR-7 · AR-3, AR-9 · AD-2, AD-8 · UX-DR7, UX-DR8, UX-DR22, UX-DR29 · **Priorité :** P0
 
@@ -973,7 +973,11 @@ afin de retirer de la Base commune un contenu erroné ou inutile.
 **Quand** la page s'actualise
 **Alors** « Ce Document a été supprimé. » et « Retour à la Bibliothèque » s'affichent, sans « Réessayer »
 
-**Tâches techniques :** politique `delete` Auteur seul ; Server Action de suppression (Document puis objet Storage) ; `AlertDialog` ; notification Sonner ; état « supprimé pendant la consultation » ; tests d'intégration (RLS delete) et Playwright.
+**Étant donné** mon Document *en erreur* `no_text` (critère reporté de la story 2.5)
+**Quand** j'ouvre sa page
+**Alors** le bandeau affiche la raison et l'action « Supprimer », sans relance ; un autre Collaborateur voit la raison, sans action (test Playwright)
+
+**Tâches techniques :** politique `delete` Auteur seul ; Server Action de suppression (Document puis objet Storage) ; `AlertDialog` ; notification Sonner ; état « supprimé pendant la consultation » ; action « Supprimer » dans le bandeau `no_text` de `StatusBanner`, avec son test ; tests d'intégration (RLS delete) et Playwright.
 **Dépendances :** 3.3. **Note (2026-11-04) :** 3.4 peut être réalisée avant 2.6a ; elle doit alors traiter une Note, sans fichier d'origine (`storage_path` vide), sans erreur. La suppression du fichier d'origine dans le Storage est vérifiée dès que 2.6a est livrée (test ajouté à ce moment-là).
 **Références :** CH-8 · FR-12, FR-13 · NFR-1, NFR-4 · SM-6 · AR-3 · AD-2, AD-7 · UX-DR21 · **Priorité :** P0
 
@@ -1036,6 +1040,15 @@ afin de parcourir les Documents sans défilement horizontal ni perte de mes filt
 ## Epic 4 : Rechercher par le sens
 
 Un Collaborateur décrit ce qu'il cherche et obtient au plus 5 Documents pertinents avec leur Passage. La navigation réelle vers le Passage dans la page Document est validée ici.
+
+### Tâche préalable à la Story 4.1a : Document long au mini Jeu (décision du 2026-11-09)
+
+À réaliser avant 4.1a. Les 8 Documents du mini Jeu ne produisent qu'un Passage chacun : il faut au moins un Document à plusieurs Passages réels pour le calibrage (4.2), le panneau Source (5.7) et la navigation entre Passages (5.12).
+
+- Ajouter au mini Jeu un 9ᵉ Document d'environ 4 000 caractères (`demo/documents/`, `demo/documents-mini.json`), avec un fait vérifiable placé en fin de texte.
+- Ajouter dans `demo/questions-mini.json` une Requête qui attend ce Document et ce fait.
+- Adapter `tests/unit/demo-set.test.ts`.
+- Relancer le préchargement (`npm run seed:demo -- --mini`, puis `--remote` après validation) : seul ce Document est traité.
 
 ### Story 4.1a : Recherche sémantique côté serveur
 

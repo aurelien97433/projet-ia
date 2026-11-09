@@ -121,13 +121,19 @@ export const texts = {
     readyOther: "Ce Document est prêt.",
     processingTitle: "En cours de traitement",
     processingText: "Le Document sera interrogeable dans quelques instants.",
-    // Provisoire jusqu'à la story 2.5 : la relance n'existe pas encore (décision du 2026-11-06).
-    temporaryAuthor: "Le traitement n'a pas pu aboutir. La relance sera bientôt disponible.",
-    // Raison enregistrée en base (AD-5), non affichée avant la story 2.5.
-    temporaryReason: "Le traitement n'a pas pu aboutir. Vous pouvez le relancer.",
+    processingLong: "Le traitement prend plus de temps que prévu. Vous pouvez quitter cette page sans l'interrompre.",
+    // Même texte que la raison enregistrée en base (AD-5).
+    temporaryAuthor: "Le traitement n'a pas pu aboutir. Vous pouvez le relancer.",
     temporaryOther: "Le traitement n'a pas pu aboutir. Seul l'Auteur de ce Document peut relancer le traitement.",
+    // Repli : la raison d'un no_text est lue en base (la story 2.6b ajoute un message d'encodage).
+    noText: "Ce fichier ne contient aucun texte exploitable. Il ne peut pas être interrogé.",
     retry: "Relancer le traitement",
+    retrying: "Relance…",
+    // Absents d'EXPERIENCE.md pour la relance : textes validés le 2026-11-09 (story 2.5, Q2 = A).
+    retryFailed: "La relance n'a pas abouti. Veuillez réessayer.",
+    forbidden: "Cette action n'est pas autorisée.",
     statusUnavailable: "Le Statut n'a pas pu être actualisé.",
+    refresh: "Actualiser",
   },
   categories: {
     procedure: "Procédure",

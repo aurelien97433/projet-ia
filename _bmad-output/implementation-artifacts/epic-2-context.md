@@ -4,73 +4,70 @@
 
 ## Goal
 
-Un Collaborateur ajoute une Note ou un fichier .txt/.md et suit son Statut de traitement (*en cours*, *prêt*, *en erreur*). Le texte est découpé en Passages et vectorisé dans les Edge Functions Supabase, seules détentrices de la clé OpenAI. L'epic pose d'abord l'accès sûr et borné à l'IA (2.1). Il construit ensuite le traitement sur une Note (2.2 à 2.5), puis l'import de fichiers (2.6a, 2.6b). Il se termine par un mini Jeu de démonstration en Notes (2.8), pour que la Recherche et l'Assistant puissent être testés tôt.
+Un Collaborateur ajoute à la Base commune une Note ou un fichier .txt/.md et suit son Statut de traitement (*en cours*, *prêt*, *en erreur*), sans jamais rester bloqué. Le texte est découpé en Passages et vectorisé dans les Edge Functions Supabase, seules détentrices de la clé OpenAI : c'est le socle d'ingestion dont dépendent le Lecteur, la Recherche, l'Assistant et le Résumé. L'epic livre aussi un mini Jeu de démonstration en Notes, pour tester ces fonctions tôt, et valide la limite de 1 Mo par un test de charge.
 
 ## Stories
 
-- Story 2.1 : Préparer l'accès à l'IA (prérequis)
-- Story 2.2 : Créer une Note
-- Story 2.3 : Déclencher le traitement et suivre le Statut
-- Story 2.4 : Traiter une Note jusqu'à « prêt »
-- Story 2.5 : Erreurs de traitement, expiration et relance
-- Story 2.6a : Déposer et importer un fichier .txt ou .md
-- Story 2.6b : Lire le texte des fichiers importés
-- Story 2.7 : Test de charge de la limite de 1 Mo
-- Story 2.8 : Mini Jeu de démonstration
-- Story 2.9 : Protéger une saisie en cours (FINITION)
+- Story 2.1: Préparer l'accès à l'IA (prérequis)
+- Story 2.2: Créer une Note
+- Story 2.3: Déclencher le traitement et suivre le Statut
+- Story 2.4: Traiter une Note jusqu'à « prêt »
+- Story 2.5: Erreurs de traitement, expiration et relance
+- Story 2.6a: Déposer et importer un fichier .txt ou .md
+- Story 2.6b: Lire le texte des fichiers importés
+- Story 2.7: Test de charge de la limite de 1 Mo
+- Story 2.8: Mini Jeu de démonstration
+- Story 2.9: Protéger une saisie en cours (FINITION)
 
 ## Requirements & Constraints
 
-- **Secrets.** Aucune clé secrète n'est envoyée au navigateur ni versionnée.
-  - `OPENAI_API_KEY` n'existe que dans les secrets Supabase (en local : `supabase/functions/.env`, ignoré par git).
-  - Aucun script local ni Next.js ne la reçoit, et elle n'apparaît jamais dans un document ni dans une conversation.
-  - `check:secrets` reste vert.
-- **Coûts.**
-  - Projet OpenAI dédié, avec un crédit prépayé de 10 $, une alerte à 5 $ et sans recharge automatique.
-  - Un refus de plafond du fournisseur devient `AI_BUDGET_EXHAUSTED` : distinct du quota, journalisé.
-  - La vectorisation ne consomme pas de quota.
-- **Taille.** Note, `.txt` et `.md` : 1 Mo au plus, soit 1 000 000 octets en UTF-8, avec la même définition partout.
-- **Traitement.**
-  - Asynchrone, avec une expiration à 3 min calculée en base (Statut effectif).
-  - Relance possible seulement après une erreur temporaire.
-  - Aucune tentative périmée ne peut remettre un Document à *prêt*.
-- **Interface.** Statut interrogé toutes les 3 s tant qu'un Document est *en cours*. Message après 60 s. Saisie conservée en cas d'échec d'envoi. Textes du catalogue.
-- **Tests.** Les tests d'intégration tournent sur Supabase local. Le fournisseur est simulé dans les tests unitaires, avec un seul test réel de l'IA.
+- **Saisie.** Titre (1 à 200 caractères), Catégorie (liste fixe de 7) et contenu obligatoires. Fichier : titre prérempli avec le nom sans extension, modifiable.
+- **Taille.** Note, `.txt` et `.md` : 1 000 000 octets au plus en UTF-8, même valeur dans tous les contrôles et messages. Un fichier de format ou de taille invalide est refusé avant tout envoi.
+- **Statut.** Visible et actualisé sans action. Seuls les Documents *prêts* alimentent la Recherche, l'Assistant et le Résumé.
+- **Erreurs.** Deux cas : temporaire (relance par l'Auteur seul, sans réimport) ou `no_text` (suppression seule, sans relance). Texte vide ou fait d'espaces : `no_text`.
+- **Expiration.** Un traitement non abouti après 3 min est *en erreur* temporaire, identique pour tous et après rechargement. Un traitement tardif ne rend jamais un Document *prêt* ; seule une relance le peut.
+- **Accès.** Tout Collaborateur lit les Documents ; seul l'Auteur agit dessus, y compris par appel direct. `anon` n'a aucun accès. Chaque table créée reçoit ses tests RLS à deux Comptes.
+- **Performance.** Document de 60 000 caractères *prêt* en moins d'une minute.
+- **Limite de 1 Mo confirmée si :** *prêt* en moins de 3 min, moins de 50 Mo ajoutés, base totale sous 400 Mo. Données de test toujours supprimées. En cas d'échec : proposition chiffrée soumise, jamais appliquée d'office.
+- **Secrets et coûts.** `OPENAI_API_KEY` uniquement dans les secrets Supabase, jamais dans Next.js, un script ou un document. Crédit prépayé de 10 $, alerte à 5 $, sans recharge. La vectorisation ne consomme pas de quota.
+- **Contenus.** Le texte d'un Document reste une donnée, jamais une instruction : le mini Jeu contient un Document piège au résultat vérifiable.
+- **Terminé.** Si la base ou une Edge Function change, `npm run deploy:supabase` réussit avant le déploiement Vercel. Entrée ajoutée au journal de Vibe Coding.
 
 ## Technical Decisions
 
-- **Accès à l'IA.**
-  - Tous les appels OpenAI passent par `supabase/functions/_shared/ai.ts`, en `fetch` sans SDK. Le module expose `embed` (puis plus tard `streamAnswer`, `rewriteFollowUp`, `summarize`) et centralise modèles, délais, nouvelles tentatives et traduction des erreurs.
-  - Next.js ne contient ni clé ni SDK OpenAI. Le navigateur n'appelle jamais une Edge Function, et les Edge Functions n'importent rien de `src/`.
-- **Modèles.**
-  - Génération : `gpt-5.4-mini`.
-  - Vectorisation : `text-embedding-3-small`, 1 536 dimensions.
-  - `EMBEDDING_MODEL`, `EMBEDDING_DIMENSION`, `EMBEDDING_VERSION` et `GENERATION_MODEL` sont définis une seule fois dans `_shared/config.ts`.
-  - La dimension est vérifiée à chaque écriture et à chaque requête : un écart est refusé.
-  - Chaque Passage enregistre `embedding_model` et `embedding_version`.
-- **Tentatives et délais.**
-  - Embeddings et appels non diffusés : 2 nouvelles tentatives sur `429` et `5xx`.
-  - Délais : `semantic-search` 10 s, `chat` 20 s jusqu'au premier octet et 90 s au total, `summarize` 120 s. Au-delà : `AI_TIMEOUT`.
-  - Vectorisation par lots de 96.
-- **Erreurs.**
-  - Forme unique `{ error: { code, message, retryable, resetAt? } }`, avec la liste de codes commune à Next.js et aux Edge Functions (`_shared/errors.ts`). Next.js relaie les codes tels quels.
-  - Journalisation JSON (`event`, `code`, identifiants, durée), sans secret, jeton ni texte de Document.
-- **Traitement (`process-document`).**
-  - Next.js crée le Document (`processing`, `attempt_id` neuf, `processing_started_at`), puis appelle la fonction avec `PROCESS_DOCUMENT_SECRET` et attend son `202`.
-  - La fonction travaille en `EdgeRuntime.waitUntil`, puis appelle `complete_processing` ou `fail_processing`, conditionnés par la tentative courante.
-  - Si l'appel échoue en 5 s, Next.js appelle `abandon_processing` avec le jeton du Collaborateur.
-- **Texte canonique.** NFC, fins de ligne `\n`. Positions des Passages en unités de code JavaScript. Affichage en texte brut. Décodage UTF-8 strict, avec repli sur Windows-1252.
-- **Fichiers.** Dépôt direct dans le Storage privé `documents` par URL signée (`{author_id}/uploads/{upload_id}`). Vérification et type MIME déduits côté serveur, par l'extension.
-- **Privilèges.** `REVOKE EXECUTE` global de `PUBLIC` sur les fonctions : toute fonction SQL appelable par un Collaborateur reçoit un `GRANT EXECUTE … TO authenticated` explicite. `profiles` n'est lisible que sur `id`, `display_name` et `created_at`.
-- **Local.** Edge runtime `per_worker`. `deploy:supabase` déploie migrations et fonctions sur le projet lié, avec contrôle de la cible.
+- **Frontières.** Le navigateur ne parle qu'à Next.js et, pour un dépôt, à une URL signée du Storage. `src/app` ne contient aucun SQL. Les Edge Functions n'importent rien de `src/`.
+- **IA.** Tous les appels OpenAI passent par `_shared/ai.ts` (`fetch`, sans SDK). Vectorisation : `text-embedding-3-small`, 1 536 dimensions, lots de 96, dimension vérifiée, constantes uniques dans `_shared/config.ts`. Chaque Passage enregistre modèle et version. Erreurs `429`/`5xx` : 2 nouvelles tentatives.
+- **Cycle de traitement.**
+  - Next.js crée le Document (`processing`, `attempt_id` neuf, `processing_started_at`), appelle `process-document` avec `PROCESS_DOCUMENT_SECRET` (`verify_jwt = false`) et attend son `202`.
+  - Le travail s'exécute dans `EdgeRuntime.waitUntil`. Sans réponse en 5 s : `abandon_processing` avec le jeton de l'Auteur, jamais `service_role`.
+  - `complete_processing` remplace les Passages et passe à `ready` en une opération. Lui et `fail_processing` (`temporary` ou `no_text`) ne valent que pour la tentative courante.
+  - `retry_processing` (Auteur seul) se base sur le Statut effectif, accepte un traitement expiré et crée une nouvelle tentative.
+- **Statut effectif.** Calculé dans la vue `documents_list` (`security_invoker`, sans `content_text` ni Résumé), avec `processing_started_at` et `server_now`.
+- **Données.** Colonnes système modifiables seulement par des fonctions SQL `security definer` ; `GRANT UPDATE` limité à `title` et `category`. Passages lisibles pour les Documents *prêts* seulement. `service_role` réservée à `process-document` et au script de préchargement (`.env.seed`, jamais lu par Next.js).
+- **Texte canonique.** NFC, fins de ligne `\n` ; positions en unités de code JS. Passages d'environ 800 caractères, 1 200 au plus, coupés en fin de phrase, sans chevauchement.
+- **Fichiers.** Dépôt avant création du Document dans `{author_id}/uploads/{upload_id}`, bucket privé `documents` sans restriction MIME. À « Importer », le serveur vérifie objet, dossier et taille avec le jeton du Collaborateur, et déduit le MIME de l'extension.
+- **Décodage.** UTF-8 strict (BOM retiré), repli Windows-1252 ; caractères de contrôle restants : `no_text`.
+- **Idempotence et erreurs.** `client_request_id` unique par Auteur sur `documents` et porté par chaque relance. Forme unique `{ error: { code, message, retryable, resetAt? } }`. Journaux JSON sans secret, jeton ni texte de Document.
+- **Mutations.** Server Actions pour créer et relancer ; Route Handlers pour le Statut (`GET /api/documents/[id]/status`) et le dépôt (`POST /api/uploads`). `serverActions.bodySizeLimit = '2mb'`, pour que le schéma `zod` applique la limite.
+- **Local.** `policy = "per_worker"` pour l'Edge runtime.
+
+## UX & Interaction Patterns
+
+- **Ajout (`/ajouter`).** Onglets « Note » (par défaut) et « Fichier ». Bouton occupé dès le premier clic (`aria-disabled`, « Enregistrement… », « Import… »). Saisie toujours conservée en cas d'échec. Au-delà de 10 s sans réponse : alerte et « Réessayer » sans doublon.
+- **Dépôt.** Contrôle immédiat, progression « Dépôt du fichier… », « Importer » inactif jusqu'à la fin ; échec avec « Réessayer ».
+- **Abandon.** Dialogue « Abandonner ce Document ? » avec « Continuer la saisie » ; `beforeunload` en FINITION.
+- **Badge de Statut.** Symbole et texte (● ◔ ▲), jamais la couleur seule ; passage à *prêt* ou *en erreur* annoncé une fois (`aria-live="polite"`).
+- **Bandeau de la page Document.** Message selon le Statut, l'Auteur et l'ancienneté :
+  - au-delà de 60 s, compté depuis l'horodatage serveur : message « plus de temps que prévu » ;
+  - erreur temporaire : « Relancer le traitement » pour l'Auteur, « Seul l'Auteur de ce Document peut relancer le traitement. » pour les autres, sans bouton ;
+  - `no_text` : « Supprimer » pour l'Auteur.
+- **Actualisation.** Toutes les 3 s tant qu'un Document est *en cours*, sans déplacer focus ni défilement. Après 3 échecs : « Le Statut n'a pas pu être actualisé. » et « Actualiser », avec reprise au retour de la connexion.
+- **Textes.** Repris tels quels du catalogue, au vouvoiement.
 
 ## Cross-Story Dependencies
 
-- 2.1 dépend de 1.1. 2.2 dépend de 1.4.
-- Chaîne de dépendances :
-  - 2.2 → 2.3 → 2.4 (qui dépend aussi de 2.1) → 2.5 → 2.6a → 2.6b → 2.7 ;
-  - 2.8 dépend de 2.4 ;
-  - 2.9 (FINITION) dépend de 2.6a.
-- Revue par trois relecteurs pour les stories sensibles : 2.3, 2.4, 2.5 et 2.6a.
-- Chaque Server Action d'un écran protégé (dès 2.2) vérifie la session elle-même (report de la story 1.4).
-- 2.7 est tranchée avant 5.2a, au plus tard le 18/11. 2.8 alimente E3, E4 et E5.
+- Prérequis externes : 2.1 dépend de 1.1, 2.2 de 1.4.
+- 2.2 → 2.3 → 2.4 (dépend aussi de 2.1) → 2.5 → 2.6a → 2.6b → 2.7.
+- 2.8 dépend de 2.4 seulement. 2.9 dépend de 2.6a et passe après E4.
+- 2.8 alimente E3, E4 et E5. 2.7 est tranchée avant 5.2a, au plus tard le 18/11.
+- Revue par trois relecteurs pour 2.3, 2.4, 2.5 et 2.6a.

@@ -65,7 +65,7 @@ describe("abandon_processing", () => {
     expect(await read(doc.id)).toMatchObject({
       status: "error",
       error_kind: "temporary",
-      error_message: texts.documentStatus.temporaryReason,
+      error_message: texts.documentStatus.temporaryAuthor,
     });
   });
 

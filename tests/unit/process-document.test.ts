@@ -342,7 +342,7 @@ describe("accusé et travail d'arrière-plan", () => {
       p_document_id: DOCUMENT_ID,
       p_attempt_id: ATTEMPT_ID,
       p_kind: "temporary",
-      p_message: texts.documentStatus.temporaryReason,
+      p_message: texts.documentStatus.temporaryAuthor,
     });
   });
 
