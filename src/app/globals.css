@@ -127,3 +127,27 @@
     }
   }
 }
+
+/* Passages dans le Lecteur (DESIGN.md) : la forme de la bordure distingue l'actif, pas la couleur seule.
+   Chaque ligne d'un Passage sur plusieurs lignes garde sa bordure. */
+@layer components {
+  .passage-highlight,
+  .passage-highlight-inactive {
+    color: var(--foreground);
+    padding: 2px 4px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  .passage-highlight {
+    background-color: var(--accent-mark);
+    border-left: 3px solid var(--accent-text);
+    /* L'étiquette, posée au-dessus, reste visible quand le Passage est aligné en haut. */
+    scroll-margin-top: 1.75rem;
+  }
+
+  .passage-highlight-inactive {
+    background-color: var(--accent-soft);
+    border-left: 2px dashed var(--accent-text);
+  }
+}

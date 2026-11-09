@@ -873,7 +873,7 @@ afin de vérifier d'un coup d'œil ce qui a été utilisé.
 **Quand** il est affiché à 375 px
 **Alors** il n'y a aucun défilement horizontal (`overflow-wrap: anywhere`)
 
-**Tâches techniques :** `src/components/document/document-reader.tsx` (découpage par positions, `<mark>`, `aria`, défilement, `tabindex="-1"` sur le Passage) ; styles `passage-highlight` et `passage-highlight-inactive` ; tests Vitest (Testing Library) avec Passages de test ; test Playwright à 375 px.
+**Tâches techniques :** `src/components/documents/document-reader.tsx` (découpage par positions, `<mark>`, `aria`, défilement, `tabindex="-1"` sur le Passage) ; styles `passage-highlight` et `passage-highlight-inactive` ; tests Vitest (Testing Library) avec Passages de test ; test Playwright à 375 px.
 **Dépendances :** 2.8 (Documents pièges).
 **Références :** CH-3 · FR-10 · NFR-6, NFR-7, NFR-10 · AR-9 · AD-8 · UX-DR8, UX-DR9, UX-DR31 · **Priorité :** P0
 

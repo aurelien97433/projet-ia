@@ -53,7 +53,8 @@ function recordStatusRequests(page: Page) {
   return times;
 }
 
-const banner = (page: Page) => page.locator("main").getByRole("status");
+// Bandeau de Statut seul : le Lecteur a sa propre zone « status », plus bas dans la page.
+const banner = (page: Page) => page.locator("main article > [role=\"status\"]");
 const badge = (page: Page) => page.locator("main dl");
 
 test("en cours : bandeau, interrogation toutes les 3 s, arrêt au changement, sans rechargement", async ({ page, account }) => {

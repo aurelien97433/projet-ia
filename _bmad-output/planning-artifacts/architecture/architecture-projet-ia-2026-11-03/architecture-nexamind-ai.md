@@ -421,7 +421,7 @@ Chaque étape a un seul composant responsable. `_shared/` ne contient que du Typ
 | Marqueur | `_shared/rag/marker.ts` | `chat` | Lecture et retrait de `REPONSE`, `REFUS_INFO_ABSENTE`, `REFUS_HORS_CADRE` ; absent ou invalide → `AI_OUTPUT_INVALID` (AD-10). | — |
 | Sources | `_shared/rag/citations.ts` + table `message_sources` | `chat` | Validation des citations (AD-11). Une Source par Document, numérotée dans l'ordre de première citation, avec tous ses Passages cités. | — |
 | Résumé | `_shared/ai.ts` › `summarize` + `_shared/rag/prompt.ts` + `store_summary` | `summarize` | 5 points au plus, en français, à la troisième personne, uniquement à partir du Document (AD-18). | Morceaux au-delà d'environ 12 000 tokens |
-| Affichage et mise en évidence | `src/components/document/document-reader.tsx` | E4a, E7, E5 (extraits) | Texte canonique brut, `<mark>` selon les positions (AD-8). | — |
+| Affichage et mise en évidence | `src/components/documents/document-reader.tsx` | E4a, E7, E5 (extraits) | Texte canonique brut, `<mark>` selon les positions (AD-8). | — |
 
 Le seuil, la taille des Passages et les consignes sont calibrés dans une story dédiée, sur le Jeu de démonstration (SM-1, SM-2, SM-4, FR-15), avant la démonstration.
 

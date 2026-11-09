@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { AddedOn } from "@/components/documents/added-on";
+import { DocumentReader } from "@/components/documents/document-reader";
 import { StatusBadge } from "@/components/documents/status-badge";
 import { StatusBanner } from "@/components/documents/status-banner";
 import { PageTitle } from "@/components/shell/page-title";
@@ -59,11 +60,8 @@ export default async function DocumentPage({ params }: PageProps<"/documents/[id
         processingElapsedMs={document.processingElapsedMs}
       />
 
-      {/* Texte brut (AD-8) : nœud texte React, jamais de HTML interprété. */}
       <section aria-label={texts.document.textLabel}>
-        <p className="max-w-reading text-base leading-relaxed whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
-          {document.content}
-        </p>
+        <DocumentReader text={document.content} />
       </section>
     </article>
   );

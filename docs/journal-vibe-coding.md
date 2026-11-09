@@ -700,3 +700,46 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Non vérifiés en production, couverts par les tests : message des 60 s, « Actualiser », `no_text`.
 
 **Statut final.** Story 2.5 passée à `done` le 2026-11-09, après la vérification de l'utilisateur.
+
+## Story 3.1 — Lecteur de Document et mise en évidence (2026-11-09)
+
+**Objectif.** Un Lecteur unique qui affiche le texte brut et met les Passages en évidence, en préparation de la Recherche et des Sources.
+
+**Instructions clés données à l'IA.**
+- Évaluer d'abord si la fusion de 3.1 et 3.2 reste vérifiable en une session, avec une spec d'environ 1 600 tokens ; sinon, ne faire que la 3.1.
+- Nœuds texte seulement, `<mark>`, Passage actif distinct, défilement, positions invalides sans erreur, Documents pièges.
+- Revue ciblée sur la sécurité de l'affichage et l'accessibilité, sans les trois relecteurs.
+- Aucun commit ni push sans validation. Ne pas commencer 3.3.
+
+**Décisions de l'utilisateur.**
+- 3.1 seule, l'IA ayant jugé la fusion trop large (environ 2 200 tokens pour la 3.1 seule). Spec gardée entière.
+- Nouvelles dépendances strictement en `devDependencies`, versions fixées.
+- Aucun contenu interprété comme du HTML, y compris dans les étiquettes et messages.
+- Emplacement `components/documents/` accepté, architecture et `epics.md` alignés.
+
+**Ce que l'IA a produit.**
+- `src/lib/passages.ts` : validation et découpage, fonction pure.
+- `DocumentReader`, composant serveur, et `PassageScroller`, seul morceau client, qui ne reçoit jamais le texte.
+- Page Document branchée sur le Lecteur, sans Passage.
+- Premier environnement de test de composants (Testing Library, jsdom).
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Revue ciblée : aucun problème de sécurité de l'affichage.** Trois points d'accessibilité corrigés : message hors zone vivante, texte masqué copié dans le presse-papiers, défilement animé de 1,5 s au lieu de 200 ms au plus.
+- **Effet de bord repéré.** La nouvelle zone `status` du Lecteur aurait cassé les sélecteurs du bandeau : corrigé dans le test.
+- **Reporté.** Étiquette « Passage pertinent ». Preuve du défilement dans un vrai navigateur, à la 3.2.
+
+**Tests.**
+- `npm test` : 641 sur 642. `lint`, `tsc`, `build:ci` et `check:secrets` : verts.
+- `npm run test:e2e` : 197 réussis, 5 sautés.
+- **Échec restant, hors de cette story.** `seed-demo` « en cours et vivant » : un minuteur de 1,5 s fait la course avec le script. Il réussit seul et échoue aussi sans les fichiers de test de la 3.1. Il passait en 2.5 ; la raison du changement n'est pas établie.
+- **Pages prérendues.** `/documents/[id]` est partiellement prérendue, sans aucun texte de Document dans `.next/server/app`.
+
+**Durée.**
+- Évaluation de la fusion, lecture, spec et plan : de 10:28 à 10:35 environ, attente de la validation comprise.
+- Implémentation et tests par l'agent : de 10:35 à 11:12 environ.
+- Revue ciblée et corrections : de 11:12 à 11:22 environ.
+- Vérification complète et analyse de l'échec restant : de 11:22 à 11:38 environ.
+- Suivi et journal : de 11:38 à 11:40 environ.
+- Total : environ 1 h 15, exécutions longues comprises.
+
+**Statut.** Story 3.1 en `review`, non commitée et non déployée, en attente de la validation de l'utilisateur.

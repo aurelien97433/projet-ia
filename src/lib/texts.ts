@@ -115,6 +115,12 @@ export const texts = {
     statusLabel: "Statut de traitement",
     textLabel: "Texte du Document",
   },
+  reader: {
+    activePassageLabel: "Passage utilisé",
+    passagePosition: (position: number, total: number) => `Passage utilisé ${position} sur ${total}`,
+    allPassagesMissing: "Le Passage cité n'a pas pu être retrouvé dans ce Document. Le Document est affiché en entier.",
+    somePassagesMissing: "Un des Passages cités n'a pas pu être retrouvé dans ce Document.",
+  },
   documentStatus: {
     ready: "Votre Document est prêt.",
     // Absent d'EXPERIENCE.md : variante pour un autre Collaborateur, ajoutée le 2026-11-06 (story 2.4).

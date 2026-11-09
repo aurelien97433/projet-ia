@@ -72,3 +72,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-5-erreurs-de-traitement-expiration-et-relance.md`
   summary: Story 3.2 : faire dépendre le badge et le bandeau d'une seule source d'état du Document, puis vérifier que les deux tests e2e intermittents deviennent stables sans augmenter leur délai.
   evidence: Décision de l'utilisateur du 2026-11-09 : les deux tests restent tels quels en 2.5. Tâche inscrite dans la story 3.2 d'`epics.md`.
+- source_spec: `_bmad-output/implementation-artifacts/3-1-lecteur-de-document-et-mise-en-évidence-passages-de-test.md`
+  summary: Story 3.2 : prouver dans un vrai navigateur que le Passage actif est entièrement visible, et que le message placé en tête n'est pas sauté par le défilement et le focus.
+  evidence: La 3.1 ne teste le défilement qu'avec des simulations : aucune page ne transmet encore de Passages.
+- source_spec: `_bmad-output/implementation-artifacts/3-1-lecteur-de-document-et-mise-en-évidence-passages-de-test.md`
+  summary: Prévoir une propriété du Lecteur pour l'étiquette « Passage pertinent » quand une page y arrivera depuis la Recherche.
+  evidence: EXPERIENCE.md et DESIGN.md la demandent à l'arrivée depuis la Recherche ; la 3.1 n'affiche que « Passage utilisé ».
+- source_spec: `_bmad-output/implementation-artifacts/3-1-lecteur-de-document-et-mise-en-évidence-passages-de-test.md`
+  summary: Rendre `tests/integration/seed-demo.test.ts` « en cours et vivant » indépendant du temps : son minuteur de 1,5 s fait la course avec `seedMini`.
+  evidence: Échoue dans la suite complète (`déjà prêt` au lieu de `déjà en cours`), y compris sans les fichiers de test de la 3.1 ; réussit seul, 17 sur 17. Le Document visé est le 6ᵉ traité, et le minuteur part avant. Il passait encore dans la suite complète de la story 2.5. Cause du changement non établie (base locale plus chargée : hypothèse).
+- source_spec: `_bmad-output/implementation-artifacts/3-1-lecteur-de-document-et-mise-en-évidence-passages-de-test.md`
+  summary: `tests/e2e/ajouter.spec.ts:54` a échoué une fois sur le badge « prêt », dans une suite complète ; à rapprocher des deux tests suivis en 3.2.
+  evidence: Échec unique dans la première suite complète de la 3.1, réussite au passage ciblé et à la suite finale. Même symptôme de badge que les tests suivis en 3.2.
