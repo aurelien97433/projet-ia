@@ -799,4 +799,14 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Suivi et journal : de 16:12 à 16:15 environ.
 - Total : environ 2 h 30 hors interruption, exécutions longues comprises.
 
-**Statut.** Story 3.2 en `review`, non commitée et non déployée, en attente de la validation de l'utilisateur.
+**Déploiement.** Pas de migration. Commit `445b4df` poussé sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production, sur `445b4df`.**
+- Page normale avec un autre Compte : métadonnées, badge et Lecteur, sans bouton d'action.
+- `?passages=0-40,200-260&actif=1` : deux Passages surlignés, le second actif et visible.
+- `?passages=<script>` : seul le message de Passage introuvable apparaît.
+- `/documents/abc` : « Page introuvable ».
+- Affichage correct à 375 px.
+- Non vérifiés en production, couverts par les tests : synchronisation du badge et du bandeau, message collant quand un Passage manque, message des 10 s.
+
+**Statut final.** Story 3.2 passée à `done` le 2026-11-09, après la vérification de l'utilisateur.

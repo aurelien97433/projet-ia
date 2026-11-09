@@ -2,7 +2,7 @@
 title: 'Story 3.2 : Page Document complète'
 type: 'feature'
 created: '2026-11-09'
-status: 'in-review'
+status: 'done'
 baseline_commit: '4edffcd98a5bdd250b7a7e55b372451cfcb3f172'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -115,3 +115,5 @@ Revue ciblée du 2026-11-09 (validation des paramètres, affichage, accessibilit
 - Production : voir le rapport de fin de story.
 
 **Résultats du 2026-11-09 :** `lint`, `tsc`, `build:ci` et `check:secrets` verts ; `npm test` vert ; trois suites `npm run test:e2e` complètes : 235 réussis, 5 sautés, à chaque fois, délais inchangés. Dans le lot précédent de l'agent, sur le même code applicatif, `ajouter.spec.ts:54` a échoué une fois pour un vrai échec de traitement local (voir `deferred-work.md`). Aucun texte de Document dans `.next/server/app`. Correction R1 appliquée directement, sans repasser par l'agent, vu sa taille.
+
+Production (2026-11-09, utilisateur, déploiement 445b4df) : page d un autre Compte, Passages depuis l URL, paramètre hostile, Page introuvable et 375 px vérifiés ; synchronisation du badge et du bandeau, message collant et message des 10 s couverts par les tests seulement.
