@@ -2,7 +2,7 @@
 title: 'Story 2.5 : Erreurs de traitement, expiration et relance'
 type: 'feature'
 created: '2026-11-09'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'f8901f78020e93a1b48687875db641d14fcd0b9b'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -140,3 +140,4 @@ Revue du 2026-11-09 par trois relecteurs indépendants (règle 11) : Blind Hunte
 - Production : voir le rapport de fin de story.
 
 **Résultats du 2026-11-09 :** `lint`, `tsc`, `build:ci` et `check:secrets` verts ; `npm test` : 600 réussis. `npm run test:e2e` (193 tests exécutés, 5 sautés) : 2 échecs, puis 1, puis 0 sur trois suites complètes ; spec du Statut seule, répétée deux fois : 152 sur 152. Les échecs portent sur le badge qui suit le bandeau : voir `deferred-work.md`.
+nProduction (2026-11-09, utilisateur) : traitement bloqué simulé, relance jusqu'à prêt sans rechargement et refus pour un autre Compte vérifiés ; message des 60 s, « Actualiser » et `no_text` couverts par les tests seulement.

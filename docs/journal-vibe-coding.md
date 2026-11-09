@@ -690,4 +690,13 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Suivi et journal : de 10:09 à 10:12.
 - Total : environ 1 h 20, exécutions longues comprises.
 
-**Statut.** Story 2.5 en `review`, non commitée et non déployée, en attente de la validation de l'utilisateur et de sa vérification en production.
+**Déploiement.** `deploy:supabase` réussi sur le projet distant, avant le push. Commit `f1940d3` poussé sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production.**
+- Traitement bloqué simulé par SQL : badge en erreur, message et bouton actif pour l'Auteur.
+- Clic sur « Relancer le traitement » : « Relance… », puis en cours, puis prêt, sans rechargement.
+- Autre Compte : « Seul l'Auteur… », sans bouton.
+- Note de test supprimée.
+- Non vérifiés en production, couverts par les tests : message des 60 s, « Actualiser », `no_text`.
+
+**Statut final.** Story 2.5 passée à `done` le 2026-11-09, après la vérification de l'utilisateur.
