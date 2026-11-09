@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-09-2026 16:25
+last_updated: 11-09-2026 16:39
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -97,10 +97,13 @@ development_status:
   7-1a-rédiger-le-jeu-de-démonstration-complet: backlog  # P0 · dépend de : 2.8 (format du mini Jeu)
   7-1b-précharger-le-jeu-de-démonstration-complet: backlog  # P0 · dépend de : 7.1a, 6.2
   7-2-calibrage-final-et-mesures-sm-1-sm-2-sm-4-sm-5: backlog  # P0 · dépend de : 7.1b
-  7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px: backlog  # P0 · dépend de : 7.2
+  7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px: backlog  # P0 · dépend de : 7.1b
   7-4-finitions-d-accessibilité-et-de-session-finition: backlog  # P0 FINITION · dépend de : 7.3
   7-5-répétition-générale-et-vidéo-de-secours: backlog  # P0 · dépend de : 7.3 (7.4 si livrée)
   7-6-dossier-de-démarche-et-readme: backlog  # P0 · dépend de : 7.2 (résultats chiffrés) ; finalisé après 7.5
+  7-7-plan-de-tests-et-bilan-des-anomalies: backlog  # P0 · séquence 10 (23/11) · dépend de : 7.1b
+  7-8-audit-global-de-sécurité: backlog  # P0 · séquence 11 (24/11) · dépend de : 7.7
+  7-9-seuils-alertes-repli-et-décision-de-mise-en-service: backlog  # P0 · séquence 13 (25/11) · dépend de : 7.2
   epic-7-retrospective: optional
 
   epic-8: backlog

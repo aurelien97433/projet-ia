@@ -810,3 +810,30 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Non vérifiés en production, couverts par les tests : synchronisation du badge et du bandeau, message collant quand un Passage manque, message des 10 s.
 
 **Statut final.** Story 3.2 passée à `done` le 2026-11-09, après la vérification de l'utilisateur.
+
+## Correction de trajectoire — séquences 10 à 13 (2026-11-09)
+
+**Objectif.** Relier les séquences 10 à 13 du workshop aux stories existantes, ajouter seulement les livrables manquants et refaire le calendrier, sans retirer d'exigence P0.
+
+**Instructions clés données à l'IA.**
+- Utiliser `bmad-correct-course`, présenter la proposition avant de modifier `epics.md` et `sprint-status.yaml`, ne commencer aucune story.
+- Calendrier imposé : 12/11 = 9ᵉ Document, 4.1a et 4.2 ; 13/11 = 2.6a et 2.6b ; séquence 9 jusqu'au 20/11 ; séquence 10 le 23/11 ; 11 le 24/11 ; 13 le 25/11 ; 12 les 26 et 27/11.
+
+**Décisions de l'utilisateur.**
+- Proposition approuvée. 11/11 non travaillé.
+- Week-ends des 14-15/11 et 21-22/11 disponibles comme tampon partiel, principalement pour l'Epic 5, sans être prévus comme jours pleins.
+- 5.0 reste séparée : l'essai précoce du flux sur Vercel réduit le risque principal de l'Epic 5. L'IA avait proposé sa fusion dans 5.5 comme coupe possible : proposition refusée.
+- Coupes présentées à l'utilisateur aux seuls points de contrôle (18/11 et 20/11 au soir), jamais décidées sans lui.
+
+**Ce que l'IA a produit.**
+- `sprint-change-proposal-2026-11-09.md`.
+- Trois stories P0 : 7.7 (plan de tests et bilan des anomalies), 7.8 (audit global de sécurité), 7.9 (seuils, alertes, repli et décision de mise en service).
+- Extensions de 7.1a et 7.2 (cas ambigus, sensibles, hostiles et dégradés), et de 7.6 (guide de reprise).
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Dépendance corrigée.** 7.3 dépendait de 7.2, alors qu'elle sert aux séquences 10 et 11, avant 7.2. Elle dépend désormais de 7.1b.
+- **Refus.** Fusion de 5.0 dans 5.5.
+
+**Risque consigné.** Du 16/11 au 20/11 : 18 P0 en 5 jours, dont 13 de l'Epic 5. Le 09/11, le rythme mesuré était de 3 P0 par jour. La semaine du 23/11 n'absorbe plus de retard : seuls les tampons des week-ends le peuvent en partie.
+
+**Durée.** Environ 30 min, de 16:33 à 17:05 environ, attente de la validation comprise.

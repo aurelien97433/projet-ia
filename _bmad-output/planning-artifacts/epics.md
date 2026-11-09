@@ -278,7 +278,7 @@ Niveaux : **CORE** = nécessaire aux parcours P0, à la sécurité, à l'accessi
 | E4 | Rechercher par le sens | P0 | E2, E3 | 4.1a, 4.2, puis 4.1b (après 3.5) ; 1.5 et 2.9 (FINITION reportées) | 13/11 → 16/11 |
 | E5 | Interroger l'Assistant et vérifier ses Sources — **chemin critique** | P0 | E2, E3, E4 | 5.0 et 5.1 (réalisées dans la fenêtre E3 + E4 si possible), 5.2a, 5.2b, 5.3 à 5.12 | 16/11 → 20/11 (avec E6) |
 | E6 | Obtenir le Résumé d'un Document | P0 | E2, E3, E5 | 6.1 à 6.2 | 16/11 → 20/11 (avec E5) |
-| E7 | Démonstration prête et mesurée | P0 | E1 à E6 | 7.1a (rédaction, en parallèle à partir du 11/11), 7.1b, 7.2 à 7.6 | 23/11 → 27/11 |
+| E7 | Démonstration prête et mesurée | P0 | E1 à E6 | 7.1a (rédaction, en parallèle à partir du 10/11), 7.1b, 7.2 à 7.9 | 23/11 → 27/11 |
 | E8 | Modifier ses Documents et nettoyer son Historique | P1 | E7 validé | 8.1 à 8.3 | **non livré, sauf avance réelle** (voir règle 8) |
 | E9 | Importer des PDF et télécharger les originaux | P2 | E7 validé | 9.1 à 9.2 | **non livré, sauf avance réelle** (voir règle 8) |
 
@@ -296,14 +296,14 @@ Jours ouvrés uniquement (6 h par jour, du lundi au vendredi). Aucune marge ouvr
 5. **Stories FINITION.** 1.5, 2.9, 3.6, 5.12 et 7.4 portent les exigences UX classées FINITION ; elles peuvent glisser ou être abandonnées sans casser le P0 (écart assumé, consigné dans EXPERIENCE.md). **1.5 et 2.9 sont planifiées après E4** (leurs dépendances, 1.2 et 2.6a, sont alors livrées depuis longtemps).
 6. **Définition de « terminé ».** Critères d'acceptation vérifiés, tests de la story verts, textes repris du catalogue de l'UX (vouvoiement), aucune régression des stories précédentes ; si la story modifie la base ou une Edge Function, `npm run deploy:supabase` réussi sur le projet distant **avant** le déploiement Vercel ; déploiement Vercel réussi ; entrée ajoutée au journal de Vibe Coding (règle 9).
 7. **Chemin critique.** E5 est le chemin critique : il concentre le risque technique (flux sur Vercel, essayé dès 5.0 puis mesuré en 5.5, citations, quota) et 14 stories. En cas de retard, on coupe d'abord les FINITION (5.12 puis 7.4, 3.6, 2.9, 1.5), jamais une story P0 de E5.
-8. **Point de contrôle du vendredi 13/11 (soir)** (décision du 2026-11-04, remplace le point d'arrêt du 14/11). Si 1.4, 2.1 à 2.5, 2.8, 3.1 et 3.2 ne sont pas toutes terminées : toutes les stories FINITION sont coupées, et il est acté que E8 et E9 ne seront pas livrés. Même sans retard, E8 et E9 ne commencent qu'après validation de E7 (27/11 au plus tôt) : leur livraison n'est pas attendue.
+8. **Point de contrôle du vendredi 13/11 (soir)** (décision du 2026-11-04, remplace le point d'arrêt du 14/11). Si 1.4, 2.1 à 2.5, 2.8, 3.1 et 3.2 ne sont pas toutes terminées : toutes les stories FINITION sont coupées, et il est acté que E8 et E9 ne seront pas livrés. Même sans retard, E8 et E9 ne commencent qu'après validation de E7 (27/11 au plus tôt) : leur livraison n'est pas attendue. **Mise à jour du 2026-11-09 :** ce point est atteint dès le 09/11, sans déclenchement. Nouveaux points de contrôle les 18/11 et 20/11 au soir (voir « Trajectoire du 2026-11-09 ») : les coupes y sont présentées à l'utilisateur et décidées par lui.
 9. **Journal de Vibe Coding.** `docs/journal-vibe-coding.md`, créé en 1.1, reçoit une entrée par story : objectif, prompts ou instructions clés données à l'IA, ce que l'IA a produit, ce qui a été corrigé ou refusé et pourquoi, tests, durée. Il alimente la story 7.6.
 10. **Critères d'acceptation dépendant du modèle.** Un critère qui juge une sortie du modèle donne un résultat observable (Source citée, chaîne absente) et un nombre d'essais : **3 essais sur 3** pour un test d'acceptation, sauf mention contraire.
 11. **Revue par trois relecteurs réservée aux stories sensibles** (décision du 2026-11-04). Sont sensibles : les stories qui créent ou modifient une migration avec RLS, privilèges ou fonction `security definer` ; le traitement asynchrone et ses tentatives ; le Storage et ses politiques ; les secrets ; l'Assistant (consignes, citations, idempotence, quota) ; le contrôle final de sécurité. Liste de départ : **2.3, 2.4, 2.5, 2.6a, 5.1, 5.2a, 5.4, 5.9, 5.10, 6.1, 7.3**. Les autres stories : tests, contrôles et vérification manuelle, sans relecteurs, sauf demande explicite.
 
 ### Calendrier : appréciation
 
-**Disponibilité (confirmée le 2026-11-04) :** 6 h par jour, du lundi au vendredi. Du mercredi 04/11 au vendredi 27/11, cela fait **18 jours ouvrés, soit 108 h** (17 jours et 102 h si le 11/11, férié, n'est pas travaillé — à confirmer). Le rendu du lundi 30/11 suit un week-end.
+**Disponibilité (confirmée le 2026-11-04, mise à jour le 2026-11-09) :** 6 h par jour, du lundi au vendredi. Du mercredi 04/11 au vendredi 27/11, cela fait **17 jours ouvrés, soit 102 h**, le 11/11 n'étant pas travaillé. Les week-ends des 14-15/11 et 21-22/11 servent de tampon partiel, hors de ce décompte. Le rendu du lundi 30/11 suit un week-end.
 
 **Trajectoire du 2026-11-04** (décision de l'utilisateur ; aucune exigence P0 retirée). Stories 1.1 à 1.3 terminées le 04/11. La séquence 9 s'ouvre le vendredi 06/11.
 
@@ -313,15 +313,25 @@ Jours ouvrés uniquement (6 h par jour, du lundi au vendredi). Aucune marge ouvr
 | Jeu. 05/11 | 2.1, 2.2, 2.3 si possible | 2.1 exige les prérequis OpenAI restants (règle 2) ; 2.2 et 2.3 restent séparées |
 | Ven. 06/11 | 2.4, puis ouverture de la séquence 9 avec 2.8 | mini Jeu en Notes, sans import de fichiers ; commence par le fichier séparé `.env.seed` |
 | Lun. 09/11 | 2.5, puis 3.1 et 3.2 | 3.1 et 3.2 fusionnées en une session seulement si leur fichier de story reste vérifiable (environ 1 600 tokens) ; sinon deux sessions le même jour |
-| Mar. 10/11 | 3.3, 3.5 | **mesure du rythme** et décision sur le `bmad-correct-course` (décisions ci-dessous) |
-| Mer. 11/11 (férié, à confirmer) | 2.6a, 2.6b | import de fichiers |
-| Jeu. 12/11 | 2.7, 3.4 | 2.7 tranchée avant 5.2a, au plus tard le 18/11 (règle 3) |
-| Ven. 13/11 | 4.1a, 4.2 | **point de contrôle le soir** (règle 8) |
-| 16/11 → 20/11 (5 j) | 4.1b, 5.0, 5.1, 5.2a, 5.2b, 5.3 à 5.11, 6.1, 6.2 (16 P0) | ≈ 3,2 par jour : **irréaliste sans arbitrage** ; chemin critique |
-| 23/11 → 27/11 (5 j) | 7.1b, 7.2, 7.3, 7.5, 7.6 (5 P0) + rattrapage de E5/E6 | seule fenêtre qui absorbe du retard ; 7.1a rédigée en parallèle à partir du 10/11 |
+| Mar. 10/11 | 3.3, 3.5 | rappel de la règle 1 : `check:secrets` sur les pages prérendues, si elles affichent des données |
+| Mer. 11/11 | non travaillé | décision du 2026-11-09 |
+| Jeu. 12/11 | 9ᵉ Document, 4.1a, 4.2 | calibrage sur plusieurs Passages réels |
+| Ven. 13/11 | 2.6a, 2.6b | 2.6b crée les premiers cas `no_text` réels |
+| 14 et 15/11 | tampon partiel | principalement pour l'Epic 5 ; pas des jours pleins |
+| Lun. 16/11 | 2.7, 3.4, 4.1b, 5.0 | 2.7 tranchée avant 5.2a (règle 3) ; 3.4 ajoute « Supprimer » ; 5.0 reste séparée |
+| Mar. 17/11 | 5.1, 5.2a, 5.2b | chemin critique |
+| Mer. 18/11 | 5.3, 5.4, 5.5, 5.6 | **point de contrôle le soir** (règle 8) |
+| Jeu. 19/11 | 5.7, 5.8, 5.9 | |
+| Ven. 20/11 | 5.10, 5.11, 6.1, 6.2 | fin de la séquence 9 ; 7.1a terminée ; **point de contrôle le soir** (règle 8) |
+| 21 et 22/11 | tampon partiel | principalement pour l'Epic 5 ; pas des jours pleins |
+| Lun. 23/11 | 7.1b, 7.7, tests de 7.3 | séquence 10 |
+| Mar. 24/11 | 7.8, contrôles de 7.3, corrections | séquence 11 |
+| Mer. 25/11 | 7.2, 7.9 | séquence 13 |
+| Jeu. 26/11 | déploiement final, vérification en ligne, 7.6 | séquence 12 |
+| Ven. 27/11 | 7.5 (répétition, vidéo), guide de reprise, 7.6 finalisée | séquence 12 |
 | 28/11 → 30/11 | week-end, puis rendu le lundi ; répétition générale le vendredi 27/11 (7.5) ; vérifications « 48 h avant » (samedi 28/11) et « la veille » (dimanche 29/11), **30 min chacune**, en plus de la disponibilité ouvrée | 2 × 30 min |
 
-FINITION (1.5, 2.9, 3.6, 5.12, 7.4) : seulement si un jour se libère, coupées au point de contrôle du 13/11 s'il n'est pas atteint.
+FINITION (1.5, 2.9, 3.6, 5.12, 7.4) : seulement si un jour se libère ; leur coupe éventuelle est examinée aux points de contrôle du 18/11 et du 20/11 (règle 8).
 
 **Bilan de charge.** Au 13/11 au soir, 20 des 42 P0 seraient terminées. Il resterait 22 P0 pour les 10 jours ouvrés suivants, soit ≈ 2,2 par jour en moyenne, avec un pic irréaliste sur E5 + E6 (16 en 5 jours) que seule la dernière semaine peut absorber en partie.
 
@@ -334,7 +344,26 @@ FINITION (1.5, 2.9, 3.6, 5.12, 7.4) : seulement si un jour se libère, coupées 
 - **Mesure du rythme réel** après les stories 1.1 à 1.3 : temps passé par story, consigné dans le journal de Vibe Coding (règle 9).
 - **Déclencheur :** si le rythme reste inférieur à **2 stories par jour ouvré**, un `bmad-correct-course` est préparé **avant le 10/11**, avec des simplifications P0 à te soumettre. Limites fixées : ni le parcours UJ-2 ni les exigences du challenge (CH-1 à CH-19) ne sont retirés. Aucune simplification n'est appliquée sans ton accord.
 - Les vérifications des 28 et 29/11 sont prévues (30 min chacune), en plus de la répétition générale du 27/11.
-- Restent à confirmer : le 11/11 (travaillé ou non) et le format du rendu.
+- Reste à confirmer : le format du rendu (le 11/11 n'est pas travaillé, décision du 2026-11-09).
+
+**Trajectoire du 2026-11-09** (décision de l'utilisateur, `sprint-change-proposal-2026-11-09.md` ; aucune exigence P0 retirée). Séquences 10 à 13 ajoutées, 11/11 non travaillé, week-ends des 14-15/11 et 21-22/11 disponibles comme tampon partiel, principalement pour l'Epic 5, sans être prévus comme jours pleins. 45 P0 au total (3 stories ajoutées) ; 12 terminées au 09/11, 33 restantes pour 13 jours ouvrés.
+
+| Séquence | Date | Stories |
+|---|---|---|
+| 9 Développement | jusqu'au 20/11 | 2.6 à 6.2 |
+| 10 Tests | 23/11 | 6.2, 7.1b, 7.3 (UJ-1, UJ-3, clavier, 375 px), 7.7 |
+| 11 Sécurité | 24/11 | 7.3 (SM-6, accès sans session, secrets), 7.8 |
+| 13 Mesure | 25/11 | 7.1a, 7.1b, 7.2, 7.9 |
+| 12 Livraison | 26 et 27/11 | 7.5, 7.6 (dont guide de reprise) |
+
+**Risque sur l'Epic 5 : élevé.** Du 16/11 au 20/11 : 18 P0 en 5 jours, dont 13 de E5 et six stories sensibles (5.1, 5.2a, 5.4, 5.9, 5.10, 6.1). Le 09/11, le rythme mesuré était de 3 P0 par jour (environ 1 h 40 par story). La semaine du 23/11 n'absorbe plus de retard : seuls les tampons des week-ends le peuvent en partie.
+
+**Coupes : présentées à l'utilisateur à chaque point de contrôle, jamais appliquées sans sa décision.** UJ-2 et CH-1 à CH-19 ne sont jamais retirés. À garder dans tous les cas : 7.2, 7.8, 7.5, la décision de mise en service et la story 5.0, séparée car elle réduit tôt le risque du flux sur Vercel.
+
+| Point de contrôle | Déclencheur | Coupes à présenter | Effet |
+|---|---|---|---|
+| 18/11 au soir | 5.4 non terminée | FINITION non réalisées ; 7.1a à 10 Documents ; 3 cas par famille ; rapports courts pour 7.7 à 7.9 | environ une demi-journée |
+| 20/11 au soir | 6.2 non terminée | 23/11 utilisé pour finir E5 et E6 ; séquence 10 réduite à une demi-journée (plan et bilan) ; 2.7 réduite à une seule mesure si elle n'est pas faite | jusqu'à un jour |
 
 ## Epic 1 : Accéder à NexaMind AI en toute sécurité
 
@@ -1663,7 +1692,7 @@ En tant que porteur du produit,
 je veux rédiger tôt le contenu complet du Jeu de démonstration,
 afin que les mesures finales ne dépendent pas d'une rédaction faite dans la dernière semaine.
 
-*Story de contenu, sans code applicatif : menée en parallèle du développement, du 10/11 au 22/11, avec l'aide de l'IA.*
+*Story de contenu, sans code applicatif : menée en parallèle du développement, du 10/11 au 20/11, avec l'aide de l'IA.*
 
 **Critères d'acceptation :**
 
@@ -1678,6 +1707,10 @@ afin que les mesures finales ne dépendent pas d'une rédaction faite dans la de
 **Étant donné** chaque question dans la base
 **Quand** je la relis
 **Alors** sa réponse figure bien dans le Document attendu, et chaque question hors base n'a de réponse dans aucun Document (relecture consignée)
+
+**Étant donné** `demo/jeu-demonstration.json`
+**Quand** je l'ouvre
+**Alors** il contient aussi des cas **ambigus, sensibles, hostiles** (injection, Document piège) et **dégradés** (service d'IA indisponible, Document *en erreur* ou expiré), au moins 3 par famille, avec le résultat attendu
 
 **Tâches techniques :** rédaction (IA + relecture) ; fichiers de test ; entrée au journal de Vibe Coding.
 **Dépendances :** 2.8 (format du mini Jeu).
@@ -1727,6 +1760,10 @@ afin de présenter au jury des résultats chiffrés et honnêtes.
 **Quand** les mesures tournent
 **Alors** elles se répartissent sur plusieurs Comptes de mesure, chacun dans son quota normal (le quota global n'est jamais relevé), et restent sous le plafond de 10 $ (coût consigné)
 
+**Étant donné** les cas ambigus, sensibles, hostiles et dégradés de 7.1a
+**Quand** les mesures tournent
+**Alors** le rapport donne leur résultat par famille, avec le nombre de faits inventés et de citations invalides
+
 **Tâches techniques :** `scripts/measure-all.ts` (répartition sur les Comptes de mesure, relecture humaine des faits inventés guidée) ; ajustements ; rapport.
 **Dépendances :** 7.1b.
 **Références :** CH-6, CH-14, CH-19 · FR-14, FR-16, FR-17, FR-18 · NFR-3, NFR-8 · SM-1, SM-2, SM-4, SM-5 · AR-10, AR-23 · AD-9 · **Priorité :** P0
@@ -1756,7 +1793,7 @@ afin que l'application soit crédible et accessible.
 **Alors** aucun secret n'est trouvé dans le code envoyé au navigateur et aucun appel direct à OpenAI ou aux Edge Functions n'est observé
 
 **Tâches techniques :** `tests/e2e/uj-1.spec.ts`, `uj-3.spec.ts` (UJ-2 existe) ; projets Playwright 1 280 / 375 ; rapport SM-6 ; contrôle des secrets.
-**Dépendances :** 7.2.
+**Dépendances :** 7.1b (décision du 2026-11-09 : 7.3 sert aux séquences 10 et 11, avant 7.2).
 **Références :** CH-18, CH-19 · FR-2, FR-13, FR-22 · NFR-2, NFR-6, NFR-7 · SM-6 · AR-21, AR-23 · AD-20 · **Priorité :** P0
 
 ### Story 7.4 : Finitions d'accessibilité et de session (FINITION)
@@ -1831,9 +1868,91 @@ afin que le critère « qualité de la démarche Vibe Coding » soit évalué su
 **Quand** il s'exécute sur le README et le dossier
 **Alors** aucun secret ni mot de passe n'y figure
 
-**Tâches techniques :** `README.md` ; `docs/demarche-vibe-coding.md` (synthèse du journal) ; liste des livrables ; schéma RAG (Mermaid).
+**Étant donné** `docs/guide-de-reprise.md`
+**Quand** une autre personne le suit
+**Alors** elle sait installer le projet, relancer les services, redéployer, restaurer le Jeu de démonstration et faire tourner les secrets, sans qu'aucun secret n'y figure
+
+**Tâches techniques :** `README.md` ; `docs/demarche-vibe-coding.md` (synthèse du journal) ; `docs/guide-de-reprise.md` ; liste des livrables ; schéma RAG (Mermaid).
 **Dépendances :** 7.2 (résultats chiffrés) ; finalisé après 7.5.
 **Références :** CH-19 · NFR-2 · SM-1 à SM-6 · AR-22 · **Priorité :** P0
+
+### Story 7.7 : Plan de tests et bilan des anomalies
+
+En tant que porteur du produit,
+je veux un plan de tests relié aux parcours et aux risques, et un bilan des anomalies,
+afin de savoir ce qui est vérifié et ce qui reste ouvert avant la publication.
+
+*Séquence 10, 23/11.*
+
+**Critères d'acceptation :**
+
+**Étant donné** `docs/tests/plan-de-tests.md`
+**Quand** je le lis
+**Alors** chaque parcours (UJ-1 à UJ-3) et chaque risque identifié sont reliés à leurs tests, avec leur niveau (unitaire, intégration, e2e, manuel)
+
+**Étant donné** les tests e2e existants
+**Quand** `bmad-qa-generate-e2e-tests` est utilisé
+**Alors** les tests manquants du plan sont ajoutés et passent
+
+**Étant donné** `docs/tests/bilan-anomalies.md`
+**Quand** je le lis
+**Alors** chaque anomalie indique sa gravité, sa suite et son état, y compris les reports de `deferred-work.md` encore ouverts
+
+**Tâches techniques :** plan de tests ; génération des e2e manquants ; bilan des anomalies.
+**Dépendances :** 7.1b.
+**Références :** CH-19 · SM-3 · AR-23 · **Priorité :** P0
+
+### Story 7.8 : Audit global de sécurité
+
+En tant que porteur du produit,
+je veux un audit de sécurité de l'ensemble du code,
+afin de corriger les failles avant la publication.
+
+*Séquence 11, 24/11. Relecteurs de la règle 11.*
+
+**Critères d'acceptation :**
+
+**Étant donné** le code complet
+**Quand** l'audit est réalisé avec `bmad-code-review`
+**Alors** `docs/tests/audit-securite.md` couvre la RLS, les privilèges, les fonctions SQL, les Edge Functions, les secrets, l'affichage et les injections
+
+**Étant donné** une anomalie de gravité haute
+**Quand** l'audit se termine
+**Alors** elle est corrigée et retestée ; les autres ont une décision consignée
+
+**Étant donné** les corrections appliquées
+**Quand** le contrôle avant publication est rejoué
+**Alors** les tests de 7.3 et le contrôle des secrets passent
+
+**Tâches techniques :** audit ; corrections ; rapport ; contrôle avant publication.
+**Dépendances :** 7.7.
+**Références :** CH-18, CH-19 · NFR-2 · SM-6 · AR-21 · **Priorité :** P0
+
+### Story 7.9 : Seuils, alertes, repli et décision de mise en service
+
+En tant que porteur du produit,
+je veux des seuils, des alertes, des actions de repli et une décision explicite,
+afin de mettre le produit en service en connaissance de cause.
+
+*Séquence 13, 25/11.*
+
+**Critères d'acceptation :**
+
+**Étant donné** le rapport de 7.2
+**Quand** je lis `docs/mesures/decision-mise-en-service.md`
+**Alors** il donne les seuils de décision à partir de SM-1 à SM-6, des faits inventés, des citations, de la latence et du coût
+
+**Étant donné** chaque seuil
+**Quand** il est manqué
+**Alors** le document indique l'alerte correspondante (dont le plafond OpenAI) et l'action de repli
+
+**Étant donné** les résultats mesurés
+**Quand** la décision est prise
+**Alors** l'utilisateur consigne **Go**, **Go avec réserves** ou **No-Go**, avec ses raisons
+
+**Tâches techniques :** seuils ; alertes ; actions de repli ; décision.
+**Dépendances :** 7.2.
+**Références :** CH-19 · NFR-3, NFR-8 · SM-1 à SM-6 · AR-23 · **Priorité :** P0
 
 ## Epic 8 : Modifier ses Documents et nettoyer son Historique (P1)
 
@@ -1987,7 +2106,7 @@ afin de le consulter dans son format.
 | CH-16 Génération contextualisée | FR-16, FR-17, FR-18 | 5.2a à 5.5 |
 | CH-17 Centraliser les informations | FR-3, FR-9 | 2.2, 3.2, 3.3, 2.8, 7.1a, 7.1b |
 | CH-18 Expérience moderne, fluide, sécurisée | NFR-1, NFR-2, NFR-3, NFR-6, NFR-7 | 1.1 à 1.5, 5.0, 5.5, 5.9 à 5.11, 7.3 |
-| CH-19 MVP crédible en Vibe Coding | SM-1 à SM-6 | 1.1 (journal), 2.8, 4.2, 6.2, 7.1a à 7.6 |
+| CH-19 MVP crédible en Vibe Coding | SM-1 à SM-6 | 1.1 (journal), 2.8, 4.2, 6.2, 7.1a à 7.9 |
 
 ### FR → stories
 
@@ -2083,8 +2202,10 @@ Précisions, sans écart :
 4. **E4 avant E5** : `match_passages` (4.1a) et le premier calibrage (4.2) sont partagés par l'Assistant ; on évite de calibrer deux fois. La page Recherche et le champ du Tableau de bord (4.1b) suivent le serveur.
 5. **E5 dans l'ordre demandé** : essai léger du flux sur Vercel (5.0) et tables privées (5.1), réalisés si possible dans la fenêtre E3 + E4 → fonction `chat` côté serveur (5.2a) → page Assistant (5.2b) → refus (5.3) → citations (5.4) → flux réel sur Vercel (5.5) → Conversations (5.6) → panneau Source (5.7) → suivi (5.8) → idempotence (5.9) → quota et remboursement (5.10) → erreurs et états d'interface (5.11). Chaque story ne dépend que des précédentes. E5 est le **chemin critique** ; 5.12 (FINITION) vient en dernier.
 6. **E6 après 5.10**, car le Résumé réutilise le quota ; 6.2 automatise UJ-2 dès qu'il est complet.
-7. **E7 en contrôle final** : la rédaction du Jeu complet (7.1a) avance en parallèle depuis le 10/11 ; préchargement (7.1b), mesures, parcours au clavier et à 375 px, répétitions, dossier de démarche et README (7.6).
+7. **E7 en contrôle final** : la rédaction du Jeu complet (7.1a) avance en parallèle depuis le 10/11 ; préchargement (7.1b), plan de tests et bilan des anomalies (7.7), parcours au clavier et à 375 px (7.3), audit de sécurité (7.8), mesures et décision de mise en service (7.2, 7.9), répétitions, dossier de démarche, README et guide de reprise (7.5, 7.6).
 8. **E8 puis E9 seulement après validation de E7**, sur une branche, sans toucher à la version de démo ; livraison non attendue (règle 8).
+
+**Trajectoire du 2026-11-09** : voir « Calendrier » ; elle prime sur l'ordre ci-dessus et sur la trajectoire du 2026-11-04.
 
 **Trajectoire du 2026-11-04 et point de contrôle du 13/11 au soir** : voir « Calendrier » et la règle 8 ; elle prime sur l'ordre ci-dessus. Les stories 5.0 et 5.1 sont **avancées dans la fenêtre E3 + E4** si le temps le permet, sans changer leurs dépendances. Les stories FINITION 1.5 et 2.9 sont **planifiées après E4** ; 3.6, 5.12 et 7.4 restent en fin de leur epic et peuvent glisser.
 
