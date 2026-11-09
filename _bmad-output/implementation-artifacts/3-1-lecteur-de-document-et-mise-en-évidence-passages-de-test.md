@@ -2,7 +2,7 @@
 title: 'Story 3.1 : Lecteur de Document et mise en évidence (Passages de test)'
 type: 'feature'
 created: '2026-11-09'
-status: 'in-review'
+status: 'done'
 baseline_commit: '470b177d0f75953580b375f87b496242b8025d7b'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -117,3 +117,5 @@ Revue ciblée du 2026-11-09 (sécurité de l'affichage et accessibilité), un se
 - Visibilité complète du Passage dans un vrai navigateur : à prouver en 3.2, première story qui transmet des Passages à une page.
 
 **Résultats du 2026-11-09 :** `lint`, `tsc`, `build:ci` et `check:secrets` verts ; `npm test` : 641 sur 642 ; `npm run test:e2e` : 197 réussis, 5 sautés. Échec restant : `seed-demo` « en cours et vivant », hors de cette story (voir `deferred-work.md`). `/documents/[id]` est partiellement prérendue (`◐`), sans aucun texte de Document dans `.next/server/app`. `dangerouslySetInnerHTML` absent de `src/`.
+
+Production (2026-11-09, utilisateur, déploiement c0e1d69) : .md piège affiché en texte, piège à 375 px sans défilement horizontal, Document ordinaire sans surlignage. Défilement réel à prouver en 3.2.

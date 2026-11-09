@@ -742,4 +742,16 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Suivi et journal : de 11:38 à 11:40 environ.
 - Total : environ 1 h 15, exécutions longues comprises.
 
-**Statut.** Story 3.1 en `review`, non commitée et non déployée, en attente de la validation de l'utilisateur.
+**Correction du test `seed-demo`.** Commit séparé `c0e1d69` : le Document passe à *prêt* quand le script est observé en train de l'attendre, au lieu d'un minuteur de 1,5 s. Le test échoue bien si le script n'attend plus, et `npm test` est revenu à 642 sur 642.
+
+**Déploiement.** Pas de migration. Commits `8a4ef4e` et `c0e1d69` poussés sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production.**
+- Une première confirmation est arrivée avant le push : la production était encore à `470b177`, et l'ancienne page affichait déjà le texte brut. L'IA a refusé de clôturer sur cette base et a demandé de refaire les contrôles.
+- Sur le déploiement `c0e1d69` : `.md piège` affiché en texte, sans alerte, image ni lien créé.
+- Piège à 375 px : aucun défilement horizontal.
+- Document ordinaire : retours à la ligne conservés, sans surlignage, comme attendu avant la 3.2.
+
+**Leçon.** Un contrôle de production ne vaut que si la version visée est bien déployée : vérifier le hash en production avant de clôturer.
+
+**Statut final.** Story 3.1 passée à `done` le 2026-11-09, après la vérification de l'utilisateur.
