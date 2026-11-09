@@ -181,17 +181,25 @@ describe("seedMini sur Supabase local", () => {
       .from("documents")
       .update({ status: "processing", processing_started_at: new Date().toISOString() })
       .eq("id", before.id);
-    // Une autre exécution termine cette tentative pendant l'attente.
-    const finish = setTimeout(async () => {
-      await admin.from("documents").update({ status: "ready" }).eq("id", before.id);
-    }, 1_500);
-    const spy = vi.spyOn(globalThis, "fetch");
+    // Une autre exécution termine cette tentative, seulement une fois que le script l'attend : la
+    // première lecture d'attente répond encore « en cours », ce qui prouve qu'il attend vraiment.
+    const realFetch = globalThis.fetch;
+    let waited = false;
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const response = await realFetch(input, init);
+      const url = decodeURIComponent(String(input));
+      if (!waited && url.includes(`id=eq.${before.id}`) && url.includes("select=status,error_kind")) {
+        waited = true;
+        await admin.from("documents").update({ status: "ready" }).eq("id", before.id);
+      }
+      return response;
+    });
     try {
       const reports = await seedMini(config, quiet);
+      expect(waited).toBe(true);
       expect(reports.find((report) => report.key === "guide-relances")?.action).toBe("déjà en cours");
       expect(processCalls(spy)).toBe(0);
     } finally {
-      clearTimeout(finish);
       spy.mockRestore();
     }
     expect((await documentFor("guide-relances", config.demoB.email)).attempt_id).toBe(before.attempt_id);
