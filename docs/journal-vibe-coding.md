@@ -836,4 +836,4 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 
 **Risque consigné.** Du 16/11 au 20/11 : 18 P0 en 5 jours, dont 13 de l'Epic 5. Le 09/11, le rythme mesuré était de 3 P0 par jour. La semaine du 23/11 n'absorbe plus de retard : seuls les tampons des week-ends le peuvent en partie.
 
-**Durée.** Environ 30 min, de 16:33 à 17:05 environ, attente de la validation comprise.
+**Durée.** Environ 10 min, de 16:30 à 16:40 environ, attente de la validation comprise.
