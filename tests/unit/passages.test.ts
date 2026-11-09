@@ -1,9 +1,127 @@
 import { describe, expect, it } from "vitest";
-import { layoutPassages, type ReaderSegment } from "@/lib/passages";
+import { layoutPassages, parsePassageParams, type ReaderSegment } from "@/lib/passages";
 
 const text = "0123456789abcdefghij";
 const passagesOf = (segments: ReaderSegment[]) => segments.flatMap((s) => (s.kind === "passage" ? [s] : []));
 const join = (segments: ReaderSegment[]) => segments.map((s) => s.text).join("");
+
+describe("parsePassageParams", () => {
+  const LENGTH = 1_000;
+  const parse = (params: Parameters<typeof parsePassageParams>[0]) => parsePassageParams(params, LENGTH);
+  const layout = (params: Parameters<typeof parsePassageParams>[0], content = text) => {
+    const { passages, activeIndex } = parsePassageParams(params, content.length);
+    return layoutPassages(content, passages, activeIndex);
+  };
+
+  it.each([
+    ["absent", {}],
+    ["vide", { passages: "" }],
+    ["absent, avec actif", { actif: "3" }],
+  ])("passages %s : aucune entrée, actif 0, aucun message", (_label, params) => {
+    expect(parse(params)).toEqual({ passages: [], activeIndex: 0 });
+    expect(layout(params).missing).toBe("none");
+  });
+
+  it("valide : positions dans l'ordre reçu, actif conservé", () => {
+    expect(parse({ passages: "120-340,900-1000", actif: "1" })).toEqual({
+      passages: [
+        { start: 120, end: 340 },
+        { start: 900, end: 1000 },
+      ],
+      activeIndex: 1,
+    });
+  });
+
+  it("élément invalide : reste à sa place, actif désigne toujours la liste reçue", () => {
+    const params = { passages: "abc,2-4", actif: "1" };
+    expect(parse(params).activeIndex).toBe(1);
+    expect(parse(params).passages).toHaveLength(2);
+    const { segments, total, missing } = layout(params);
+    expect(passagesOf(segments).map((s) => [s.text, s.active])).toEqual([["23", true]]);
+    expect(total).toBe(1);
+    expect(missing).toBe("some");
+  });
+
+  it.each([
+    ["autre séparateur", "1:2"],
+    ["négatif", "-1-2"],
+    ["décimal", "1.5-2"],
+    ["espace", " 1-2"],
+    ["fin manquante", "1-"],
+    ["signe", "+1-2"],
+    ["hexadécimal", "0x1-2"],
+    ["chiffres non ASCII", "١-٢"],
+    ["huit chiffres", "12345678-12345679"],
+    ["balisage", "<script>alert(1)</script>"],
+    ["élément vide", ""],
+  ])("forme invalide (%s) : une entrée invalide", (_label, element) => {
+    const { segments, missing } = layout({ passages: `${element},2-4` }, text);
+    expect(missing).toBe("some");
+    expect(passagesOf(segments)).toHaveLength(1);
+  });
+
+  it("une valeur de l'URL ne ressort jamais : seuls des entiers", () => {
+    const { passages } = parse({ passages: "<b>x</b>,1-2,javascript:alert(1)", actif: "<i>" });
+    for (const passage of passages) {
+      expect(Number.isInteger(passage.start)).toBe(true);
+      expect(Number.isInteger(passage.end)).toBe(true);
+    }
+  });
+
+  it.each([
+    ["début au-delà du texte", "1001-1002"],
+    ["fin au-delà du texte", "5-1001"],
+    ["limite de 7 chiffres", "9999999-9999999"],
+  ])("%s : entrée invalide", (_label, element) => {
+    expect(parse({ passages: element }).passages).toEqual([{ start: -1, end: -1 }]);
+  });
+
+  it("position exactement à la fin du texte : acceptée", () => {
+    expect(parse({ passages: "990-1000" }).passages).toEqual([{ start: 990, end: 1000 }]);
+  });
+
+  describe("liste refusée en bloc : une seule entrée invalide, actif 0", () => {
+    const elements = (count: number) => Array.from({ length: count }, (_, i) => `${i * 2}-${i * 2 + 1}`).join(",");
+
+    it.each([
+      ["21 éléments", { passages: elements(21), actif: "2" }],
+      ["paramètre répété", { passages: ["a", "b"], actif: "1" }],
+      ["paramètre répété, valeurs valides", { passages: ["1-2", "3-4"] }],
+      ["plus de 2 000 caractères", { passages: `1-2,${"x".repeat(1_997)}` }],
+    ])("%s", (_label, params) => {
+      expect(parse(params)).toEqual({ passages: [{ start: -1, end: -1 }], activeIndex: 0 });
+      expect(layout(params).missing).toBe("all");
+    });
+
+    it("20 éléments et 2 000 caractères : acceptés", () => {
+      expect(parse({ passages: elements(20) }).passages).toHaveLength(20);
+      const exact = `1-2,${"x".repeat(1_996)}`;
+      expect(exact).toHaveLength(2_000);
+      expect(parse({ passages: exact }).passages).toEqual([
+        { start: 1, end: 2 },
+        { start: -1, end: -1 },
+      ]);
+    });
+  });
+
+  it.each([
+    ["texte", "x"],
+    ["négatif", "-1"],
+    ["hors liste", "99"],
+    ["égal à la longueur", "2"],
+    ["décimal", "0.5"],
+    ["vide", ""],
+    ["répété", ["0", "1"]],
+    ["absent", undefined],
+  ])("actif invalide (%s) : 0", (_label, actif) => {
+    expect(parse({ passages: "1-2,3-4", actif }).activeIndex).toBe(0);
+  });
+
+  it("actif désigne une entrée invalide : le premier retrouvé est actif", () => {
+    const { segments } = layout({ passages: "abc,2-4,6-8", actif: "0" });
+    expect(passagesOf(segments).map((s) => s.active)).toEqual([true, false]);
+  });
+});
 
 describe("layoutPassages", () => {
   it("sans Passage : texte seul, rien de manquant", () => {

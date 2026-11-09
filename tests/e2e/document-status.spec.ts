@@ -127,6 +127,8 @@ test("rafraîchissement périmé : le badge finit par suivre le bandeau", async 
   await updateDocument(id, { status: "ready" });
   await expect(banner(page)).toContainText(t.ready, { timeout: 8_000 });
   await expect.poll(() => stale, { timeout: 5_000 }).toBe(1);
+  // Le badge suit déjà le bandeau : attendre la réponse périmée, qui ne doit pas le faire revenir.
+  await page.unrouteAll({ behavior: "wait" });
   await expect(badge(page).getByText(texts.status.ready)).toBeVisible({ timeout: 8_000 });
 });
 
@@ -515,16 +517,32 @@ test.describe("relance", () => {
     const id = await insertDocument(account.id);
     await updateDocument(id, temporaryError);
     const bodies: (string | null)[] = [];
+    let refreshesInFlight = 0;
+    let lastRefreshReady = false;
     await page.route(retryActionUrl(id), async (route) => {
-      if (route.request().method() === "POST") bodies.push(route.request().postData());
-      await route.continue();
+      const request = route.request();
+      if (request.method() === "POST") bodies.push(request.postData());
+      if (request.method() !== "GET" || !request.headers().rsc || request.headers()["next-router-prefetch"]) return route.continue();
+      refreshesInFlight += 1;
+      try {
+        const response = await route.fetch();
+        lastRefreshReady = (await response.text()).includes('"effectiveStatus":"ready"');
+        await route.fulfill({ response });
+      } finally {
+        refreshesInFlight -= 1;
+      }
     });
 
     await page.goto(`/documents/${id}`);
     await banner(page).getByRole("button", { name: t.retry }).click();
     await expect(banner(page)).toContainText(t.ready, { timeout: 20_000 });
-    // Le badge vient du serveur : attendre qu'il ait rattrapé le bandeau avant de changer le Statut.
-    await expect(badge(page).getByText(texts.status.ready)).toBeVisible({ timeout: 8_000 });
+    // Le Statut « prêt » doit être reçu du serveur avant de le changer : sinon la réponse suivante,
+    // identique au dernier Statut reçu (« en erreur »), serait ignorée comme périmée.
+    // Un rafraîchissement remplacé par le suivant est interrompu : seule la dernière réponse compte.
+    await expect(async () => {
+      await routerRefresh(page);
+      await expect.poll(() => refreshesInFlight === 0 && lastRefreshReady, { timeout: 2_000 }).toBe(true);
+    }).toPass({ timeout: 8_000 });
     await updateDocument(id, temporaryError);
     await routerRefresh(page);
     await expect(banner(page).getByRole("button", { name: t.retry })).toBeVisible({ timeout: 8_000 });
@@ -533,6 +551,7 @@ test.describe("relance", () => {
     await expect(banner(page)).toContainText(t.ready, { timeout: 20_000 });
     expect(bodies).toHaveLength(2);
     expect(bodies[1]).not.toBe(bodies[0]);
+    await page.unrouteAll({ behavior: "wait" });
   });
 });
 

@@ -755,3 +755,48 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 **Leçon.** Un contrôle de production ne vaut que si la version visée est bien déployée : vérifier le hash en production avant de clôturer.
 
 **Statut final.** Story 3.1 passée à `done` le 2026-11-09, après la vérification de l'utilisateur.
+
+## Story 3.2 — Page Document complète (2026-11-09)
+
+**Objectif.** Rendre la page Document complète : Passages transmis par l'URL, source d'état unique pour le badge et le bandeau, chargement long, et stabilisation des deux tests e2e intermittents.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter le plan, les fichiers et les risques avant de coder.
+- Paramètres `passages` et `actif` validés côté serveur, `actif` indice dans la liste reçue.
+- Passage actif entièrement visible dans un vrai navigateur.
+- Stabiliser les deux tests sans augmenter leur délai.
+- Revue ciblée sur la validation des paramètres, l'affichage et l'accessibilité, sans les trois relecteurs.
+- Aucun commit ni push sans validation. Ne pas commencer 3.3.
+
+**Décisions de l'utilisateur.**
+- Barre d'actions préparée dans le code, rôle Auteur transmis, aucun bouton affiché. « Poser une question » rattaché à 5.2b ; 3.4 et 6.1 ajoutent aussi leurs boutons dans cette barre.
+- Positions d'URL bornées à la longueur du texte et limitées en nombre.
+- En cas d'échec persistant des tests intermittents : présenter les traces, sans modifier de délai.
+- Story gardée entière.
+
+**Ce que l'IA a produit.**
+- `parsePassageParams` : seuls des entiers sortent de l'URL.
+- `DocumentStatusProvider` : source unique du Statut, lue par le badge, le bandeau et la barre d'actions.
+- Focus sur le Passage actif, message collant et lié au Passage quand un Passage manque.
+- Message des 10 s et « Réessayer », en CSS et lien simple.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Trouvé par un essai réel.** Un minuteur client dans le contenu de chargement ne démarre jamais à l'ouverture directe d'une URL : React n'hydrate pas ce contenu en attente. Le délai est donc porté par le CSS.
+- **Revue ciblée : aucun constat sur la validation des paramètres ni sur l'affichage.** Un point d'accessibilité corrigé : le message des 10 s n'aurait pas été annoncé. Un point mineur reporté.
+- **Tests adaptés, délais inchangés.** `rafraîchissement périmé…` attend la fin de son intercepteur ; `le déclenchement porte un nouvel identifiant…` ne peut plus se fier au badge pour savoir que le serveur a rattrapé.
+
+**Tests.**
+- `npm test`, `lint`, `tsc`, `build:ci`, `check:secrets` : verts.
+- `npm run test:e2e` : trois suites complètes, 235 réussis et 5 sautés à chaque fois, délais inchangés.
+- **Stabilité à relativiser.** Les deux tests suivis passent, mais trois suites ne prouvent pas une disparition définitive. Dans un lot précédent de l'agent, sur le même code applicatif : un échec de `ajouter.spec.ts:54`, dû à un vrai échec de traitement local (`http_500` côté base, badge et bandeau d'accord sur « en erreur »), et un dépassement de cadence de `en cours…` (6 204 ms pour 6 000 ms), sur une autre assertion que le badge.
+
+**Durée.**
+- Lecture, spec et plan : de 11:58 à 12:05 environ, puis interruption par une limite d'utilisation jusqu'à 13:50.
+- Décisions de l'utilisateur et préparation : de 13:50 à 13:56 environ.
+- Implémentation et tests par l'agent, dont les suites e2e répétées : de 13:56 à 15:41 environ.
+- Relecture du diff et revue ciblée : de 15:41 à 15:57 environ.
+- Vérification finale, dont trois suites e2e : de 15:57 à 16:12 environ.
+- Suivi et journal : de 16:12 à 16:15 environ.
+- Total : environ 2 h 30 hors interruption, exécutions longues comprises.
+
+**Statut.** Story 3.2 en `review`, non commitée et non déployée, en attente de la validation de l'utilisateur.

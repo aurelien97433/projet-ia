@@ -114,6 +114,9 @@ export const texts = {
     addedOnLabel: "Ajouté le",
     statusLabel: "Statut de traitement",
     textLabel: "Texte du Document",
+    actionsLabel: "Actions du Document",
+    loadingSlow: "Le chargement prend plus de temps que prévu.",
+    loadingRetry: "Réessayer",
   },
   reader: {
     activePassageLabel: "Passage utilisé",

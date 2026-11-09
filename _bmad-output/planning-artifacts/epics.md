@@ -977,7 +977,7 @@ afin de retirer de la Base commune un contenu erroné ou inutile.
 **Quand** j'ouvre sa page
 **Alors** le bandeau affiche la raison et l'action « Supprimer », sans relance ; un autre Collaborateur voit la raison, sans action (test Playwright)
 
-**Tâches techniques :** politique `delete` Auteur seul ; Server Action de suppression (Document puis objet Storage) ; `AlertDialog` ; notification Sonner ; état « supprimé pendant la consultation » ; action « Supprimer » dans le bandeau `no_text` de `StatusBanner`, avec son test ; tests d'intégration (RLS delete) et Playwright.
+**Tâches techniques :** politique `delete` Auteur seul ; Server Action de suppression (Document puis objet Storage) ; bouton « Supprimer » dans `DocumentActions` (Auteur seul, rôle déjà transmis) ; `AlertDialog` ; notification Sonner ; état « supprimé pendant la consultation » ; action « Supprimer » dans le bandeau `no_text` de `StatusBanner`, avec son test ; tests d'intégration (RLS delete) et Playwright.
 **Dépendances :** 3.3. **Note (2026-11-04) :** 3.4 peut être réalisée avant 2.6a ; elle doit alors traiter une Note, sans fichier d'origine (`storage_path` vide), sans erreur. La suppression du fichier d'origine dans le Storage est vérifiée dès que 2.6a est livrée (test ajouté à ce moment-là).
 **Références :** CH-8 · FR-12, FR-13 · NFR-1, NFR-4 · SM-6 · AR-3 · AD-2, AD-7 · UX-DR21 · **Priorité :** P0
 
@@ -1258,7 +1258,7 @@ afin d'obtenir une information interne sans déranger un collègue.
 **Quand** j'utilise le clavier
 **Alors** Entrée envoie, Maj+Entrée va à la ligne, le compteur « n / 2 000 » est visible, et « Envoyer » passe à l'état occupé (`aria-disabled`) dès le premier clic
 
-**Tâches techniques :** page `/assistant` (fil, champ, puces de Source) ; client du Route Handler ; tests Playwright (interception réseau, panne simulée, clavier).
+**Tâches techniques :** page `/assistant` (fil, champ, puces de Source) ; client du Route Handler ; bouton « Poser une question » dans `DocumentActions`, la barre de la page Document (si *prêt*) ; tests Playwright (interception réseau, panne simulée, clavier).
 **Dépendances :** 5.2a.
 **Références :** CH-5, CH-6, CH-9 · FR-16, FR-17 · NFR-2, NFR-5, NFR-7 · AR-21 · AD-1 · UX-DR10, UX-DR13, UX-DR17 · **Priorité :** P0
 
@@ -1625,7 +1625,7 @@ afin d'en saisir l'essentiel sans tout lire.
 **Quand** leurs Résumés sont générés
 **Alors** le Résumé du Document piège ne contient ni « 99 jours » ni « PERROQUET » (test automatisé) ; chaque Résumé ne contient que des informations du Document (relecture humaine consignée)
 
-**Tâches techniques :** `store_summary` conditionnel ; Edge Function `summarize` (lecture, quota, Résumé par morceaux au-delà de ~12 000 tokens, consignes neutralisées) ; Route Handler (`maxDuration = 150`) ; bloc Résumé ; tests d'intégration et Playwright.
+**Tâches techniques :** `store_summary` conditionnel ; Edge Function `summarize` (lecture, quota, Résumé par morceaux au-delà de ~12 000 tokens, consignes neutralisées) ; Route Handler (`maxDuration = 150`) ; bloc Résumé ; bouton « Générer le Résumé » dans `DocumentActions` (si *prêt*) ; tests d'intégration et Playwright.
 **Dépendances :** 5.10 (quota).
 **Références :** CH-10 · FR-8, FR-23 · NFR-4, NFR-5, NFR-8, NFR-10 · AR-14, AR-15, AR-17, AR-19 · AD-13, AD-14, AD-16, AD-18 · UX-DR17, UX-DR21 · **Priorité :** P0
 

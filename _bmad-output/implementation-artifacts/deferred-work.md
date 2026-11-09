@@ -67,13 +67,13 @@
   summary: Tester en e2e la branche du bandeau « déclenchement refusé » après une relance : message d'échec et bouton de nouveau proposé.
   evidence: Le secret du serveur e2e est fixé au démarrage et Vitest n'a pas d'environnement de composants : forcer une réponse autre que 202 pour un seul test demande un nouveau banc. Les données sont couvertes par `tests/integration/trigger-processing.test.ts`.
 - source_spec: `_bmad-output/implementation-artifacts/2-5-erreurs-de-traitement-expiration-et-relance.md`
-  summary: Fiabiliser les deux tests e2e où le badge doit suivre le bandeau (`en cours : bandeau…` et `rafraîchissement périmé…`), qui échouent parfois dans la suite complète.
+  summary: Traité en story 3.2 (source d'état unique, délais inchangés). Fiabiliser les deux tests e2e où le badge doit suivre le bandeau (`en cours : bandeau…` et `rafraîchissement périmé…`), qui échouent parfois dans la suite complète.
   evidence: Sur 3 suites complètes sans changement du code applicatif : 2, 1 et 0 échec ; 152 sur 152 sur la spec seule répétée. Dans une suite instrumentée, le serveur renvoie bien « prêt », mais le premier rafraîchissement prend jusqu'à 2,8 s sous charge, sur une fenêtre de 8 s qui inclut l'attente de l'interrogation. Le lien entre cette lenteur et un échec n'a pas été observé sur un échec réel (la suite instrumentée n'a pas échoué). Symptôme déjà rencontré en 2.3 et 2.8.
 - source_spec: `_bmad-output/implementation-artifacts/2-5-erreurs-de-traitement-expiration-et-relance.md`
-  summary: Story 3.2 : faire dépendre le badge et le bandeau d'une seule source d'état du Document, puis vérifier que les deux tests e2e intermittents deviennent stables sans augmenter leur délai.
+  summary: Traité en story 3.2. Faire dépendre le badge et le bandeau d'une seule source d'état du Document, puis vérifier que les deux tests e2e intermittents deviennent stables sans augmenter leur délai.
   evidence: Décision de l'utilisateur du 2026-11-09 : les deux tests restent tels quels en 2.5. Tâche inscrite dans la story 3.2 d'`epics.md`.
 - source_spec: `_bmad-output/implementation-artifacts/3-1-lecteur-de-document-et-mise-en-évidence-passages-de-test.md`
-  summary: Story 3.2 : prouver dans un vrai navigateur que le Passage actif est entièrement visible, et que le message placé en tête n'est pas sauté par le défilement et le focus.
+  summary: Traité en story 3.2. Prouver dans un vrai navigateur que le Passage actif est entièrement visible, et que le message placé en tête n'est pas sauté par le défilement et le focus.
   evidence: La 3.1 ne teste le défilement qu'avec des simulations : aucune page ne transmet encore de Passages.
 - source_spec: `_bmad-output/implementation-artifacts/3-1-lecteur-de-document-et-mise-en-évidence-passages-de-test.md`
   summary: Prévoir une propriété du Lecteur pour l'étiquette « Passage pertinent » quand une page y arrivera depuis la Recherche.
@@ -84,3 +84,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/3-1-lecteur-de-document-et-mise-en-évidence-passages-de-test.md`
   summary: `tests/e2e/ajouter.spec.ts:54` a échoué une fois sur le badge « prêt », dans une suite complète ; à rapprocher des deux tests suivis en 3.2.
   evidence: Échec unique dans la première suite complète de la 3.1, réussite au passage ciblé et à la suite finale. Même symptôme de badge que les tests suivis en 3.2.
+- source_spec: `_bmad-output/implementation-artifacts/3-2-page-document-complète.md`
+  summary: Relier le message « Le Passage cité n'a pas pu être retrouvé… » au titre, pour qu'il soit annoncé à l'arrivée sur la page.
+  evidence: La zone est créée avec son message dans le même rendu : rien n'est annoncé, et le focus reste sur le titre. Le message précède le texte : l'information est retardée, pas perdue. À traiter avec le panneau Source (5.7).
+- source_spec: `_bmad-output/implementation-artifacts/3-2-page-document-complète.md`
+  summary: Trouver l'appel en base qui échoue en `http_500` dans `process-document` sous charge locale, après 15 à 27 s (`process_document_work_failed`).
+  evidence: Vu 4 fois en une heure de journaux locaux, pendant des suites e2e ; il explique un échec de `ajouter.spec.ts:54`, où badge et bandeau affichaient tous deux « en erreur ». Appel exact non identifié. Pour trancher : journaliser l'opération en échec, ou rejouer la charge en observant la base.
+- source_spec: `_bmad-output/implementation-artifacts/3-2-page-document-complète.md`
+  summary: Adapter le collage du message en tête (`top-14 lg:top-0`) quand le Lecteur sera utilisé dans le panneau Source (5.7).
+  evidence: Ces valeurs correspondent à la barre du haut de la page Document ; le panneau Source a son propre conteneur défilant.

@@ -15,7 +15,42 @@ export type ReaderLayout = {
   missing: MissingPassages;
 };
 
-const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
+export type PassageParams = {
+  passages: PassagePosition[];
+  activeIndex: number;
+};
+
+const MAX_PASSAGES = 20;
+const MAX_PARAM_LENGTH = 2_000;
+const POSITION_PATTERN = /^(\d{1,7})-(\d{1,7})$/;
+const INDEX_PATTERN = /^\d{1,7}$/;
+// Entrée invalide : layoutPassages la rejette et le signale, sa place dans la liste est conservée.
+const INVALID_PASSAGE: PassagePosition = { start: -1, end: -1 };
+
+function parsePassage(element: string, textLength: number): PassagePosition {
+  const match = POSITION_PATTERN.exec(element);
+  if (!match) return INVALID_PASSAGE;
+  const [start, end] = [Number(match[1]), Number(match[2])];
+  return start <= textLength && end <= textLength ? { start, end } : INVALID_PASSAGE;
+}
+
+// Paramètres d'URL de la page Document (`?passages=120-340,900-1100&actif=1`). Fonction pure : seuls des
+// entiers en sortent, aucune valeur de l'URL n'est reprise. `activeIndex` désigne la liste renvoyée.
+export function parsePassageParams(
+  params: { passages?: string | string[]; actif?: string | string[] },
+  textLength: number,
+): PassageParams {
+  const { passages: raw, actif } = params;
+  if (raw === undefined || raw === "") return { passages: [], activeIndex: 0 };
+  const elements = typeof raw === "string" && raw.length <= MAX_PARAM_LENGTH ? raw.split(",") : null;
+  if (!elements || elements.length > MAX_PASSAGES) return { passages: [INVALID_PASSAGE], activeIndex: 0 };
+
+  const passages = elements.map((element) => parsePassage(element, textLength));
+  const requested = typeof actif === "string" && INDEX_PATTERN.test(actif) ? Number(actif) : 0;
+  return { passages, activeIndex: requested < passages.length ? requested : 0 };
+}
+
+const isHighSurrogate =(code: number) => code >= 0xd800 && code <= 0xdbff;
 const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
 function splitsSurrogatePair(text: string, position: number): boolean {

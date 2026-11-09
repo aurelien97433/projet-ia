@@ -142,12 +142,25 @@
   .passage-highlight {
     background-color: var(--accent-mark);
     border-left: 3px solid var(--accent-text);
-    /* L'étiquette, posée au-dessus, reste visible quand le Passage est aligné en haut. */
-    scroll-margin-top: 1.75rem;
+    /* L'étiquette, posée au-dessus, reste visible quand le Passage est aligné en haut, sous le
+       message collant éventuel (hauteur posée par PassageScroller). */
+    scroll-margin-top: calc(1.75rem + var(--passage-notice-height, 0px));
   }
 
   .passage-highlight-inactive {
     background-color: var(--accent-soft);
     border-left: 2px dashed var(--accent-text);
+  }
+
+  /* Message de chargement long : apparaît à 10 s, sans JavaScript (voir SlowLoadingNotice). */
+  .slow-loading-notice {
+    visibility: hidden;
+    animation: slow-loading-reveal 0s linear 10s forwards;
+  }
+
+  @keyframes slow-loading-reveal {
+    to {
+      visibility: visible;
+    }
   }
 }

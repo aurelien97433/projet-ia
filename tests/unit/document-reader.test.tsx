@@ -134,6 +134,67 @@ describe("DocumentReader", () => {
     });
   });
 
+  describe("focus du Passage actif", () => {
+    it("focusActive : focus sur le <mark>, sans défilement supplémentaire", () => {
+      const focus = vi.spyOn(window.HTMLElement.prototype, "focus");
+      const { container } = render(<DocumentReader text={text} passages={[first]} focusActive />);
+      expect(document.activeElement).toBe(marks(container)[0]);
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    });
+
+    it("focusActive, même Passage au nouveau rendu : le focus n'est pas repris", () => {
+      const passages = [first, second];
+      const { container, rerender } = render(<DocumentReader text={text} passages={passages} focusActive />);
+      (document.activeElement as HTMLElement).blur();
+      rerender(<DocumentReader text={text} passages={passages} focusActive />);
+      expect(document.activeElement).toBe(document.body);
+      rerender(<DocumentReader text={text} passages={passages} activeIndex={1} focusActive />);
+      expect(document.activeElement).toBe(marks(container)[1]);
+    });
+
+    it("focusActive sans Passage retrouvé : ni défilement ni focus", () => {
+      render(<DocumentReader text={text} passages={[{ start: 900, end: 910 }]} focusActive />);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(document.body);
+    });
+  });
+
+  describe("message quand un Passage manque", () => {
+    const partial = [{ start: 900, end: 910 }, first];
+
+    it("some : collant sous la barre, le <mark> actif y renvoie", () => {
+      const { container } = render(<DocumentReader text={text} passages={partial} activeIndex={1} />);
+      const status = screen.getByRole("status");
+      expect(status.className).toContain("sticky");
+      expect(status.className).toContain("top-14");
+      expect(status.className).toContain("lg:top-0");
+      const message = screen.getByText(t.somePassagesMissing);
+      expect(message.id).not.toBe("");
+      expect(marks(container)[0].getAttribute("aria-describedby")).toBe(message.id);
+    });
+
+    it("some : un Passage inactif n'y renvoie pas", () => {
+      const { container } = render(<DocumentReader text={text} passages={[...partial, second]} activeIndex={1} />);
+      expect(marks(container)[1].hasAttribute("aria-describedby")).toBe(false);
+    });
+
+    it("some : la hauteur du message est réservée au-dessus du Passage", () => {
+      const { container } = render(<DocumentReader text={text} passages={partial} activeIndex={1} />);
+      expect(marks(container)[0].style.getPropertyValue("--passage-notice-height")).toBe("40px");
+    });
+
+    it("all : message non collant", () => {
+      render(<DocumentReader text={text} passages={[{ start: 900, end: 910 }]} />);
+      expect(screen.getByRole("status").className).not.toContain("sticky");
+    });
+
+    it("aucun Passage manquant : ni collage ni renvoi", () => {
+      const { container } = render(<DocumentReader text={text} passages={[first]} />);
+      expect(screen.getByRole("status").className).not.toContain("sticky");
+      expect(marks(container)[0].hasAttribute("aria-describedby")).toBe(false);
+    });
+  });
+
   it("Document « .md piège » réel : balisage en texte, aucun élément créé", () => {
     const trap = readFileSync(path.join(root, "demo", "documents", "test-md-piege.md"), "utf8").replace(/\r\n/g, "\n");
     const start = trap.indexOf("<img");
