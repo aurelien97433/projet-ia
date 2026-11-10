@@ -172,6 +172,10 @@ export const texts = {
       status: "Statut",
     },
   },
+  dashboard: {
+    recentDocuments: "Derniers Documents",
+    seeLibrary: "Voir la Bibliothèque",
+  },
   categories: {
     procedure: "Procédure",
     faq: "FAQ",

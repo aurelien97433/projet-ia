@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import type { DocumentStatusItem, LibraryPage } from "@/server/documents/list-documents";
 import { LibraryFilters } from "./library-filters";
 import { LibraryTable } from "./library-table";
+import { statusAnnouncements, statusMap, withStatuses } from "./status-updates";
 import { useLibraryStatuses } from "./use-library-statuses";
 
 const t = texts.library;
@@ -126,24 +127,15 @@ export function LibraryView({ initial, userId }: { initial: LibraryPage | null; 
   // sur un Document de l'utilisateur est annoncé (Q4).
   const applyStatuses = useCallback(
     (items: DocumentStatusItem[]) => {
-      const byId = new Map(items.map((item) => [item.id, item.effectiveStatus]));
-      const announcements = documentsRef.current
-        .filter((document) => {
-          const next = byId.get(document.id);
-          return next && next !== document.effectiveStatus && document.authorId === userId;
-        })
-        .map((document) => t.statusChanged(document.title, texts.status[byId.get(document.id)!]));
+      const byId = statusMap(items);
+      const announcements = statusAnnouncements(documentsRef.current, byId, userId);
       if (announcements.length > 0) setStatusAnnouncement(announcements.join(" "));
       setResult((previous) => {
         if (!previous) return previous;
-        let changed = false;
-        const documents = previous.page.documents.map((document) => {
-          const next = byId.get(document.id);
-          if (!next || next === document.effectiveStatus) return document;
-          changed = true;
-          return { ...document, effectiveStatus: next };
-        });
-        return changed ? { ...previous, page: { ...previous.page, documents } } : previous;
+        const documents = withStatuses(previous.page.documents, byId);
+        return documents !== previous.page.documents
+          ? { ...previous, page: { ...previous.page, documents: [...documents] } }
+          : previous;
       });
     },
     [userId],

@@ -40,9 +40,17 @@ type LibraryRow = {
 };
 
 // Liste de la Bibliothèque (FR-9), lue avec le jeton du Collaborateur (RLS), tous Statuts confondus.
-// Le total est exact ; les lignes sont plafonnées à MAX_LIBRARY_ROWS. Tri par date d'ajout, départagé
-// par l'identifiant pour un ordre stable. Lecture impossible : exception journalisée.
-export async function listDocuments(filters: LibraryFilters, userId: string, db: Db): Promise<LibraryPage> {
+// Le total est exact ; les lignes sont plafonnées à `limit` (MAX_LIBRARY_ROWS par défaut et au plus ;
+// 5 pour le Tableau de bord). Tri par date d'ajout, départagé par l'identifiant pour un ordre stable.
+// Lecture impossible : exception journalisée.
+export async function listDocuments(
+  filters: LibraryFilters,
+  userId: string,
+  db: Db,
+  limit: number = MAX_LIBRARY_ROWS,
+): Promise<LibraryPage> {
+  // Limite hors bornes (non entière, < 1 ou > MAX_LIBRARY_ROWS) : ramenée dans [1, MAX_LIBRARY_ROWS].
+  const rowLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), MAX_LIBRARY_ROWS) : MAX_LIBRARY_ROWS;
   const ascending = filters.sort === "oldest";
   let query = db.from("documents_list").select(LIBRARY_COLUMNS, { count: "exact" });
   if (filters.category !== ALL_CATEGORIES) query = query.eq("category", filters.category);
@@ -56,7 +64,7 @@ export async function listDocuments(filters: LibraryFilters, userId: string, db:
   const { data, error, count } = await query
     .order("created_at", { ascending })
     .order("id", { ascending })
-    .limit(MAX_LIBRARY_ROWS);
+    .limit(rowLimit);
 
   if (error) {
     logEvent("list_documents_failed", { code: error.code });

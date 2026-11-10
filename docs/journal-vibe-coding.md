@@ -895,3 +895,49 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 
 **Statut final.** Story 3.3 passée à `done` le 2026-11-10, après la vérification de l'utilisateur.
 
+
+## Story 3.5 — Tableau de bord : actions et derniers Documents (2026-11-10)
+
+**Objectif.** Donner accès à « Ajouter un Document » et aux 5 derniers Documents de la Base commune, tous Statuts confondus, avec états de chargement, Base vide et erreur confinée à la liste.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter le plan, les fichiers et les risques avant de coder.
+- « Poser une question » : aucun bouton tant que l'Assistant n'est pas utilisable (règle de 3.2), et vérifier dans `epics.md` la story de l'Epic 5 qui l'ajoute.
+- Emplacements prévus pour le champ de Recherche (4.1b) et les Conversations (5.x).
+- Contrôle des pages prérendues, puisque le Tableau de bord affiche des données.
+- Revue ciblée sur les accès, l'affichage et l'accessibilité, sans les trois relecteurs.
+- Aucun commit ni push sans validation. Ne pas commencer la story suivante.
+
+**Décisions de l'utilisateur.**
+- `epics.md` ne rattachait le bouton « Poser une question » du Tableau de bord à aucune story : ajouté à 5.2b (tâche et critère).
+- « Derniers Documents » en pleine largeur ; 5.6 passera à deux colonnes.
+- Badges mis à jour sans rechargement par le suivi groupé de la Bibliothèque, avec les mêmes protections.
+- `check:secrets --static` étendu aux pages prérendues, sans faux positif admis : tout signalement présenté avant exclusion.
+- Story gardée entière.
+
+**Ce que l'IA a produit.**
+- Bande d'actions hors de la frontière Suspense de la liste : utilisable pendant le chargement et en cas d'erreur.
+- Liste des 5 derniers Documents lue par `listDocuments` (limite optionnelle ajoutée), jamais prérendue.
+- Erreur confinée à la liste, « Réessayer » qui relit seulement la liste.
+- Logique de suivi des Statuts partagée avec la Bibliothèque (`status-updates.ts`), sans changement de comportement.
+- `check:secrets --static` : `.next/static` et `.next/server/app` (`.html`, `.rsc`, `.body`).
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Aucun interrupteur de test en production.** L'erreur de lecture se produit côté serveur et ne peut pas être provoquée par une interception réseau : elle est prouvée par des tests unitaires.
+- **Test existant ajusté.** `shell.spec.ts` cherchait le seul lien « Ajouter un Document » de la page ; le Tableau de bord en a désormais un second. Le test vise maintenant la barre du haut.
+- **Revue ciblée : aucun correctif.** Quatre remarques mineures rejetées (double lien d'ajout en Base vide, « Réessayer » du message des 10 s qui recharge la page, total calculé inutilement, Documents de test datés de 2999 dans la base locale).
+- **Pages prérendues.** Aucun faux positif : rien n'a été exclu.
+
+**Tests.**
+- `npm test` : 778 réussis. `lint`, `tsc`, `build:ci`, `check:secrets` (76 fichiers envoyés au navigateur) : verts.
+- `npm run test:e2e` complet : 262 réussis, 10 sautés, aucun échec.
+
+**Durée.**
+- Lecture, investigation, spec et plan : de 11:01 à 11:05 environ.
+- Décisions de l'utilisateur, mise à jour de la story et d'`epics.md` : de 11:05 à 11:08 environ.
+- Implémentation et tests par l'agent : de 11:08 à 11:51 environ.
+- Relecture du diff, revue ciblée et vérification finale, dont une suite e2e complète : de 11:51 à 12:07 environ.
+- Suivi et journal : de 12:07 à 12:10 environ.
+- Total : environ 1 h 10, exécutions longues comprises.
+
+**Déploiement.** Pas de migration : un push suffit, sans `deploy:supabase`. En attente de la validation de l'utilisateur.

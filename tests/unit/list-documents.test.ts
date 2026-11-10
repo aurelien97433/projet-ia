@@ -89,6 +89,30 @@ describe("listDocuments", () => {
     expect(calls).toContainEqual(["filter", "title", "imatch", "a\\*b\\."]);
   });
 
+  it("limite optionnelle (Tableau de bord) : 5 lignes, mêmes colonnes, filtres et tri par défaut", async () => {
+    const { db, calls } = fakeDb({ data: [row], error: null, count: 412 });
+    const page = await listDocuments(DEFAULT_LIBRARY_FILTERS, USER, db, 5);
+    expect(calls).toEqual([
+      ["select", LIBRARY_COLUMNS, { count: "exact" }],
+      ["order", "created_at", { ascending: false }],
+      ["order", "id", { ascending: false }],
+      ["limit", 5],
+    ]);
+    expect(page.documents).toHaveLength(1);
+  });
+
+  it.each([
+    [0, 1],
+    [-3, 1],
+    [MAX_LIBRARY_ROWS + 1, MAX_LIBRARY_ROWS],
+    [2.5, MAX_LIBRARY_ROWS],
+    [Number.NaN, MAX_LIBRARY_ROWS],
+  ])("limite %s : ramenée à %s", async (limit, expected) => {
+    const { db, calls } = fakeDb({ data: [], error: null, count: 0 });
+    await listDocuments(DEFAULT_LIBRARY_FILTERS, USER, db, limit);
+    expect(calls).toContainEqual(["limit", expected]);
+  });
+
   it("erreur de la base : exception journalisée, jamais une liste vide", async () => {
     const { db } = fakeDb({ data: null, error: { code: "57014" } });
     await expect(listDocuments(DEFAULT_LIBRARY_FILTERS, USER, db)).rejects.toThrow();

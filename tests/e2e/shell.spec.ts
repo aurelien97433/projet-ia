@@ -97,7 +97,8 @@ test.describe("mobile (375 px)", () => {
   test("barre du haut : ☰ · logo · « + » nommé « Ajouter un Document », sans barre latérale", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("button", { name: texts.shell.openMenu })).toBeVisible();
-    await expect(page.getByRole("link", { name: texts.shell.addDocumentLabel })).toBeVisible();
+    // Barre du haut seulement : le Tableau de bord a aussi son « Ajouter un Document » (story 3.5).
+    await expect(page.locator("header").getByRole("link", { name: texts.shell.addDocumentLabel })).toBeVisible();
     await expect(page.locator("aside")).toBeHidden();
   });
 

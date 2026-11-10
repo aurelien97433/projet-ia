@@ -1287,7 +1287,11 @@ afin d'obtenir une information interne sans déranger un collègue.
 **Quand** j'utilise le clavier
 **Alors** Entrée envoie, Maj+Entrée va à la ligne, le compteur « n / 2 000 » est visible, et « Envoyer » passe à l'état occupé (`aria-disabled`) dès le premier clic
 
-**Tâches techniques :** page `/assistant` (fil, champ, puces de Source) ; client du Route Handler ; bouton « Poser une question » dans `DocumentActions`, la barre de la page Document (si *prêt*) ; tests Playwright (interception réseau, panne simulée, clavier).
+**Étant donné** le Tableau de bord (décision du 2026-11-10, story 3.5)
+**Quand** j'active « Poser une question » dans sa bande d'actions
+**Alors** l'Assistant s'ouvre sur une nouvelle Conversation, focus dans le champ de question
+
+**Tâches techniques :** page `/assistant` (fil, champ, puces de Source) ; client du Route Handler ; bouton « Poser une question » dans `DocumentActions`, la barre de la page Document (si *prêt*) ; bouton « Poser une question » dans la bande d'actions du Tableau de bord (emplacement prévu en 3.5, aucun bouton affiché avant cette story) ; tests Playwright (interception réseau, panne simulée, clavier).
 **Dépendances :** 5.2a.
 **Références :** CH-5, CH-6, CH-9 · FR-16, FR-17 · NFR-2, NFR-5, NFR-7 · AR-21 · AD-1 · UX-DR10, UX-DR13, UX-DR17 · **Priorité :** P0
 

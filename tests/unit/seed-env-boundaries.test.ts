@@ -103,6 +103,7 @@ describe("check:secrets", () => {
     const email = "identifiant-demo@exemple.test";
     writeFileSync(path.join(dir, ".env.seed"), `DEMO_ACCOUNT_A_EMAIL=${email}\n`);
     mkdirSync(path.join(dir, ".next", "static"), { recursive: true });
+    mkdirSync(path.join(dir, ".next", "server", "app"), { recursive: true });
     writeFileSync(path.join(dir, ".next", "static", "app.js"), `var compte = "${email}";\n`);
     const result = run(dir, ["--static"]);
     expect(result.status).toBe(1);

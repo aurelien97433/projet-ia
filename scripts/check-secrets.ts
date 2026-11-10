@@ -1,5 +1,6 @@
 // Contrôle des secrets (NFR-2, AD-20) : refuse tout format de clé secrète dans les
-// fichiers du dépôt, ou, avec --static, dans le code envoyé au navigateur (.next/static).
+// fichiers du dépôt, ou, avec --static, dans ce qui est envoyé au navigateur : code client
+// (.next/static) et pages prérendues (.next/server/app : .html, .rsc, .body).
 // N'affiche jamais une valeur détectée : seulement le fichier, la ligne et le type de clé.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -208,41 +209,58 @@ function main(): void {
 
   const root = process.cwd();
   const staticMode = process.argv.includes("--static");
-  let files: string[];
-  let scanRoot = root;
+  const secretValues = [...secretValuesFromEnv(), ...secretValuesFromSeedFile(root)];
+
+  // Mode disque : le dépôt. Mode --static : ce qui part vers le navigateur, c'est-à-dire le code
+  // client (.next/static) et les pages prérendues (.next/server/app : .html, .rsc, .body).
+  const targets: { label: string; prefix: string; root: string; files: string[] }[] = [];
   if (staticMode) {
-    scanRoot = path.join(root, ".next", "static");
-    if (!existsSync(scanRoot)) {
-      console.error("check:secrets --static : .next/static est introuvable. Lancez d'abord next build.");
-      process.exit(1);
+    for (const { dir, filter } of STATIC_TARGETS) {
+      const scanRoot = path.join(root, ...dir.split("/"));
+      if (!existsSync(scanRoot)) {
+        console.error(`check:secrets --static : ${dir} est introuvable. Lancez d'abord next build.`);
+        process.exit(1);
+      }
+      targets.push({ label: dir, prefix: `${dir}/`, root: scanRoot, files: listStaticFiles(scanRoot).filter(filter) });
     }
-    files = listStaticFiles(scanRoot);
   } else {
-    files = listRepoFiles(root);
+    targets.push({ label: "dépôt", prefix: "", root, files: listRepoFiles(root) });
   }
 
-  const skipped: string[] = [];
-  const findings = scanFiles(scanRoot, files, {
-    secretValues: [...secretValuesFromEnv(), ...secretValuesFromSeedFile(root)],
-    forbiddenNames: staticMode ? SECRET_NAMES : [],
-    skipped,
-  });
-  const label = staticMode ? "code envoyé au navigateur (.next/static)" : "dépôt";
-  const prefix = staticMode ? ".next/static/" : "";
-  if (skipped.length > 0) {
-    console.log(`check:secrets — ${skipped.length} fichier(s) non contrôlé(s) (binaire ou plus de 10 Mo) :`);
-    for (const file of skipped) console.log(`  ${prefix}${file}`);
+  let failed = false;
+  for (const target of targets) {
+    const skipped: string[] = [];
+    const findings = scanFiles(target.root, target.files, {
+      secretValues,
+      forbiddenNames: staticMode ? SECRET_NAMES : [],
+      skipped,
+    });
+    const label = staticMode ? `code envoyé au navigateur (${target.label})` : target.label;
+    if (skipped.length > 0) {
+      console.log(`check:secrets — ${skipped.length} fichier(s) non contrôlé(s) (binaire ou plus de 10 Mo) :`);
+      for (const file of skipped) console.log(`  ${target.prefix}${file}`);
+    }
+    if (findings.length === 0) {
+      console.log(`check:secrets — aucun secret détecté dans le ${label} (${target.files.length} fichiers).`);
+      continue;
+    }
+    failed = true;
+    console.error(`check:secrets — ${findings.length} secret(s) détecté(s) dans le ${label} :`);
+    for (const f of findings) {
+      console.error(`  ${target.prefix}${f.file}:${f.line} — ${f.kind} (valeur masquée)`);
+    }
   }
-  if (findings.length === 0) {
-    console.log(`check:secrets — aucun secret détecté dans le ${label} (${files.length} fichiers).`);
-    return;
-  }
-  console.error(`check:secrets — ${findings.length} secret(s) détecté(s) dans le ${label} :`);
-  for (const f of findings) {
-    console.error(`  ${prefix}${f.file}:${f.line} — ${f.kind} (valeur masquée)`);
-  }
-  process.exit(1);
+  if (failed) process.exit(1);
 }
+
+// Pages prérendues : seuls les fichiers servis tels quels au navigateur sont contrôlés.
+const PRERENDERED_EXTENSIONS = [".html", ".rsc", ".body"];
+export const isPrerenderedFile = (file: string) => PRERENDERED_EXTENSIONS.some((extension) => file.endsWith(extension));
+
+const STATIC_TARGETS: { dir: string; filter: (file: string) => boolean }[] = [
+  { dir: ".next/static", filter: () => true },
+  { dir: ".next/server/app", filter: isPrerenderedFile },
+];
 
 // Exécuté seulement en ligne de commande (pas à l'import par les tests). Sous Windows, la casse
 // de la lettre de lecteur peut différer entre argv et l'URL du module.

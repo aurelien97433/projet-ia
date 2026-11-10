@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-10-2026 10:49
+last_updated: 11-10-2026 12:08
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -61,7 +61,7 @@ development_status:
   3-2-page-document-complète: done  # P0 · dépend de : 3.1
   3-3-parcourir-la-bibliothèque: done  # P0 · dépend de : 3.2
   3-4-supprimer-son-document: backlog  # P0 · dépend de : 3.3
-  3-5-tableau-de-bord-actions-et-derniers-documents: backlog  # P0 · dépend de : 3.3
+  3-5-tableau-de-bord-actions-et-derniers-documents: review  # P0 · dépend de : 3.3
   3-6-bibliothèque-à-375-px-et-filtres-mémorisés-finition: backlog  # P0 FINITION · dépend de : 3.3
   epic-3-retrospective: optional
 

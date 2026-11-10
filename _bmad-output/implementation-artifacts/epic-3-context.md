@@ -59,5 +59,5 @@ Un Collaborateur parcourt la Bibliothèque, ouvre et lit n'importe quel Document
 - 3.1 s'appuie sur les Documents pièges de 2.8.
 - 3.2 instaure une seule source d'état du Document pour le badge et le bandeau de Statut, afin de stabiliser les tests e2e `en cours : bandeau…` et `rafraîchissement périmé…` (`deferred-work.md`), sans augmenter leur délai.
 - 3.4 complète l'action « Supprimer » du bandeau `no_text` de `StatusBanner`, reportée de 2.5. Elle peut précéder 2.6a : la suppression de l'objet Storage est alors testée dès la livraison de 2.6a.
-- 3.5 réserve des emplacements pour le champ de Recherche (E4) et les dernières Conversations (E5).
+- 3.5 réserve des emplacements pour le champ de Recherche (E4) et les dernières Conversations (E5) ; le bouton « Poser une question » du Tableau de bord arrive avec 5.2b.
 - E4 et E5 valident le Lecteur en navigation réelle ; il doit donc rester réutilisable sans dépendre de la page.

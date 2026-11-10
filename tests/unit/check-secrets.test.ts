@@ -230,9 +230,51 @@ describe("check-secrets en ligne de commande", { timeout: 30_000 }, () => {
     expect(result.stderr).toMatch(/\.next\/static est introuvable/);
   });
 
+  it("--static échoue si .next/server/app est introuvable", () => {
+    dir = mkdtempSync(path.join(tmpdir(), "check-secrets-cli-"));
+    mkdirSync(path.join(dir, ".next", "static"), { recursive: true });
+    const result = run(dir, ["--static"]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/\.next\/server\/app est introuvable/);
+  });
+
+  it("--static contrôle les pages prérendues de .next/server/app (.html, .rsc, .body), et elles seules", () => {
+    dir = mkdtempSync(path.join(tmpdir(), "check-secrets-cli-"));
+    mkdirSync(path.join(dir, ".next", "static"), { recursive: true });
+    const app = path.join(dir, ".next", "server", "app");
+    mkdirSync(path.join(app, "bibliotheque"), { recursive: true });
+    const secret = randomChars(40);
+    writeFileSync(path.join(app, "index.html"), "<p>Tableau de bord</p>\n");
+    writeFileSync(path.join(app, "index.rsc"), "0:[]\n");
+    // Code serveur jamais envoyé au navigateur : hors du contrôle --static.
+    writeFileSync(path.join(app, "page.js"), `var s="${secret}";`);
+    writeFileSync(path.join(app, "page.js.nft.json"), `{"s":"${secret}"}`);
+
+    const clean = run(dir, ["--static"], { PROCESS_DOCUMENT_SECRET: secret });
+    expect(clean.status).toBe(0);
+    expect(clean.stdout).toMatch(/aucun secret détecté dans le code envoyé au navigateur \(\.next\/server\/app\) \(2 fichiers\)/);
+
+    for (const file of ["index.html", "index.rsc", path.join("bibliotheque", "page.body")]) {
+      writeFileSync(path.join(app, file), `ligne 1\n<p>${secret}</p>\n`);
+      const leaked = run(dir, ["--static"], { PROCESS_DOCUMENT_SECRET: secret });
+      expect(leaked.status).toBe(1);
+      const shown = `.next/server/app/${file.split(path.sep).join("/")}`;
+      expect(leaked.stderr).toContain(`${shown}:2 — valeur d'un secret de l'environnement`);
+      expect(leaked.stdout + leaked.stderr).not.toContain(secret);
+      writeFileSync(path.join(app, file), "propre\n");
+    }
+
+    const key = fakeOpenAiKey();
+    writeFileSync(path.join(app, "index.html"), `<script>self.__next_f.push([1,"${key}"])</script>`);
+    const found = run(dir, ["--static"], { PROCESS_DOCUMENT_SECRET: "" });
+    expect(found.status).toBe(1);
+    expect(found.stderr).toMatch(/\.next\/server\/app\/index\.html:1 — clé OpenAI \(valeur masquée\)/);
+  });
+
   it("--static contrôle .next/static, y compris la valeur exacte d'un secret de l'environnement", () => {
     dir = mkdtempSync(path.join(tmpdir(), "check-secrets-cli-"));
     mkdirSync(path.join(dir, ".next", "static", "chunks"), { recursive: true });
+    mkdirSync(path.join(dir, ".next", "server", "app"), { recursive: true });
     const secret = randomChars(40);
     writeFileSync(path.join(dir, ".next", "static", "chunks", "app.js"), `var s="${secret}";`);
     writeFileSync(path.join(dir, "a.ts"), `var s="${secret}";`);
