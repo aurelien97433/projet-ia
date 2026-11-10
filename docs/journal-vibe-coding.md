@@ -990,4 +990,11 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Tests, contrôles, vérification ciblée et journal : de 12:50 à 13:12 environ, deux suites e2e comprises.
 - Total : environ 40 min, exécutions longues comprises.
 
-**Préchargement distant.** À lancer par l'utilisateur après validation et push : `npm run seed:demo -- --mini --remote`. En attente.
+**Déploiement.** Commit `007dd20` poussé sur `main`. Statut Vercel : « Deployment has completed » (application inchangée).
+
+**Préchargement distant, lancé par l'utilisateur** (`npm run seed:demo -- --mini --remote`) : réussi.
+- Les 8 Documents existants : « déjà prêt », sans nouveau traitement.
+- « Procédure de gestion des incidents » : créée, 5 Passages.
+- Contrôle final réussi : 9 Documents prêts, 13 Passages.
+
+**Statut final.** Tâche préalable à 4.1a terminée le 2026-11-10. La story 4.1a n'est pas commencée.
