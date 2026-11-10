@@ -2,7 +2,7 @@
 title: 'Story 4.1a : Recherche sémantique côté serveur'
 type: 'feature'
 created: '2026-11-10'
-status: 'in-review'
+status: 'done'
 baseline_commit: '4333d26fb8f84cf10d2553eb10882fc5de494c1d'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -120,3 +120,9 @@ Revue ciblée faite dans la session (règle 11 : 4.1a n'est pas une story sensib
 | Valeurs factices de clés dans deux tests détectées par `check:secrets`. | low | patch appliqué (valeurs composées) |
 | `match_passages` calcule la distance sur tous les Passages filtrés : l'index HNSW n'est pas utilisé. Sans effet mesurable à 13 Passages. | low | différé (4.2, avec la mesure de durée) |
 | `verify_jwt = true` sur un projet passé aux nouvelles clés de signature JWT asymétriques : la passerelle pourrait refuser des jetons valides. Non vérifiable en local. | maybe-false | à constater par `test:search:live` (tous les cas en HTTP 401) |
+
+## Verification Results
+
+**Résultats du 2026-11-10 :** `npm run lint` et `npx tsc --noEmit` propres ; `npm test` : 53 fichiers, 897 tests réussis ; `npm run build:ci` vert, aucun secret ; `npm run test:e2e` complet : 265 réussis, 13 sautés, aucun échec.
+
+Production (2026-11-10, utilisateur, déploiement 29c5f59 après `deploy:supabase`) : `npm run test:search:live` réussi sur `lkjjtcfegplipalraqml` au seuil de 0,40 ; r1 à r6 au rang 1 ; s1 à s3 et « recette de la tarte aux pommes » sans résultat ; durée médiane 653 ms, maximale 3 542 ms au premier appel (démarrage à froid probable, à surveiller en 4.2 et pendant la démo). Rapport : `docs/mesures/recherche-live.md`. Aucune réserve Q2.
