@@ -435,3 +435,8 @@ verify_jwt = false
 # dans la fonction. Elle ne reçoit jamais de jeton de Collaborateur (AD-1).
 [functions.process-document]
 verify_jwt = false
+
+# Recherche sémantique (story 4.1a) : appelée par Next.js avec le jeton du Collaborateur, vérifié par
+# la passerelle puis par la fonction ; la base est interrogée avec ce jeton (RLS appliquée).
+[functions.semantic-search]
+verify_jwt = true

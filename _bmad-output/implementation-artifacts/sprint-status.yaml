@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-10-2026 12:23
+last_updated: 11-10-2026 16:40
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -65,8 +65,8 @@ development_status:
   3-6-bibliothèque-à-375-px-et-filtres-mémorisés-finition: backlog  # P0 FINITION · dépend de : 3.3
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1a-recherche-sémantique-côté-serveur: backlog  # P0 · dépend de : 2.8, 3.2
+  epic-4: in-progress
+  4-1a-recherche-sémantique-côté-serveur: review  # P0 · dépend de : 2.8, 3.2
   4-1b-page-recherche-et-champ-du-tableau-de-bord: backlog  # P0 · dépend de : 4.1a, 3.5
   4-2-premier-calibrage-et-mesure-de-la-recherche: backlog  # P0 · dépend de : 4.1a
   epic-4-retrospective: optional

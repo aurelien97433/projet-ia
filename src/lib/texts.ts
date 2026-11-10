@@ -172,6 +172,11 @@ export const texts = {
       status: "Statut",
     },
   },
+  search: {
+    // EXPERIENCE.md, « Panne de la Recherche ». Repris pour une Requête invalide : aucun texte propre
+    // au catalogue, et le champ de la page Recherche (4.1b) empêche déjà une Requête vide.
+    failed: "La Recherche n'a pas pu aboutir.",
+  },
   dashboard: {
     recentDocuments: "Derniers Documents",
     seeLibrary: "Voir la Bibliothèque",

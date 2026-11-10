@@ -40,13 +40,17 @@ describe("PROCESS_DOCUMENT_SECRET", () => {
   });
 });
 
-describe("appel à process-document", () => {
+describe("appel aux Edge Functions", () => {
+  // process-document (2.3) et semantic-search (4.1a) : modules réservés au serveur.
+  const callers = ["src/server/documents/trigger-processing.ts", "src/server/search/semantic-search.ts"];
+
   it("uniquement depuis src/server, jamais depuis un composant client", () => {
-    expect(containing("src", "functions/v1/")).toEqual(["src/server/documents/trigger-processing.ts"]);
+    expect(containing("src", "functions/v1/").sort()).toEqual(callers);
+    for (const file of callers) expect(readFileSync(path.join(root, file), "utf8")).toMatch(/^import "server-only";/);
     const clients = filesUnder(path.join(root, "src")).filter(
       (file) => /\.tsx?$/.test(file) && readFileSync(file, "utf8").startsWith('"use client"'),
     );
-    const importers = clients.filter((file) => readFileSync(file, "utf8").includes("trigger-processing"));
+    const importers = clients.filter((file) => /trigger-processing|server\/search/.test(readFileSync(file, "utf8")));
     expect(importers).toEqual([]);
   });
 
@@ -72,5 +76,13 @@ describe("supabase/config.toml", () => {
 
   it("seul le secret fait foi pour process-document", () => {
     expect(config).toMatch(/^\[functions\.process-document\]\nverify_jwt = false$/m);
+  });
+
+  it("semantic-search exige un jeton valide dès la passerelle, et fait partie du déploiement", async () => {
+    expect(config.replace(/\r\n/g, "\n")).toMatch(/^\[functions\.semantic-search\]\nverify_jwt = true$/m);
+    const { listFunctions } = await import("../../scripts/deploy-supabase");
+    const functions = listFunctions(path.join(root, "supabase", "functions"));
+    expect(functions).toContain("semantic-search");
+    expect(functions).not.toContain("ai-health");
   });
 });

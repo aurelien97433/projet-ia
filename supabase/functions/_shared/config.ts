@@ -21,6 +21,7 @@ export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 export const AI_MAX_RETRIES = 2;
 export const AI_RETRY_BASE_DELAY_MS = 500;
 // Délai par requête de vectorisation ; l'appelant peut le réduire (semantic-search : 10 s au total).
+// Le temps restant de la Recherche est passé en timeoutMs à embed.
 export const EMBEDDING_TIMEOUT_MS = 15_000;
 export const MODEL_CHECK_TIMEOUT_MS = 10_000;
 
@@ -33,4 +34,28 @@ export function readEnv(name: string): string | undefined {
 
 export function generationModel(): string {
   return readEnv("GENERATION_MODEL") ?? DEFAULT_GENERATION_MODEL;
+}
+
+// Recherche sémantique (story 4.1a, FR-14) : 5 Documents au plus, 1 Passage chacun.
+export const SEARCH_MAX_DOCUMENTS = 5;
+export const SEARCH_PASSAGES_PER_DOCUMENT = 1;
+// Requête de 1 à 500 caractères après suppression des espaces, revalidée par chaque étage.
+export const SEARCH_QUERY_MAX_LENGTH = 500;
+// Délai total de la Recherche : vectorisation de la Requête et requête en base (AD-16).
+export const SEARCH_TIMEOUT_MS = 10_000;
+
+// Seuil de pertinence commun à la Recherche et à l'Assistant (hypothèse, calibrée en 4.2),
+// remplaçable par le secret Supabase RAG_MIN_SIMILARITY (valeur entre 0 et 1, sinon ce défaut).
+export const RAG_MIN_SIMILARITY = 0.4;
+// Seuil de la vectorisation simulée (décision Q1 du 2026-11-10) : les vecteurs lexicaux de la pile
+// locale sont moins proches que de vrais vecteurs. Jamais appliqué ailleurs : voir ragMinSimilarity.
+export const SIMULATED_MIN_SIMILARITY = 0.2;
+
+// Seuil actif. simulated n'est vrai que si embeddingDeps a retenu la vectorisation simulée, donc
+// sur la pile locale seulement (simulation activée et hôte kong, _shared/fake-embeddings.ts).
+export function ragMinSimilarity(simulated: boolean): number {
+  if (simulated) return SIMULATED_MIN_SIMILARITY;
+  const raw = readEnv("RAG_MIN_SIMILARITY")?.trim();
+  const value = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : RAG_MIN_SIMILARITY;
 }

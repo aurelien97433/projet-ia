@@ -99,3 +99,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-avant-4-1a-document-long-mini-jeu.md`
   summary: Éviter qu'un Passage se termine par un intertitre seul (« Délais de prise en charge », « Communication avec le client ») : le rattacher au Passage suivant dans `chunkText`.
   evidence: Constaté sur la Note « Procédure de gestion des incidents » : `paragraphCut` retient la fin de paragraphe la plus proche de 800 caractères, souvent celle qui suit un intertitre. Sans effet sur l'exactitude des positions ; peut dégrader la pertinence et l'affichage d'un Passage. À examiner au calibrage (4.2), avant le panneau Source (5.7). Changer le découpage modifierait les Passages des Documents déjà traités (nouvelle version de vectorisation).
+- source_spec: `_bmad-output/implementation-artifacts/4-1a-recherche-sémantique-côté-serveur.md`
+  summary: Faire utiliser l'index HNSW `passages_embedding_idx` par `match_passages` (tri par distance avant filtrage, ou `hnsw.iterative_scan`), si le volume l'exige.
+  evidence: La fonction calcule la distance sur tous les Passages filtrés puis trie : balayage complet, sans effet à 13 Passages (23 à 55 ms en local). À reconsidérer en 4.2 avec la mesure de durée réelle, et avant le Jeu complet (7.1b). Changement par migration (`deploy:supabase`).
