@@ -837,3 +837,51 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 **Risque consigné.** Du 16/11 au 20/11 : 18 P0 en 5 jours, dont 13 de l'Epic 5. Le 09/11, le rythme mesuré était de 3 P0 par jour. La semaine du 23/11 n'absorbe plus de retard : seuls les tampons des week-ends le peuvent en partie.
 
 **Durée.** Environ 10 min, de 16:30 à 16:40 environ, attente de la validation comprise.
+
+## Story 3.3 — Parcourir la Bibliothèque (2026-11-10)
+
+**Objectif.** Lister tous les Documents de la Base commune, quel que soit leur Statut, avec filtre par Catégorie, filtre « Mes Documents », recherche par titre, tri par date, états vides et d'erreur, et badges mis à jour sans rechargement.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter le plan, les fichiers et les risques avant de coder.
+- Lecture par `documents_list` uniquement, sans aucune donnée de `content_text` dans la liste.
+- Tableau lisible sur ordinateur, sans défilement horizontal de la page à 375 px.
+- Revue ciblée sur les accès, les performances de la liste et l'accessibilité, sans les trois relecteurs.
+- Aucun commit ni push sans validation. Ne pas commencer 3.5.
+
+**Décisions de l'utilisateur.**
+- Nombre de Documents visible et annoncé : « {n} Documents » / « 1 Document » / « Aucun Document ».
+- 200 lignes au plus ; le nombre reste le total exact, avec un message au-delà.
+- Sous 768 px : tableau resserré (Titre, Statut), « Catégorie · Auteur · date » sous le titre. Les cartes restent pour 3.6.
+- Changement de Statut annoncé seulement pour les Documents de l'utilisateur.
+- `/api/documents` et `/api/documents/statuses` vérifient elles-mêmes la session ; `statuses` n'accepte que des UUID valides, 200 au plus, et ne renvoie que des champs de `documents_list`.
+- Index trigramme noté dans `deferred-work.md`, seulement si le volume l'exige.
+- Story gardée entière.
+
+**Ce que l'IA a produit.**
+- `listDocuments` et `getDocumentStatuses` : seule lecture de la liste, colonnes explicites, jeton du Collaborateur.
+- Filtres validés côté serveur ; l'Auteur de « Mes Documents » vient de la session.
+- Première liste rendue côté serveur, puis `GET /api/documents` à chaque changement de filtre (recherche après 250 ms, requête précédente annulée).
+- Suivi groupé des badges *en cours* toutes les 3 s, « Actualiser » après 3 échecs.
+- États vides, aucun résultat, erreur avec « Réessayer » et filtres conservés ; squelette de 8 lignes.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Trouvé par un essai réel.** PostgREST traduit tout `*` d'une recherche `ilike` en joker, sans échappement possible : une recherche contenant `*` ajoute un filtre par expression régulière échappée.
+- **Test adapté, délai inchangé.** « chargement lent » de la page Document partait de la Bibliothèque, dont les liens sont désormais préchargés par Next.js : départ déplacé sur `/recherche`.
+- **Revue ciblée : aucun correctif.** Trois remarques mineures rejetées ou différées (identifiant d'Auteur déjà lisible, préchargement partiel des liens, recherche sans index).
+
+**Tests.**
+- `npm test` : 762 réussis. `lint`, `tsc`, `build:ci`, `check:secrets` : verts.
+- `npm run test:e2e` complet : 257 réussis, 5 sautés, aucun échec.
+
+**Durée.**
+- Lecture du contexte, spec et plan : de 09:00 à 09:09 environ.
+- Décisions de l'utilisateur et mise à jour de la story : de 09:09 à 09:12 environ.
+- Implémentation et tests par l'agent : de 09:12 à 10:19 environ.
+- Relecture du diff, revue ciblée et vérification finale, dont une suite e2e complète : de 10:19 à 10:38 environ.
+- Suivi et journal : de 10:38 à 10:42 environ.
+- Total : environ 1 h 40, exécutions longues comprises.
+
+**Déploiement.** Pas de migration : un push suffit, sans `deploy:supabase`. En attente de la validation de l'utilisateur.
+
+**Statut.** `review` jusqu'à la vérification de l'utilisateur en production.

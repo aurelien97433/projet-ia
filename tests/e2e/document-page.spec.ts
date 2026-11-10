@@ -263,7 +263,9 @@ test("chargement lent : squelette, puis message à 10 s, et « Réessayer » rec
   let loads = 0;
   page.on("load", () => (loads += 1));
 
-  await page.goto("/bibliotheque");
+  // Page de départ sans lien vers des Documents : depuis la story 3.3, la Bibliothèque en affiche,
+  // et leur préchargement automatique rendrait sans effet celui que le test déclenche.
+  await page.goto("/recherche");
   // Préchargement terminé : au moins une requête du Document vue, plus aucune en cours depuis 500 ms.
   let documentPrefetched = false;
   let prefetching = 0;

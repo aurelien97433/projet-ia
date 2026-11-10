@@ -93,3 +93,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/3-2-page-document-complète.md`
   summary: Adapter le collage du message en tête (`top-14 lg:top-0`) quand le Lecteur sera utilisé dans le panneau Source (5.7).
   evidence: Ces valeurs correspondent à la barre du haut de la page Document ; le panneau Source a son propre conteneur défilant.
+- source_spec: `_bmad-output/implementation-artifacts/3-3-parcourir-la-bibliothèque.md`
+  summary: Index trigramme (`pg_trgm`, GIN sur `documents.title`) pour la recherche par titre de la Bibliothèque, à envisager seulement si le volume l'exige.
+  evidence: Décision de l'utilisateur du 2026-11-10. La recherche `ilike '%…%'` parcourt toute la table ; sans effet mesurable pour quelques dizaines de Documents, et la liste est plafonnée à 200 lignes. L'index demanderait une migration (`deploy:supabase`).

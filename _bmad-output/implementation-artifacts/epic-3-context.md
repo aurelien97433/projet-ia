@@ -54,7 +54,8 @@ Un Collaborateur parcourt la Bibliothèque, ouvre et lit n'importe quel Document
 
 ## Cross-Story Dependencies
 
-- Ordre : 3.1 → 3.2 → 3.3, puis 3.5 et 3.4 ; 3.6 (FINITION) en dernier, coupée si le point de contrôle du 13/11 au soir n'est pas tenu (1.4, 2.1 à 2.5, 2.8, 3.1 et 3.2 terminées).
+- Ordre : 3.1 → 3.2 → 3.3, puis 3.5 et 3.4 ; 3.6 (FINITION) en dernier, seulement si un jour se libère ; sa coupe éventuelle est présentée à l'utilisateur aux points de contrôle du 18/11 et du 20/11 au soir, jamais décidée sans lui. Le 10/11 : 3.3 puis 3.5 ; 3.4 le 16/11.
+- Rappel (le 10/11) : dès qu'une page prérendue affiche des données, étendre `check:secrets --static` aux pages prérendues.
 - 3.1 s'appuie sur les Documents pièges de 2.8.
 - 3.2 instaure une seule source d'état du Document pour le badge et le bandeau de Statut, afin de stabiliser les tests e2e `en cours : bandeau…` et `rafraîchissement périmé…` (`deferred-work.md`), sans augmenter leur délai.
 - 3.4 complète l'action « Supprimer » du bandeau `no_text` de `StatusBanner`, reportée de 2.5. Elle peut précéder 2.6a : la suppression de l'objet Storage est alors testée dès la livraison de 2.6a.

@@ -5,13 +5,14 @@ type SelectFieldProps = {
   label: string;
   required?: boolean;
   error?: string;
-  placeholder: string;
+  // Libellé d'invite non sélectionnable ; sans lui, la première option est la valeur par défaut.
+  placeholder?: string;
   options: readonly { value: string; label: string }[];
   selectProps: React.SelectHTMLAttributes<HTMLSelectElement> & { ref?: React.Ref<HTMLSelectElement> };
 };
 
-// Liste de choix native (clavier et lecteurs d'écran natifs), stylée comme les champs, sans valeur
-// par défaut : la première option est le libellé d'invite, non sélectionnable.
+// Liste de choix native (clavier et lecteurs d'écran natifs), stylée comme les champs. Avec
+// `placeholder`, aucune valeur par défaut : la première option est le libellé d'invite, non sélectionnable.
 export function SelectField({ id, label, required, error, placeholder, options, selectProps }: SelectFieldProps) {
   const errorId = error ? `${id}-erreur` : undefined;
   return (
@@ -32,9 +33,11 @@ export function SelectField({ id, label, required, error, placeholder, options, 
           selectProps.className,
         )}
       >
-        <option value="" disabled>
-          {placeholder}
-        </option>
+        {placeholder !== undefined ? (
+          <option value="" disabled>
+            {placeholder}
+          </option>
+        ) : null}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
