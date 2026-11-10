@@ -67,10 +67,10 @@ describe("seedMini sur Supabase local", () => {
     expect(error).toBeNull();
   });
 
-  it("8 Notes prêtes, avec Passages, modèle et vecteurs de 1 536 dimensions", async () => {
+  it("9 Notes prêtes, avec Passages, modèle et vecteurs de 1 536 dimensions", async () => {
     const ids = [(await userId(config.demoA.email))!, (await userId(config.demoB.email))!];
     const documents = await documentsOf(ids);
-    expect(documents).toHaveLength(8);
+    expect(documents).toHaveLength(9);
     for (const document of documents) {
       expect(document.kind).toBe("note");
       expect(document.status).toBe("ready");
@@ -86,12 +86,12 @@ describe("seedMini sur Supabase local", () => {
     try {
       const reports = await seedMini(config, quiet);
       expect(processCalls(spy)).toBe(0);
-      expect(reports.map((report) => report.action)).toEqual(new Array(8).fill("déjà prêt"));
+      expect(reports.map((report) => report.action)).toEqual(new Array(9).fill("déjà prêt"));
     } finally {
       spy.mockRestore();
     }
     const ids = [(await userId(config.demoA.email))!, (await userId(config.demoB.email))!];
-    expect(await documentsOf(ids)).toHaveLength(8);
+    expect(await documentsOf(ids)).toHaveLength(9);
   });
 
   it("Document en erreur : repris sur la même ligne, puis prêt", async () => {

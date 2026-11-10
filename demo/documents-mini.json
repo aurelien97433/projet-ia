@@ -11,6 +11,7 @@
     { "key": "reunion-finance", "title": "Note de réunion : finance de mars", "category": "meeting_note", "author": "A", "file": "reunion-finance.md" },
     { "key": "guide-relances", "title": "Guide des relances clients", "category": "business_resource", "author": "B", "file": "guide-relances.md" },
     { "key": "test-md-piege", "title": "Document de test : .md piège", "category": "other", "author": "A", "file": "test-md-piege.md" },
-    { "key": "test-piege-375", "title": "Document de test : piège à 375 px", "category": "other", "author": "B", "file": "test-piege-375.md" }
+    { "key": "test-piege-375", "title": "Document de test : piège à 375 px", "category": "other", "author": "B", "file": "test-piege-375.md" },
+    { "key": "procedure-incidents", "title": "Procédure de gestion des incidents", "category": "procedure", "author": "B", "file": "procedure-incidents.md" }
   ]
 }

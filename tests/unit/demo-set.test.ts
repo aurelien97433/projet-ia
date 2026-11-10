@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DOCUMENT_CATEGORIES } from "@/lib/documents";
 import { loadMiniSet } from "../../scripts/seed-demo";
+import { chunkText } from "../../supabase/functions/_shared/rag/chunk.ts";
 
 // Cohérence du mini Jeu : les réponses attendues se trouvent vraiment dans les Documents cités.
 const root = path.resolve(import.meta.dirname, "..", "..");
@@ -17,7 +18,7 @@ const textOf = (key: string) => {
 };
 
 describe("Documents", () => {
-  it("8 Notes : les 6 du mini Jeu et les 2 Documents de test", () => {
+  it("9 Notes : les 6 du mini Jeu, les 2 Documents de test et le Document long", () => {
     expect(set.documents.map((document) => document.key)).toEqual([
       "procedure-facturation",
       "faq-comptabilite",
@@ -27,12 +28,13 @@ describe("Documents", () => {
       "guide-relances",
       "test-md-piege",
       "test-piege-375",
+      "procedure-incidents",
     ]);
   });
 
   it("clés et titres uniques, Catégories valides, Auteurs connus, textes non vides", () => {
-    expect(new Set(set.documents.map((document) => document.key)).size).toBe(8);
-    expect(new Set(set.documents.map((document) => document.title)).size).toBe(8);
+    expect(new Set(set.documents.map((document) => document.key)).size).toBe(9);
+    expect(new Set(set.documents.map((document) => document.title)).size).toBe(9);
     for (const document of set.documents) {
       expect(DOCUMENT_CATEGORIES).toContain(document.category);
       expect(["A", "B"]).toContain(document.author);
@@ -55,6 +57,31 @@ describe("Documents", () => {
     }
   });
 
+  // Tâche préalable à 4.1a : un Document à plusieurs Passages réels, découpé comme par process-document.
+  it("Document long : environ 4 000 caractères, 4 à 5 Passages réels, fait final dans le dernier", () => {
+    const text = textOf("procedure-incidents");
+    expect(text.length).toBeGreaterThanOrEqual(3_500);
+    expect(text.length).toBeLessThanOrEqual(4_500);
+    const passages = chunkText(text);
+    expect(passages.length).toBeGreaterThanOrEqual(4);
+    expect(passages.length).toBeLessThanOrEqual(5);
+    expect(passages.at(-1)!.content).toContain("premier jeudi du mois suivant");
+  });
+
+  it("q7 : les deux faits attendus sont chacun dans un seul Passage, et dans deux Passages distincts", () => {
+    const { source, expectedFacts } = questions.multiPassage as { source: string; expectedFacts: string[] };
+    expect(expectedFacts).toHaveLength(2);
+    const passages = chunkText(textOf(source));
+    const holders = expectedFacts.map((fact) => {
+      const indexes = passages.flatMap((passage, index) => (passage.content.includes(fact) ? [index] : []));
+      expect(indexes, fact).toHaveLength(1);
+      return indexes[0];
+    });
+    expect(holders[0]).not.toBe(holders[1]);
+    // Le premier fait est au début ou au milieu du Document, jamais dans le dernier Passage.
+    expect(holders[0]).toBeLessThan(passages.length - 1);
+  });
+
   it("« .md piège » : HTML et script ; « piège à 375 px » : mot et adresse très longs", () => {
     const html = textOf("test-md-piege");
     expect(html).toContain("<script>");
@@ -67,9 +94,9 @@ describe("Documents", () => {
 
 describe("questions-mini.json", () => {
   it("nombre de cas prévu par epics.md", () => {
-    expect(questions.questions).toHaveLength(5);
+    expect(questions.questions).toHaveLength(6);
     expect(questions.outOfBase).toHaveLength(3);
-    expect(questions.searchQueries).toHaveLength(5);
+    expect(questions.searchQueries).toHaveLength(6);
     expect(questions.searchOutOfBase).toHaveLength(3);
     expect(questions.contradiction.expectedDocuments).toHaveLength(2);
     expect(questions.followUps).toHaveLength(2);
@@ -83,6 +110,7 @@ describe("questions-mini.json", () => {
       ...questions.searchOutOfBase,
       questions.contradiction,
       ...questions.followUps,
+      questions.multiPassage,
     ].map((item: { id: string }) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

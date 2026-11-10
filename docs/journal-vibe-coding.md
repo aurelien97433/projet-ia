@@ -951,3 +951,43 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Nettoyage : l'utilisateur a supprimé la Note de test « Test relance », restée *en erreur* depuis la vérification de la story 2.5.
 
 **Statut final.** Story 3.5 passée à `done` le 2026-11-10, après la vérification de l'utilisateur.
+
+## Tâche préalable à 4.1a — Document long au mini Jeu (2026-11-10)
+
+**Objectif.** Ajouter au mini Jeu un 9ᵉ Document à plusieurs Passages réels, pour le calibrage (4.2), le panneau Source (5.7) et la navigation entre Passages (5.12).
+
+**Instructions clés données à l'IA.**
+- Présenter le plan, les fichiers et les risques avant de coder.
+- Note fictive NexaWorks d'environ 4 000 caractères, 4 à 5 Passages réels, cohérente avec les autres Documents, sans contradiction involontaire.
+- Un fait précis en fin de texte, avec une Requête et une question pour l'Assistant.
+- Préchargement idempotent : seul le nouveau Document est créé et vectorisé.
+- Vérification ciblée du contenu et des tests, sans les trois relecteurs. Aucun commit ni push sans validation. Ne pas commencer 4.1a.
+
+**Décisions de l'utilisateur.**
+- Plan approuvé : « Procédure de gestion des incidents », Catégorie Procédure, Auteur B.
+- Ajout : un second fait au début ou au milieu (délai de prise en charge d'un incident de priorité 1) et une question q7 qui exige les deux faits, donc deux Passages distincts, vérifiés par un test.
+
+**Ce que l'IA a produit.**
+- Note de 3 914 caractères, 5 Passages mesurés avec le vrai découpage : 30 minutes dans le 3ᵉ Passage, « premier jeudi du mois suivant » dans le dernier.
+- `questions-mini.json` : q6 (fait final), q7 (deux faits, section `multiPassage`), Requête r6.
+- Tests : `demo-set.test.ts` (9 Notes, nombre de Passages, deux faits dans deux Passages distincts) et intégration du préchargement (9 Notes, relance sans doublon).
+- `docs/environnements.md` : 9 Notes, résultat attendu du préchargement distant.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Chiffres en double.** La première version reprenait « 10 jours ouvrés » et « 5 jours ouvrés », réponses attendues de q3 et q1 dans d'autres Documents : remplacés par 8 et 3 jours ouvrés pour ne pas brouiller le calibrage.
+- **Nettoyage SQL de la documentation.** Les deux listes de titres de `docs/environnements.md` auraient fait supprimer la nouvelle Note : titre ajouté.
+- **Différé.** Le découpage laisse deux intertitres en fin de Passage ; à examiner au calibrage (4.2), noté dans `deferred-work.md`.
+- **Incident de vérification.** Une première suite e2e n'a pas démarré : un script temporaire de mesure du découpage était présent pendant sa vérification des types. Script supprimé, suite relancée.
+
+**Tests.**
+- `npm test` : 782 réussis. `lint`, `tsc`, `build:ci`, `check:secrets` : verts.
+- Intégration du préchargement sur Supabase local : 9 Notes prêtes ; relance : 9 « déjà prêt », aucun appel à `process-document`.
+- `npm run test:e2e` complet : 261 réussis, 10 sautés, 1 échec, `ajouter.spec.ts:54` (intermittent connu, traitement local sous charge, sans lien avec le mini Jeu) ; relancé seul : réussi.
+
+**Durée.**
+- Lecture, investigation et plan : de 12:30 à 12:40 environ.
+- Décision de l'utilisateur, rédaction et mesures du découpage : de 12:40 à 12:50 environ.
+- Tests, contrôles, vérification ciblée et journal : de 12:50 à 13:12 environ, deux suites e2e comprises.
+- Total : environ 40 min, exécutions longues comprises.
+
+**Préchargement distant.** À lancer par l'utilisateur après validation et push : `npm run seed:demo -- --mini --remote`. En attente.

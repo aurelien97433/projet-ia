@@ -139,7 +139,7 @@ Seuls appels réels : `npm run test:ai` (un mot, avec la fonction locale `ai-hea
 
 ## Préchargement du mini Jeu (`seed:demo`)
 
-`npm run seed:demo -- --mini` crée 2 Comptes de démo, 3 Comptes de mesure et 8 Notes (`demo/documents/`), déclenche `process-document` comme Next.js et attend *prêt*. Il est relançable sans doublon, ne supprime jamais rien, n'appelle jamais OpenAI et n'affiche ni identifiant ni secret. Sa dernière ligne, `contrôle final réussi`, confirme que chaque Document est *prêt* et a des Passages ; avec `--remote`, elle confirme aussi que les vecteurs sont réels.
+`npm run seed:demo -- --mini` crée 2 Comptes de démo, 3 Comptes de mesure et 9 Notes (`demo/documents/`, dont une Note longue à 5 Passages), déclenche `process-document` comme Next.js et attend *prêt*. Il est relançable sans doublon, ne supprime jamais rien, n'appelle jamais OpenAI et n'affiche ni identifiant ni secret. Sa dernière ligne, `contrôle final réussi`, confirme que chaque Document est *prêt* et a des Passages ; avec `--remote`, elle confirme aussi que les vecteurs sont réels.
 
 `.env.seed` est ignoré par git et n'est pas lu par Next.js. La clé `service_role` et les identifiants de démo n'entrent jamais dans `.env.local` ni dans Vercel. Pour se connecter avec un Compte de démo, lire le fichier localement.
 
@@ -167,7 +167,8 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
      'Note de réunion : finance de mars',
      'Guide des relances clients',
      'Document de test : .md piège',
-     'Document de test : piège à 375 px'
+     'Document de test : piège à 375 px',
+     'Procédure de gestion des incidents'
    )
    order by created_at desc;
    ```
@@ -182,7 +183,8 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
      'Note de réunion : finance de mars',
      'Guide des relances clients',
      'Document de test : .md piège',
-     'Document de test : piège à 375 px'
+     'Document de test : piège à 375 px',
+     'Procédure de gestion des incidents'
    );
    ```
    Les Passages sont supprimés avec leur Document. Cette requête retire **tout** Document dont le titre n'est pas dans cette liste : ne plus la lancer une fois le projet utilisé.
@@ -190,7 +192,7 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
    ```powershell
    npm run seed:demo -- --mini --remote
    ```
-7. **Contrôle.** Le script doit finir par `contrôle final réussi : 8 Documents prêts`. Dans l'éditeur SQL :
+7. **Contrôle.** Le script doit finir par `contrôle final réussi : 9 Documents prêts, 13 Passages`. Dans l'éditeur SQL :
    ```sql
    select d.title, d.status, count(p.id) as passages, min(p.embedding_model) as modele
    from public.documents d
@@ -198,9 +200,9 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
    group by d.id
    order by d.title;
    ```
-   Attendu : 8 lignes, toutes `ready`, avec au moins 1 Passage et `text-embedding-3-small`.
+   Attendu : 9 lignes, toutes `ready`, avec au moins 1 Passage (5 pour « Procédure de gestion des incidents ») et `text-embedding-3-small`.
 
-**Coût.** 8 Notes courtes, moins d'un millième de dollar.
+**Coût.** 9 Notes, dont 8 courtes et une d'environ 4 000 caractères, moins d'un millième de dollar.
 
 ## Secrets et variables (noms seulement)
 

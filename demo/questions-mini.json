@@ -4,8 +4,15 @@
     { "id": "q2", "question": "À partir de quel montant une seconde validation est-elle obligatoire sur une facture ?", "expected": "10 000 euros", "source": "procedure-facturation" },
     { "id": "q3", "question": "Sous quel délai les notes de frais sont-elles remboursées ?", "expected": "10 jours ouvrés", "source": "faq-comptabilite" },
     { "id": "q4", "question": "Combien de jours de congés payés un collaborateur a-t-il par an ?", "expected": "25 jours", "source": "procedure-conges" },
-    { "id": "q5", "question": "Quelle est la date de mise en ligne du projet Atelier Lumen ?", "expected": "12 juin", "source": "compte-rendu-lumen" }
+    { "id": "q5", "question": "Quelle est la date de mise en ligne du projet Atelier Lumen ?", "expected": "12 juin", "source": "compte-rendu-lumen" },
+    { "id": "q6", "question": "Quand la revue post-incident d'un incident de priorité 1 est-elle présentée ?", "expected": "premier jeudi du mois suivant", "source": "procedure-incidents" }
   ],
+  "multiPassage": {
+    "id": "q7",
+    "question": "Pour un incident de priorité 1, sous quel délai est-il pris en charge, et quand sa revue post-incident est-elle présentée au comité qualité ?",
+    "source": "procedure-incidents",
+    "expectedFacts": ["30 minutes", "premier jeudi du mois suivant"]
+  },
   "outOfBase": [
     { "id": "h1", "question": "Quel est le budget marketing de NexaWorks pour 2027 ?", "absentTerm": "marketing" },
     { "id": "h2", "question": "Combien de jours de télétravail sont autorisés par semaine ?", "absentTerm": "télétravail" },
@@ -16,7 +23,8 @@
     { "id": "r2", "query": "remboursement des notes de frais", "expectedDocument": "faq-comptabilite", "expectedTerm": "notes de frais" },
     { "id": "r3", "query": "prévenir son responsable en cas de maladie", "expectedDocument": "procedure-conges", "expectedTerm": "maladie" },
     { "id": "r4", "query": "décisions du projet de catalogue en ligne", "expectedDocument": "compte-rendu-lumen", "expectedTerm": "catalogue" },
-    { "id": "r5", "query": "ton à adopter avec un client en retard de paiement", "expectedDocument": "guide-relances", "expectedTerm": "retard de paiement" }
+    { "id": "r5", "query": "ton à adopter avec un client en retard de paiement", "expectedDocument": "guide-relances", "expectedTerm": "retard de paiement" },
+    { "id": "r6", "query": "revue après un incident critique", "expectedDocument": "procedure-incidents", "expectedTerm": "revue post-incident" }
   ],
   "searchOutOfBase": [
     { "id": "s1", "query": "recette du gâteau au chocolat", "absentTerm": "chocolat" },
