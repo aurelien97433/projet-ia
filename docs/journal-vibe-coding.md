@@ -940,4 +940,14 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Suivi et journal : de 12:07 à 12:10 environ.
 - Total : environ 1 h 10, exécutions longues comprises.
 
-**Déploiement.** Pas de migration : un push suffit, sans `deploy:supabase`. En attente de la validation de l'utilisateur.
+**Déploiement.** Pas de migration. Commit `4f45a0f` poussé sur `main`. Statut Vercel : « Deployment has completed ».
+
+**Vérification de l'utilisateur en production, sur `4f45a0f`.**
+- Seul « Ajouter un Document » est présent, sans « Poser une question » ni champ de Recherche.
+- 5 derniers Documents avec titre, Catégorie, Auteur et badge.
+- Liens vers les Documents et vers la Bibliothèque fonctionnels.
+- Affichage correct à 375 px.
+- Non vérifiés en production, couverts par les tests : Document d'un collègue en tête, badge mis à jour en direct, absence de texte de Document dans les réponses réseau, Base vide, chargement lent et erreur avec « Réessayer ».
+- Nettoyage : l'utilisateur a supprimé la Note de test « Test relance », restée *en erreur* depuis la vérification de la story 2.5.
+
+**Statut final.** Story 3.5 passée à `done` le 2026-11-10, après la vérification de l'utilisateur.
