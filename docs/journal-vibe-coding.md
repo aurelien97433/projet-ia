@@ -882,6 +882,16 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Suivi et journal : de 10:38 à 10:42 environ.
 - Total : environ 1 h 40, exécutions longues comprises.
 
-**Déploiement.** Pas de migration : un push suffit, sans `deploy:supabase`. En attente de la validation de l'utilisateur.
+**Déploiement.** Pas de migration. Commit `4123d28` poussé sur `main`. Statut Vercel : « Deployment has completed ».
 
-**Statut.** `review` jusqu'à la vérification de l'utilisateur en production.
+**Vérification de l'utilisateur en production, sur `4123d28`.**
+- Liste complète : titre, Catégorie, Auteur, date et badge.
+- Filtres combinés, recherche partielle sans casse et tri.
+- Aucun résultat, puis « Réinitialiser les filtres ».
+- Liens vers les Documents.
+- Affichage correct à 375 px.
+- `/api/documents` refusé sans session.
+- Non vérifiés en production, couverts par les tests : badge mis à jour en direct, absence de texte de Document dans les réponses réseau, « Mes Documents » vide d'un nouveau Compte, erreur avec « Réessayer ».
+
+**Statut final.** Story 3.3 passée à `done` le 2026-11-10, après la vérification de l'utilisateur.
+
