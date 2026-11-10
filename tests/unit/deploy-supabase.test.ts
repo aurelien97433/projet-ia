@@ -38,9 +38,9 @@ describe("listFunctions", () => {
     expect(listFunctions(dir).sort()).toEqual(["chat", "process-document"]);
   });
 
-  it("n'inclut jamais une fonction locale (ai-health)", () => {
+  it("n'inclut jamais une fonction locale (ai-health, measure-embed)", () => {
     dir = mkdtempSync(path.join(tmpdir(), "deploy-"));
-    for (const name of ["ai-health", "chat"]) {
+    for (const name of ["ai-health", "measure-embed", "chat"]) {
       mkdirSync(path.join(dir, name));
       writeFileSync(path.join(dir, name, "index.ts"), "");
     }

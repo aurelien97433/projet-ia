@@ -102,3 +102,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/4-1a-recherche-sémantique-côté-serveur.md`
   summary: Faire utiliser l'index HNSW `passages_embedding_idx` par `match_passages` (tri par distance avant filtrage, ou `hnsw.iterative_scan`), si le volume l'exige.
   evidence: La fonction calcule la distance sur tous les Passages filtrés puis trie : balayage complet, sans effet à 13 Passages (23 à 55 ms en local). À reconsidérer en 4.2 avec la mesure de durée réelle, et avant le Jeu complet (7.1b). Changement par migration (`deploy:supabase`).
+- source_spec: `_bmad-output/implementation-artifacts/4-2-premier-calibrage-et-mesure-de-la-recherche.md`
+  summary: Index HNSW de `match_passages` reporté au Jeu complet (7.1b), au lieu de la 4.2 : rejouer `npm run measure:search` après le préchargement complet et changer la fonction seulement si `match_passages` seule dépasse quelques centaines de millisecondes.
+  evidence: Décision de la 4.2. À 9 Documents et 13 Passages, le balayage complet est négligeable : médiane de `match_passages` seule consignée dans `docs/mesures/recherche.md`. La correction demande une migration (`deploy:supabase`) et un tri par distance compatible avec la limite d'un Passage par Document.
+- source_spec: `_bmad-output/implementation-artifacts/4-2-premier-calibrage-et-mesure-de-la-recherche.md`
+  summary: Intertitres en fin de Passage reportés au panneau Source (5.7), au lieu de la 4.2 : sans effet mesuré sur la pertinence.
+  evidence: Décision de la 4.2. r6 (« revue après un incident critique », Document long à 5 Passages) place le bon Document au rang 1 en production (`recherche-live.md`). Changer `chunkText` imposerait une nouvelle version de vectorisation et le retraitement de tous les Documents ; à reconsidérer pour l'affichage du Passage en 5.7, ou si `measure:search` montre une similarité faible sur ce Document.
+- source_spec: `_bmad-output/implementation-artifacts/4-2-premier-calibrage-et-mesure-de-la-recherche.md`
+  summary: Réchauffer la Recherche avant la démonstration (une Recherche une à deux minutes avant), à inscrire dans la procédure de démo (7.5 ou 7.6).
+  evidence: Premier appel réel à 3 542 ms contre une médiane de 653 ms (`recherche-live.md`) : démarrage à froid probable de l'Edge Function. Action sans code ; à confirmer par le premier `semantic_search_done` des journaux Supabase (démarrage et `embed_ms`).

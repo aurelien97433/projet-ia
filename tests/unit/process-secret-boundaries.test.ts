@@ -85,4 +85,13 @@ describe("supabase/config.toml", () => {
     expect(functions).toContain("semantic-search");
     expect(functions).not.toContain("ai-health");
   });
+
+  it("measure-embed (story 4.2) : présente en local, jamais déployée, clé service_role comparée dans la fonction", async () => {
+    expect(config.replace(/\r\n/g, "\n")).toMatch(/^\[functions\.measure-embed\]\nverify_jwt = false$/m);
+    const { listFunctions, LOCAL_ONLY_FUNCTIONS } = await import("../../scripts/deploy-supabase");
+    const dir = path.join(root, "supabase", "functions");
+    expect(readFileSync(path.join(dir, "measure-embed", "index.ts"), "utf8")).toContain("hasBearerSecret");
+    expect(LOCAL_ONLY_FUNCTIONS).toContain("measure-embed");
+    expect(listFunctions(dir)).not.toContain("measure-embed");
+  });
 });

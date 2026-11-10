@@ -9,12 +9,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { parseEnvLines, SEED_ENV_FILE } from "./check-secrets";
 import { readLinkedProjectRef } from "./deploy-supabase";
 import { parseSeedEnv, SeedError } from "./seed-demo";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const REPORT_FILE = path.join("docs", "mesures", "recherche-live.md");
 const PUBLIC_ENV_FILE = ".env.local";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -153,48 +153,61 @@ function publicVariables(): { url: string | undefined; key: string | undefined }
   };
 }
 
+export type LiveSession = { target: LiveTarget; client: SupabaseClient; token: string };
+
+// Cible exigée et session du Compte de mesure 1 (partagé avec measure:search, story 4.2).
+export async function openLiveSession(label: string): Promise<LiveSession> {
+  const seedFile = path.join(ROOT, SEED_ENV_FILE);
+  if (!existsSync(seedFile)) throw new LiveSearchError(`${SEED_ENV_FILE} est introuvable. Procédure : docs/environnements.md.`);
+  const seed = parseSeedEnv(readFileSync(seedFile, "utf8"));
+  const pub = publicVariables();
+  const target = resolveLiveTarget({
+    linkedRef: readLinkedProjectRef(path.join(ROOT, "supabase")),
+    seedUrl: seed.url,
+    publicUrl: pub.url,
+    publicKey: pub.key,
+  });
+  console.log(`${label} — cible : ${target.host}`);
+
+  const client = createClient(target.url, target.publicKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data, error } = await client.auth.signInWithPassword(seed.measure[0]);
+  if (error || !data.session) throw new LiveSearchError(`connexion du Compte de mesure 1 refusée (${error?.code ?? "sans session"}).`);
+  return { target, client, token: data.session.access_token };
+}
+
+// Appelle semantic-search pour chaque cas, dans l'ordre, avec la session du Compte de mesure.
+export async function runLiveCases({ target, token }: LiveSession, cases: SearchCase[]): Promise<CaseOutcome[]> {
+  const outcomes: CaseOutcome[] = [];
+  for (const searchCase of cases) {
+    const started = performance.now();
+    let status = 0;
+    let titles: string[] = [];
+    try {
+      const response = await fetch(`${target.url}/functions/v1/semantic-search`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, apikey: target.publicKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: searchCase.query }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      status = response.status;
+      const body = (await response.json().catch(() => null)) as { results?: { title?: unknown }[] } | null;
+      titles = (body?.results ?? []).map((result) => String(result.title));
+    } catch {
+      status = 0;
+    }
+    const outcome = evaluateCase(searchCase, status, titles, Math.round(performance.now() - started));
+    outcomes.push(outcome);
+    console.log(`  ${outcome.passed ? "ok " : "NON"} ${outcome.id} : rang ${outcome.rank ?? "-"}, ${outcome.resultCount} résultats, ${outcome.durationMs} ms`);
+  }
+  return outcomes;
+}
+
 async function main(): Promise<void> {
   try {
-    const seedFile = path.join(ROOT, SEED_ENV_FILE);
-    if (!existsSync(seedFile)) throw new LiveSearchError(`${SEED_ENV_FILE} est introuvable. Procédure : docs/environnements.md.`);
-    const seed = parseSeedEnv(readFileSync(seedFile, "utf8"));
-    const pub = publicVariables();
-    const target = resolveLiveTarget({
-      linkedRef: readLinkedProjectRef(path.join(ROOT, "supabase")),
-      seedUrl: seed.url,
-      publicUrl: pub.url,
-      publicKey: pub.key,
-    });
-    console.log(`test:search:live — cible : ${target.host}`);
-
-    const client = createClient(target.url, target.publicKey, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data, error } = await client.auth.signInWithPassword(seed.measure[0]);
-    if (error || !data.session) throw new LiveSearchError(`connexion du Compte de mesure 1 refusée (${error?.code ?? "sans session"}).`);
-    const token = data.session.access_token;
-
-    const outcomes: CaseOutcome[] = [];
-    for (const searchCase of loadCases()) {
-      const started = performance.now();
-      let status = 0;
-      let titles: string[] = [];
-      try {
-        const response = await fetch(`${target.url}/functions/v1/semantic-search`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, apikey: target.publicKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ query: searchCase.query }),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        });
-        status = response.status;
-        const body = (await response.json().catch(() => null)) as { results?: { title?: unknown }[] } | null;
-        titles = (body?.results ?? []).map((result) => String(result.title));
-      } catch {
-        status = 0;
-      }
-      const outcome = evaluateCase(searchCase, status, titles, Math.round(performance.now() - started));
-      outcomes.push(outcome);
-      console.log(`  ${outcome.passed ? "ok " : "NON"} ${outcome.id} : rang ${outcome.rank ?? "-"}, ${outcome.resultCount} résultats, ${outcome.durationMs} ms`);
-    }
-    await client.auth.signOut().catch(() => {});
+    const session = await openLiveSession("test:search:live");
+    const outcomes = await runLiveCases(session, loadCases());
+    await session.client.auth.signOut().catch(() => {});
+    const target = session.target;
 
     const report = buildReport(target.host, outcomes);
     mkdirSync(path.join(ROOT, path.dirname(REPORT_FILE)), { recursive: true });

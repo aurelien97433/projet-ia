@@ -1048,3 +1048,51 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Rapport : `docs/mesures/recherche-live.md`.
 
 **Statut final.** Story 4.1a passée à `done` le 2026-11-10, après la vérification de l'utilisateur. La story 4.1b n'est pas commencée.
+
+## Story 4.2 — Premier calibrage et mesure de la Recherche (2026-11-10)
+
+**Objectif.** Mesurer la marge du seuil de 0,40, expliquer le démarrage à froid observé en 4.1a et trancher les points différés, sans modifier la production si 0,40 reste le meilleur choix.
+
+**Instructions clés données à l'IA.**
+- Ne pas refaire ce que `test:search:live` a déjà prouvé ; le réutiliser.
+- Mesurer la marge autour de 0,40 ; limiter les appels réels au strict nécessaire.
+- Analyser le démarrage à froid ; traiter ou reporter l'index HNSW et les intertitres.
+- Revue ciblée sans les trois relecteurs ; aucun commit ni push sans validation ; ne pas commencer la 4.1b.
+
+**Décisions de l'utilisateur.**
+- **Q1 = A.** 0,40 gardé s'il satisfait les critères avec au moins 0,05 de marge des deux côtés ; sinon, valeur recommandée et procédure présentées avant toute pose du secret.
+- `measure-embed` strictement locale, exclue de `deploy:supabase` avec un test qui le prouve ; modèle et dimension de production vérifiés dans le rapport.
+- Story gardée entière.
+
+**Ce que l'IA a produit.**
+- Fonction locale `measure-embed` : vectorisation réelle des Requêtes de mesure avec la clé locale, réservée à la clé `service_role` locale, jamais déployée.
+- `npm run measure:search` : réutilise la cible exigée, le Compte de mesure et les cas de `test:search:live` ; similarités lues par `match_passages` distante sous la session du Compte de mesure ; balayage des seuils 0,30 à 0,50 calculé hors ligne ; marges, décision Q1 = A, analyse des durées ; rapport `docs/mesures/recherche.md`.
+- Une exécution coûte 1 vectorisation groupée locale, 10 lectures de `match_passages` et 10 Recherches.
+- Points différés : HNSW reporté à 7.1b, intertitres à 5.7 (r6 déjà au rang 1), réchauffement avant la démo à 7.5 ou 7.6.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Similarités sans changer la production.** `semantic-search` ne les renvoie pas, et le seuil ne peut pas être changé pour tester : les Requêtes sont vectorisées localement avec le même modèle, puis comparées aux Passages distants.
+- **Condition sans effet** dans la règle de décision : supprimée avant les tests.
+- **Limite de 50 lignes** de la lecture des similarités : sans effet sur le mini Jeu, à revoir avant de rejouer la mesure sur le Jeu complet.
+
+**Tests.**
+- `npm test` : 931 réussis (56 fichiers), dont `measure-embed` sur Supabase local (refus et validation, sans appel OpenAI). `lint`, `tsc`, `build:ci`, `check:secrets` : verts.
+- E2e non relancés : aucun code de l'application Next.js modifié.
+
+**Durée.**
+- Lecture, investigation et story : de 16:30 à 16:41 environ.
+- Implémentation, tests, revue ciblée et journal : de 16:41 à 16:55 environ.
+- Total : environ 25 min, sans l'exécution de `measure:search`.
+
+**Déploiement.** Aucun : pas de migration, aucune fonction déployée, aucun secret modifié.
+
+**Mesure, lancée par l'utilisateur** (`npm run measure:search`, projet `lkjjtcfegplipalraqml`) : réussie.
+- Vectorisation locale conforme : `text-embedding-3-small`, version 1, 1 536 dimensions, identique à la production.
+- r1 à r6 : bon Document au rang 1, similarités de 0,461 (r2) à 0,621 (r6).
+- Hors base : meilleures similarités de 0,207 (s1) à 0,345 (s2, « assurance du véhicule de fonction ») ; aucun résultat réel.
+- Balayage : critères atteints de 0,35 à 0,45 ; à 0,30, deux Requêtes hors base renvoient un résultat ; à 0,50, deux bons Documents sortent.
+- Marges autour de 0,40 : 0,055 en bas, 0,061 en haut. **0,40 gardé** (règle Q1 = A, de justesse) ; aucun secret modifié. Bande sûre ]0,345 ; 0,461] : à surveiller quand le Jeu complet (7.1b) ou l'Assistant (5.2a) ajouteront des Requêtes.
+- Durées : de 530 à 959 ms, médiane 619 ms ; `match_passages` seule 308 ms en médiane depuis le poste. Pas de démarrage à froid lors de cette exécution : le 3 542 ms de la 4.1a reste attribué au démarrage de l'Edge Function ; action : réchauffer la Recherche avant la démo.
+- Rapport : `docs/mesures/recherche.md`.
+
+**Statut final.** Story 4.2 passée à `done` le 2026-11-10, après la mesure de l'utilisateur. La story 4.1b n'est pas commencée.

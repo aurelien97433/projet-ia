@@ -431,6 +431,11 @@ enabled = true
 [functions.ai-health]
 verify_jwt = false
 
+# Vectorisation des Requêtes de mesure (story 4.2), local uniquement : exclue de deploy:supabase.
+# Vectorisation réelle, avec la clé OpenAI locale ; réservée à la clé service_role locale.
+[functions.measure-embed]
+verify_jwt = false
+
 # Traitement des Documents (story 2.3) : appelée par Next.js avec PROCESS_DOCUMENT_SECRET, comparé
 # dans la fonction. Elle ne reçoit jamais de jeton de Collaborateur (AD-1).
 [functions.process-document]

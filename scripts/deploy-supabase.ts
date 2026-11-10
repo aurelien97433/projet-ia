@@ -11,8 +11,9 @@ import { fileURLToPath } from "node:url";
 const SUPABASE_BIN = path.join("node_modules", ".bin", "supabase");
 const PROJECT_REF_PATTERN = /^[a-z0-9]{20}$/;
 
-// Fonctions servies en local seulement, jamais déployées (ai-health : contrôle de l'IA, story 2.1).
-export const LOCAL_ONLY_FUNCTIONS: readonly string[] = ["ai-health"];
+// Fonctions servies en local seulement, jamais déployées (ai-health : contrôle de l'IA, story 2.1 ;
+// measure-embed : vectorisation des Requêtes de mesure, story 4.2).
+export const LOCAL_ONLY_FUNCTIONS: readonly string[] = ["ai-health", "measure-embed"];
 
 // Fonctions déployables : dossiers de supabase/functions contenant un index.ts, hors modules
 // partagés (_shared…), dossiers cachés (.vscode…) et fonctions locales.
