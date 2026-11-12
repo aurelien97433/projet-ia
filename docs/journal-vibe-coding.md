@@ -1201,4 +1201,13 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 
 **Déploiement.** Migration et module partagé de `process-document` modifiés : `npm run deploy:supabase` avant le push.
 
-**Statut.** Story 2.6a en `review`, non commitée, en attente de la validation de l'utilisateur, du déploiement puis de sa vérification en production. La story 2.6b n'est pas commencée.
+**Commit et déploiement.** `c06f28a` commité après la preuve par `supabase db reset` ; `npm run deploy:supabase` lancé par l'utilisateur sur le projet distant (réussi), puis push sur `main` ; Vercel : « Deployment has completed ».
+
+**Vérification en production, par l'utilisateur** : réussie.
+- Import de `procedure-test.md` : dépôt, titre prérempli, Document *prêt* et texte lisible.
+- Format non pris en charge refusé, champs conservés.
+- Changement d'onglet sans perte de saisie.
+- Bucket `documents` privé, deux politiques, limite de 1 000 000 octets.
+- Refus d'un fichier de plus de 1 Mo : couvert par les tests e2e, non rejoué en production.
+
+**Statut final.** Story 2.6a passée à `done` le 2026-11-12, après la vérification en production de l'utilisateur. La story 2.6b n'est pas commencée.
