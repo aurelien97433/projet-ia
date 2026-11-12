@@ -1151,3 +1151,54 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Affichage correct à 375 px.
 
 **Statut final.** Story 4.1b passée à `done` le 2026-11-12, après la vérification en production de l'utilisateur. La story 2.6a n'est pas commencée.
+
+## Story 2.6a — Déposer et importer un fichier .txt ou .md (2026-11-12)
+
+**Objectif.** Permettre d'ajouter un fichier .txt ou .md sans le recopier : dépôt direct dans un espace privé, puis import contrôlé par le serveur, avant toute création de Document.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter plan, fichiers et risques avant de coder.
+- Bucket `documents` privé, 1 000 000 octets, sans URL publique ; dépôt avant la création du Document dans `{author_id}/uploads/{upload_id}`, par URL signée créée par `POST /api/uploads` (session vérifiée).
+- `.txt` et `.md` seulement ; `.docx` ou fichier trop lourd refusés avant tout envoi, avec les messages du catalogue.
+- Vérification serveur de l'objet (dossier, taille, MIME déduit de l'extension) avant la création du Document et le départ du délai de 3 minutes ; refus du dossier d'un autre Collaborateur et d'un `upload_id` d'un autre Auteur.
+- Titre prérempli et modifiable ; import idempotent ; échec du dépôt avec « Réessayer », champs conservés ; tests RLS et Storage à deux Comptes.
+- Décodage complet laissé à la 2.6b ; revue à trois relecteurs (règle 11) ; aucun commit ni push sans validation ; ne pas commencer la 2.6b.
+
+**Décisions de l'utilisateur.**
+- Story gardée entière.
+- `import_file_document` : `search_path` fixé, accès retiré à `public` et `anon`, exécution réservée à `authenticated` ; contrôle de `auth.uid()`, du propriétaire réel de l'objet, du chemin exact et d'un `upload_id` strictement au format `{uuid}.txt` ou `{uuid}.md`.
+- Tests d'appels directs avec un chemin forgé ou l'objet d'un autre Collaborateur.
+- Fichiers déposés mais jamais importés : nettoyage consigné dans `deferred-work.md` ; vérifier que la 3.4 supprimera l'objet d'un Document importé.
+
+**Ce que l'IA a produit.**
+- Migration : bucket privé limité à 1 000 000 octets, sans restriction MIME ; deux politiques Storage (dépôt et lecture) réservées au propriétaire dans son dossier d'uploads ; aucune politique de modification ni de suppression ; fonction `import_file_document` qui vérifie l'objet et crée le Document dans la même transaction.
+- `POST /api/uploads` (URL signée, `upload_id` choisi par le serveur et portant l'extension validée) ; Server Action d'import ; onglet « Fichier » (zone de dépôt au clavier et par glisser-déposer, progression « Dépôt du fichier… », « Importer » inactif pendant le dépôt, « Réessayer ») ; lecture du fichier en UTF-8 par `process-document`.
+- Sonde du Storage local avant les tests : la politique s'applique dès la signature de l'URL avec le jeton du Collaborateur ; l'objet déposé appartient bien à ce Collaborateur.
+- Story 3.4 vérifiée : elle prévoit la suppression du fichier d'origine, mais 2.6a ne crée aucune politique de suppression ; précision et test ajoutés à la 3.4 dans `epics.md`, et consignés dans `deferred-work.md`.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- Revue à trois relecteurs, douze corrections :
+  - Changer d'onglet effaçait la saisie et le fichier déposé : les onglets restent montés.
+  - Un fichier choisi pendant un import pouvait recevoir le résultat du précédent : choix bloqué pendant l'import, résultat rattaché au fichier envoyé.
+  - Un ancien message d'échec restait affiché après un nouveau dépôt réussi.
+  - La demande d'URL pouvait attendre sans fin ; la progression était annoncée à chaque étape aux lecteurs d'écran.
+  - Un fichier lâché à côté de la zone faisait quitter la page.
+  - Une session expirée pendant l'import était présentée comme un échec à réessayer ; un cas extrême de la fonction SQL pouvait renvoyer un Document sans identifiant.
+  - Tests ajoutés : réponse perdue à l'import, délai de 10 s, « Annuler », glisser-déposer, imports simultanés.
+- Cinq constats rejetés après vérification : impossibles en pratique, ou comportement voulu. Deux reportés : limite du nombre de dépôts par Collaborateur ; taille du texte après décodage d'un fichier non UTF-8, traitée en 2.6b et 2.7.
+- En cours de route, des expressions régulières écrites par l'interpréteur de commandes avaient perdu une barre oblique inverse : fichier réécrit. Les tests de l'onglet laissaient des actions React en attente, ce qui faussait les tests suivants : elles sont maintenant résolues après chaque test.
+
+**Tests.**
+- `npm test` : 1 112 réussis (65 fichiers), dont 34 cas d'intégration à deux Comptes sur Supabase local (Storage, politiques, import, appels directs forgés, objet d'un autre Collaborateur, propriétaire réel, taille, imports simultanés, `.txt` UTF-8 avec BOM → prêt).
+- `lint`, `tsc`, `build:ci`, `check:secrets` : verts, aucun secret ; aucune clé `service_role` lue par Next.js.
+- E2e complets (build de production, Supabase local) : 300 réussis, 18 sautés, aucun échec.
+- Preuve demandée par l'utilisateur avant le commit : base locale réinitialisée à partir des seules migrations (`supabase db reset`) ; `import_file_document` finale (garde `v_id is null`, `security definer`, `search_path` vide, exécution pour `authenticated` seul), bucket et politiques présents ; 34 tests d'intégration de la 2.6a réussis.
+
+**Durée.**
+- Lecture, investigation, contexte de l'Epic 2 et story : de 10:48 à 10:55 environ.
+- Implémentation, tests, revue à trois relecteurs, corrections et journal : de 10:55 à 11:25 environ.
+- Total : environ 40 min, sans le déploiement ni la vérification en production.
+
+**Déploiement.** Migration et module partagé de `process-document` modifiés : `npm run deploy:supabase` avant le push.
+
+**Statut.** Story 2.6a en `review`, non commitée, en attente de la validation de l'utilisateur, du déploiement puis de sa vérification en production. La story 2.6b n'est pas commencée.

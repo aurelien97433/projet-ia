@@ -1,6 +1,7 @@
 // Accès à la base pour le traitement, avec la clé service_role (AD-2), par fetch sans SDK comme
 // _shared/ai.ts. Seule process-document utilise ce module.
 import { readEnv } from "./config.ts";
+import { decodeFileText } from "./rag/extract.ts";
 
 // Durée de vie d'une tentative, identique à l'expiration de la vue documents_list (AD-6).
 const ATTEMPT_LIFETIME_MS = 3 * 60 * 1000;
@@ -8,6 +9,9 @@ const ATTEMPT_LIFETIME_MS = 3 * 60 * 1000;
 const DB_TIMEOUT_MS = 4_000;
 // Écriture finale : tous les Passages et leurs vecteurs en une seule transaction.
 const COMPLETE_TIMEOUT_MS = 30_000;
+// Téléchargement d'un fichier importé (1 Mo au plus).
+const DOWNLOAD_TIMEOUT_MS = 15_000;
+const STORAGE_BUCKET = "documents";
 
 export type Attempt = { documentId: string; attemptId: string };
 
@@ -50,18 +54,44 @@ export async function isCurrentAttempt({ documentId, attemptId }: Attempt): Prom
 
 export type DocumentSource = { text: string; textVersion: number };
 
-// Texte du Document, si cette tentative est encore la tentative courante ; sinon null.
-export async function readDocumentText({ documentId, attemptId }: Attempt): Promise<DocumentSource | null> {
+type SourceRow = { content_text: string | null; text_version: number; kind: "note" | "file"; storage_path: string | null };
+
+// Contenu d'un objet du bucket privé, lu avec service_role (AD-2). Chaque segment du chemin est encodé.
+export async function downloadFile(path: string): Promise<Uint8Array> {
+  const url = readEnv("SUPABASE_URL");
+  const key = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) throw new Error("Configuration Supabase absente");
+  const encoded = path.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(`${url}/storage/v1/object/${STORAGE_BUCKET}/${encoded}`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new DbError("Lecture du fichier", response.status);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+// Texte du Document, si cette tentative est encore la tentative courante ; sinon null. Fichier
+// importé dont le texte n'est pas encore extrait (story 2.6a) : téléchargé puis décodé en UTF-8.
+export async function readDocumentText(
+  { documentId, attemptId }: Attempt,
+  download: (path: string) => Promise<Uint8Array> = downloadFile,
+): Promise<DocumentSource | null> {
   const query = new URLSearchParams({
     id: `eq.${documentId}`,
     attempt_id: `eq.${attemptId}`,
     status: "eq.processing",
-    select: "content_text,text_version",
+    select: "content_text,text_version,kind,storage_path",
   });
   const response = await restRequest(`documents?${query}`);
   if (!response.ok) throw new DbError("Lecture du texte", response.status);
-  const rows = (await response.json()) as { content_text: string | null; text_version: number }[];
-  return rows[0] ? { text: rows[0].content_text ?? "", textVersion: rows[0].text_version } : null;
+  const rows = (await response.json()) as SourceRow[];
+  const row = rows[0];
+  if (!row) return null;
+  if (row.kind === "file" && row.content_text === null) {
+    if (!row.storage_path) throw new Error("Fichier sans chemin");
+    return { text: decodeFileText(await download(row.storage_path)), textVersion: row.text_version };
+  }
+  return { text: row.content_text ?? "", textVersion: row.text_version };
 }
 
 export type PassageRow = { ordinal: number; start: number; end: number; content: string; embedding: number[] };

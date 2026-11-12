@@ -111,3 +111,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/4-2-premier-calibrage-et-mesure-de-la-recherche.md`
   summary: Réchauffer la Recherche avant la démonstration (une Recherche une à deux minutes avant), à inscrire dans la procédure de démo (7.5 ou 7.6).
   evidence: Premier appel réel à 3 542 ms contre une médiane de 653 ms (`recherche-live.md`) : démarrage à froid probable de l'Edge Function. Action sans code ; à confirmer par le premier `semantic_search_done` des journaux Supabase (démarrage et `embed_ms`).
+- source_spec: `_bmad-output/implementation-artifacts/2-6a-déposer-et-importer-un-fichier-txt-ou-md.md`
+  summary: Nettoyer les fichiers déposés dans `documents/{author_id}/uploads/` mais jamais importés (aucun Document ne référence leur `storage_path`), par exemple après 24 h.
+  evidence: AD-7 (« Risque restant ») et décision du 2026-11-12 : un dépôt précède toujours la création du Document ; un changement de fichier, un « Réessayer » de dépôt ou un abandon de la saisie laissent un objet orphelin, sans effet pour la démo (1 Mo au plus par objet). Nettoyage par `service_role` (script ou fonction planifiée), jamais par Next.js.
+- source_spec: `_bmad-output/implementation-artifacts/2-6a-déposer-et-importer-un-fichier-txt-ou-md.md`
+  summary: Story 3.4 : supprimer l'objet Storage d'un Document importé avec le Document, alors que 2.6a ne crée aucune politique de suppression.
+  evidence: 3.4 prévoit « Document puis objet Storage » ; Next.js n'a pas `service_role`, il faut donc une politique `delete` (propriétaire, `{auth.uid()}/uploads/…`) ou une fonction SQL. Précision et test ajoutés à 3.4 dans `epics.md` le 2026-11-12.
+- source_spec: `_bmad-output/implementation-artifacts/2-6a-déposer-et-importer-un-fichier-txt-ou-md.md`
+  summary: Limiter le nombre d'URL de dépôt (`POST /api/uploads`) et d'objets déposés par Collaborateur, par exemple par jour.
+  evidence: Revue de 2.6a : un Collaborateur connecté peut demander des URL sans limite et déposer des objets de 1 Mo, jamais nettoyés tant que le nettoyage des fichiers non importés n'existe pas. Sans effet pour la démo (Comptes connus) ; à traiter avec ce nettoyage ou avec les quotas (5.10).
+- source_spec: `_bmad-output/implementation-artifacts/2-6a-déposer-et-importer-un-fichier-txt-ou-md.md`
+  summary: Story 2.6b et 2.7 : un fichier non UTF-8 proche de 1 Mo, décodé sans contrôle, peut dépasser 1 000 000 octets une fois converti (caractères de remplacement de 3 octets) et faire échouer `complete_processing` (contrainte `documents_content_size`) en erreur temporaire.
+  evidence: Revue de 2.6a (maybe-false, non mesuré) : 2.6a décode en UTF-8 non strict, comme prévu ; le décodage strict et le repli Windows-1252 de 2.6b, et le test de charge de 2.7, doivent vérifier la taille après décodage et produire une erreur explicite plutôt qu'une erreur temporaire relançable sans fin.

@@ -83,6 +83,16 @@ export const texts = {
   },
   addDocument: {
     noteTab: "Note",
+    // Onglet Fichier (story 2.6a, EXPERIENCE.md, E8).
+    fileTab: "Fichier",
+    chooseFile: "Choisir un fichier",
+    formats: "Formats acceptés : .txt et .md, 1 Mo au maximum.",
+    uploading: "Dépôt du fichier…",
+    // Absents d'EXPERIENCE.md : nom de la zone et état « déposé », ajoutés le 2026-11-12 (story 2.6a).
+    fileLabel: "Fichier",
+    uploaded: (name: string) => `Fichier déposé : ${name}`,
+    importSubmit: "Importer",
+    importing: "Import…",
     titleLabel: "Titre",
     categoryLabel: "Catégorie",
     categoryPlaceholder: "Choisir une Catégorie",
@@ -100,6 +110,11 @@ export const texts = {
       // Absent d'EXPERIENCE.md pour une Note : texte validé le 2026-11-05 (story 2.2, option A).
       textTooLarge: "Le texte dépasse 1 Mo, la taille maximale.",
       saveFailed: "Le Document n'a pas pu être enregistré. Votre saisie est conservée.",
+      fileMissing: "Choisissez un fichier.",
+      fileFormat: "Ce format n'est pas pris en charge. Formats acceptés : .txt et .md.",
+      // 1 Mo = 1 000 000 octets, valeur identique à celle des contrôles.
+      fileTooLarge: "Ce fichier dépasse 1 Mo, la taille maximale.",
+      uploadFailed: "Le fichier n'a pas pu être déposé.",
     },
     abandon: {
       title: "Abandonner ce Document ?",

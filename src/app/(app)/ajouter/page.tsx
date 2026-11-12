@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { texts } from "@/lib/texts";
+import { FileForm } from "./file-form";
 import { NoteForm } from "./note-form";
 
 export const metadata: Metadata = {
   title: `${texts.titles.addDocument} · ${texts.app.name}`,
 };
 
-// E8 · Ajouter (FR-4). Onglet « Fichier » ajouté avec l'import de fichiers (story 2.6a, décision du
-// 2026-11-05). Le titre ne prend pas le focus : à l'ouverture, il va sur « Titre » (EXPERIENCE.md).
+// E8 · Ajouter (FR-4, FR-5). Onglets « Note » (par défaut) et « Fichier » (story 2.6a). Le titre ne
+// prend pas le focus : à l'ouverture, il va sur « Titre » (EXPERIENCE.md).
 export default function AddDocumentPage() {
   return (
     <div className="flex flex-col gap-6">
@@ -17,9 +18,15 @@ export default function AddDocumentPage() {
       <Tabs defaultValue="note">
         <TabsList aria-label={texts.titles.addDocument}>
           <TabsTrigger value="note">{texts.addDocument.noteTab}</TabsTrigger>
+          <TabsTrigger value="file">{texts.addDocument.fileTab}</TabsTrigger>
         </TabsList>
-        <TabsContent value="note">
+        {/* Onglets toujours montés (masqués quand inactifs) : changer d'onglet ne perd ni la saisie ni le
+            fichier déposé, et n'interrompt pas un dépôt en cours. */}
+        <TabsContent value="note" forceMount className="data-[state=inactive]:hidden">
           <NoteForm />
+        </TabsContent>
+        <TabsContent value="file" forceMount className="data-[state=inactive]:hidden">
+          <FileForm />
         </TabsContent>
       </Tabs>
     </div>
