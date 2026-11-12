@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutPassages, parsePassageParams, type ReaderSegment } from "@/lib/passages";
+import { layoutPassages, parsePassageOrigin, parsePassageParams, type ReaderSegment } from "@/lib/passages";
 
 const text = "0123456789abcdefghij";
 const passagesOf = (segments: ReaderSegment[]) => segments.flatMap((s) => (s.kind === "passage" ? [s] : []));
@@ -314,4 +314,17 @@ describe("layoutPassages", () => {
       expect(passagesOf(layoutPassages(text, list, 1).segments).map((s) => s.active)).toEqual([true, false]);
     });
   });
+});
+
+describe("parsePassageOrigin (story 4.1b)", () => {
+  it("seule la valeur exacte « recherche » donne « Passage pertinent »", () => {
+    expect(parsePassageOrigin("recherche")).toBe("relevant");
+  });
+
+  it.each([undefined, "", "Recherche", "RECHERCHE", " recherche", "recherche ", "assistant", "recherche,x", ["recherche"], ["recherche", "recherche"]])(
+    "toute autre valeur est ignorée : %j → « Passage utilisé »",
+    (value) => {
+      expect(parsePassageOrigin(value)).toBe("used");
+    },
+  );
 });

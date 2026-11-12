@@ -1096,3 +1096,49 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Rapport : `docs/mesures/recherche.md`.
 
 **Statut final.** Story 4.2 passée à `done` le 2026-11-10, après la mesure de l'utilisateur. La story 4.1b n'est pas commencée.
+
+## Story 4.1b — Page Recherche et champ du Tableau de bord (2026-11-12)
+
+**Objectif.** Rendre la Recherche utilisable : page `/recherche` (champ, résultats, états) et champ du Tableau de bord, avec l'ouverture d'un résultat au bon Passage, étiqueté « Passage pertinent ».
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter plan, fichiers et risques avant de coder.
+- Cartes : titre, Catégorie, Passage surligné, sans score ni texte rédigé par l'IA ; clic → page Document au Passage, avec « Passage pertinent » (report de la 3.1).
+- Aucun résultat : message FR-15 ; pas de bouton « Poser la question à l'Assistant » tant que l'Assistant n'est pas utilisable (règle de la 3.2), ajout prévu dans la bonne story de l'Epic 5.
+- États chargement et erreur (« Réessayer », Requête conservée) ; focus sur l'annonce du nombre ; 375 px sans défilement horizontal ; aucun résultat ni Passage dans le HTML prérendu.
+- Revue ciblée (affichage, accessibilité, passage des paramètres) sans les trois relecteurs ; aucun commit ni push sans validation ; ne pas commencer la 2.6a.
+
+**Décisions de l'utilisateur.**
+- **Q1 = B.** Sans résultat : « Aucun Document ne correspond suffisamment à votre recherche. Essayez d'autres mots. » La story 5.2b rétablit la phrase complète de FR-15 en même temps qu'elle ajoute le bouton (critère ajouté dans `epics.md`).
+- `depuis` n'accepte que la valeur `recherche` ; toute autre valeur est ignorée.
+- Le champ du Tableau de bord ne vole pas le focus au lien d'évitement au premier chargement.
+- Story gardée entière.
+
+**Ce que l'IA a produit.**
+- Page `/recherche` : titre prérendu, vue cliente pilotée par `?q=` (sous Suspense), phrase d'aide et trois exemples, trois cartes squelettes, annonce « {n} Documents pertinents » dans une zone `role="status"`, cartes, message FR-15, alerte « La Recherche n'a pas pu aboutir. » avec « Réessayer ».
+- Carte : un seul lien (le titre, dont la zone couvre la carte) vers `/documents/{id}?passages=début-fin&actif=0&depuis=recherche`, construit seulement pour un UUID et des positions valides.
+- Page Document : étiquette et texte masqué « Passage pertinent » avec `depuis=recherche`.
+- Champ du Tableau de bord en tête de la bande d'actions ; `PageTitle` peut confier le focus d'écran à un champ, selon la même décision unique (jamais au premier chargement).
+- `epics.md` : bouton et phrase complète de FR-15 ajoutés ensemble à la story 5.2b.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- **Carte entièrement cliquable mais mal nommée** (axe, WCAG 2.5.3) : le nom accessible (le titre) ne reprenait pas tout le texte visible du lien. Le lien porte désormais le titre et couvre la carte par une pseudo-zone.
+- **Focus perdu après « Réessayer » ou un exemple** : le bouton disparaît dès le chargement ; l'intention de l'action est maintenant notée au clic.
+- **État dans un effet** (règle de lint React) : l'issue d'une Recherche est rattachée à sa Requête, le chargement se déduit du rendu.
+- **Test e2e mobile** : après une navigation par le menu, le focus revient d'abord sur ☰ ; le test attend cet état avant d'aller au champ.
+- Parcours réel testé avec un Document contrôlé (Passage au vecteur simulé de la Requête, supprimé après le test) plutôt qu'avec le mini Jeu : rang 1 garanti en local, Base commune laissée propre.
+
+**Tests.**
+- `npm test` : 989 réussis (59 fichiers). `lint`, `tsc`, `build:ci`, `check:secrets` : verts.
+- E2e complets (build de production, Supabase local) : 285 réussis, 17 sautés, aucun échec. `search-page.spec.ts` aussi rejoué 3 fois de suite sur les deux largeurs (57 réussis).
+- Deux tests e2e à corriger en cours de route : le test 1.2 « focus sur le titre » visait `/recherche`, devenu un écran de saisie (focus sur le champ) : il vise maintenant la Bibliothèque, et un test vérifie le champ de la Recherche ; le parcours réel cliquait parfois avant l’hydratation (chargement complet, focus non déplacé par conception) : il attend désormais le lien hydraté.
+- HTML prérendu de `/recherche` et du Tableau de bord : coquille seule (titre, navigation, lien d'évitement), aucun résultat, Passage ni annonce.
+
+**Durée.**
+- Lecture, investigation et story : jusqu'à 10:01 (heure de début non relevée ; 09:57 relevé en fin d'investigation), soit 15 à 20 min estimées.
+- Implémentation, tests, revue ciblée et journal : de 10:02 à 10:40 (dont environ 15 min de suites e2e complètes, lancées trois fois).
+- Total : environ 55 min, sans la vérification en production.
+
+**Déploiement.** Pas de migration ni d'Edge Function : un push suffira, sans `deploy:supabase`.
+
+**Statut.** Story 4.1b en `review`, non commitée, en attente de la validation de l'utilisateur puis de sa vérification en production. La story 2.6a n'est pas commencée.

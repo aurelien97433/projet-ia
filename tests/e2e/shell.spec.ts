@@ -85,9 +85,17 @@ test.describe("ordinateur (≥ 1 024 px)", () => {
 
   test("changement d'écran : le focus va sur le titre du nouvel écran", async ({ page }) => {
     await page.goto("/");
+    await page.locator("aside").getByRole("link", { name: texts.nav.library }).click();
+    await expect(page).toHaveURL(/\/bibliotheque$/);
+    await expect(page.getByRole("heading", { level: 1, name: texts.titles.library })).toBeFocused();
+  });
+
+  // Écran de saisie (EXPERIENCE.md, Gestion du focus ; story 4.1b) : le champ principal remplace le titre.
+  test("changement d'écran vers la Recherche : le focus va sur le champ « Votre recherche »", async ({ page }) => {
+    await page.goto("/");
     await page.locator("aside").getByRole("link", { name: texts.nav.search }).click();
     await expect(page).toHaveURL(/\/recherche$/);
-    await expect(page.getByRole("heading", { level: 1, name: texts.titles.search })).toBeFocused();
+    await expect(page.getByRole("searchbox", { name: texts.search.fieldLabel })).toBeFocused();
   });
 });
 

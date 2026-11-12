@@ -7,14 +7,15 @@ import { DocumentStatusBadge } from "@/components/documents/document-status-badg
 import { DocumentStatusProvider } from "@/components/documents/document-status-provider";
 import { StatusBanner } from "@/components/documents/status-banner";
 import { PageTitle } from "@/components/shell/page-title";
-import { layoutPassages, parsePassageParams } from "@/lib/passages";
+import { layoutPassages, parsePassageOrigin, parsePassageParams } from "@/lib/passages";
 import { createClient } from "@/lib/supabase/server";
 import { texts } from "@/lib/texts";
 import { getCurrentUser } from "@/server/auth/current-user";
 import { getDocument } from "@/server/documents/get-document";
 
 // E7 · Document : titre, Catégorie, Auteur, date, badge, bandeau de Statut (suivi automatique), barre
-// d'actions et Lecteur, avec les Passages de l'URL (`?passages=120-340,900-1100&actif=1`).
+// d'actions et Lecteur, avec les Passages de l'URL (`?passages=120-340,900-1100&actif=1`) ;
+// `&depuis=recherche` (story 4.1b) : étiquette « Passage pertinent ».
 // Identifiant invalide ou Document absent : E9 (même page qu'un accès refusé).
 export default async function DocumentPage({ params, searchParams }: PageProps<"/documents/[id]">) {
   // Lecture liée à la requête : le client Supabase compare l'expiration du jeton à l'heure courante,
@@ -26,6 +27,7 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
   if (!document) notFound();
 
   const { passages, activeIndex } = parsePassageParams(query, document.content.length);
+  const origin = parsePassageOrigin(query.depuis);
   const hasActivePassage = layoutPassages(document.content, passages, activeIndex).total > 0;
   const isAuthor = document.authorId === user?.id;
 
@@ -71,7 +73,7 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
       </DocumentStatusProvider>
 
       <section aria-label={texts.document.textLabel}>
-        <DocumentReader text={document.content} passages={passages} activeIndex={activeIndex} focusActive />
+        <DocumentReader text={document.content} passages={passages} activeIndex={activeIndex} origin={origin} focusActive />
       </section>
     </article>
   );

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { ActionBand } from "@/components/dashboard/action-band";
-import { RECENT_DOCUMENTS_HEADING_ID } from "@/components/dashboard/constants";
+import { DASHBOARD_SEARCH_FIELD_ID, RECENT_DOCUMENTS_HEADING_ID } from "@/components/dashboard/constants";
 import { RecentDocuments } from "@/components/dashboard/recent-documents";
 import { RecentDocumentsSkeleton } from "@/components/dashboard/recent-documents-skeleton";
 import { PageTitle } from "@/components/shell/page-title";
@@ -13,7 +13,7 @@ import { texts } from "@/lib/texts";
 export default function DashboardPage() {
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <PageTitle>{texts.titles.dashboard}</PageTitle>
+      <PageTitle focusTargetId={DASHBOARD_SEARCH_FIELD_ID}>{texts.titles.dashboard}</PageTitle>
       <ActionBand />
 
       {/* Pleine largeur (Q2) ; la story 5.6 passera à deux colonnes avec « Mes dernières Conversations ». */}

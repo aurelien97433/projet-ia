@@ -1291,7 +1291,11 @@ afin d'obtenir une information interne sans déranger un collègue.
 **Quand** j'active « Poser une question » dans sa bande d'actions
 **Alors** l'Assistant s'ouvre sur une nouvelle Conversation, focus dans le champ de question
 
-**Tâches techniques :** page `/assistant` (fil, champ, puces de Source) ; client du Route Handler ; bouton « Poser une question » dans `DocumentActions`, la barre de la page Document (si *prêt*) ; bouton « Poser une question » dans la bande d'actions du Tableau de bord (emplacement prévu en 3.5, aucun bouton affiché avant cette story) ; tests Playwright (interception réseau, panne simulée, clavier).
+**Étant donné** la page Recherche sans résultat (décision du 2026-11-12, story 4.1b)
+**Quand** elle s'affiche
+**Alors** la phrase complète de FR-15 « Aucun Document ne correspond suffisamment à votre recherche. Essayez d'autres mots ou posez la question à l'Assistant. » est rétablie en même temps qu'apparaît le bouton « Poser la question à l'Assistant », qui ouvre l'Assistant sur une nouvelle Conversation avec la Requête pré-remplie dans le champ de question (jamais envoyée d'office)
+
+**Tâches techniques :** page `/assistant` (fil, champ, puces de Source) ; client du Route Handler ; bouton « Poser une question » dans `DocumentActions`, la barre de la page Document (si *prêt*) ; bouton « Poser une question » dans la bande d'actions du Tableau de bord (emplacement prévu en 3.5, aucun bouton affiché avant cette story) ; bouton « Poser la question à l'Assistant » et fin de phrase de FR-15 dans l'état sans résultat de la Recherche (emplacement prévu en 4.1b, `texts.search.noResults`) ; tests Playwright (interception réseau, panne simulée, clavier).
 **Dépendances :** 5.2a.
 **Références :** CH-5, CH-6, CH-9 · FR-16, FR-17 · NFR-2, NFR-5, NFR-7 · AR-21 · AD-1 · UX-DR10, UX-DR13, UX-DR17 · **Priorité :** P0
 

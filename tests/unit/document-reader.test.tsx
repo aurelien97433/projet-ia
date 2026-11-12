@@ -58,6 +58,15 @@ describe("DocumentReader", () => {
     expect(screen.queryByText(t.somePassagesMissing)).toBeNull();
   });
 
+  it("arrivée depuis la Recherche : étiquette et texte masqué « Passage pertinent », jamais « Passage utilisé »", () => {
+    const { container } = render(<DocumentReader text={text} passages={[first]} origin="relevant" />);
+    const [mark] = marks(container);
+    expect(mark.className).toBe("passage-highlight");
+    expect(hiddenBefore(mark)).toBe("Passage pertinent 1 sur 1");
+    expect(screen.getByText(t.relevantPassageLabel).getAttribute("aria-hidden")).toBe("true");
+    expect(container.textContent).not.toContain("Passage utilisé");
+  });
+
   it("plusieurs Passages désordonnés : ordre du texte, un seul actif, autres en pointillés sans étiquette", () => {
     const { container } = render(<DocumentReader text={text} passages={[second, first]} activeIndex={1} />);
     const [one, two] = marks(container);

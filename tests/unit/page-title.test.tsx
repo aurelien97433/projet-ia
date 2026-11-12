@@ -49,3 +49,34 @@ describe("PageTitle et Passage actif", () => {
     expect(shouldFocusTitle()).toBe(true);
   });
 });
+
+describe("PageTitle et écran de saisie (focusTargetId, story 4.1b)", () => {
+  function Screen({ PageTitle }: { PageTitle: Awaited<ReturnType<typeof load>>["PageTitle"] }) {
+    return (
+      <>
+        <PageTitle focusTargetId="champ">Recherche</PageTitle>
+        <input id="champ" aria-label="Votre recherche" />
+      </>
+    );
+  }
+
+  it("changement d'écran : le champ désigné reçoit le focus à la place du titre", async () => {
+    const { PageTitle, shouldFocusTitle } = await load();
+    shouldFocusTitle();
+    render(<Screen PageTitle={PageTitle} />);
+    expect(document.activeElement).toBe(screen.getByLabelText("Votre recherche"));
+  });
+
+  it("premier chargement : ni le champ ni le titre ne prennent le focus (lien d'évitement)", async () => {
+    const { PageTitle } = await load();
+    render(<Screen PageTitle={PageTitle} />);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("champ absent : le titre reçoit le focus", async () => {
+    const { PageTitle, shouldFocusTitle } = await load();
+    shouldFocusTitle();
+    render(<PageTitle focusTargetId="absent">Recherche</PageTitle>);
+    expect(document.activeElement).toBe(title());
+  });
+});

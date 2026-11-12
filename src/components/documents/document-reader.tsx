@@ -1,6 +1,6 @@
 import { Fragment, useId } from "react";
 import { PassageScroller } from "@/components/documents/passage-scroller";
-import { layoutPassages, type PassagePosition } from "@/lib/passages";
+import { layoutPassages, type PassageOrigin, type PassagePosition } from "@/lib/passages";
 import { texts } from "@/lib/texts";
 import { cn } from "@/lib/utils";
 
@@ -10,13 +10,26 @@ type DocumentReaderProps = {
   activeIndex?: number;
   // Faux : l'appelant garde le focus (la 5.7 le place sur le titre du panneau Source).
   focusActive?: boolean;
+  // « relevant » : arrivée depuis un résultat de Recherche (« Passage pertinent ») ; sinon « Passage utilisé ».
+  origin?: PassageOrigin;
 };
 
 const t = texts.reader;
+const labels = {
+  used: { active: t.activePassageLabel, position: t.passagePosition },
+  relevant: { active: t.relevantPassageLabel, position: t.relevantPassagePosition },
+} as const;
 
 // Lecteur de Document (AD-8), partagé avec le panneau Source. Composant serveur : le texte n'est pas
 // transmis à un composant client. Tout le contenu est rendu en nœuds texte, jamais interprété.
-export function DocumentReader({ text, passages = [], activeIndex = 0, focusActive = false }: DocumentReaderProps) {
+export function DocumentReader({
+  text,
+  passages = [],
+  activeIndex = 0,
+  focusActive = false,
+  origin = "used",
+}: DocumentReaderProps) {
+  const label = labels[origin];
   const activeId = useId();
   const noticeId = useId();
   const { segments, total, missing } = layoutPassages(text, passages, activeIndex);
@@ -43,10 +56,10 @@ export function DocumentReader({ text, passages = [], activeIndex = 0, focusActi
             <Fragment key={segment.start}>
               {segment.active && (
                 <span aria-hidden="true" className="mb-1 block text-xs font-medium text-accent-text uppercase select-none">
-                  {t.activePassageLabel}
+                  {label.active}
                 </span>
               )}
-              <span className="sr-only select-none">{t.passagePosition(segment.position, total)}</span>
+              <span className="sr-only select-none">{label.position(segment.position, total)}</span>
               <mark
                 id={segment.active ? activeId : undefined}
                 tabIndex={segment.active ? -1 : undefined}

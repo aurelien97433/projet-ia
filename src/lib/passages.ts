@@ -50,7 +50,16 @@ export function parsePassageParams(
   return { passages, activeIndex: requested < passages.length ? requested : 0 };
 }
 
-const isHighSurrogate =(code: number) => code >= 0xd800 && code <= 0xdbff;
+// Origine de l'arrivée sur la page Document (`?depuis=recherche`, story 4.1b) : elle choisit
+// l'étiquette du Passage actif. Seule la valeur exacte « recherche » est reconnue ; toute autre
+// valeur, absente, répétée ou d'une autre casse, est ignorée.
+export type PassageOrigin = "used" | "relevant";
+
+export function parsePassageOrigin(depuis: string | string[] | undefined): PassageOrigin {
+  return depuis === "recherche" ? "relevant" : "used";
+}
+
+const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
 const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
 function splitsSurrogatePair(text: string, position: number): boolean {

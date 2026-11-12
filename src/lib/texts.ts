@@ -121,6 +121,9 @@ export const texts = {
   reader: {
     activePassageLabel: "Passage utilisé",
     passagePosition: (position: number, total: number) => `Passage utilisé ${position} sur ${total}`,
+    // Arrivée depuis un résultat de Recherche (story 4.1b, EXPERIENCE.md, « Résultat de Recherche »).
+    relevantPassageLabel: "Passage pertinent",
+    relevantPassagePosition: (position: number, total: number) => `Passage pertinent ${position} sur ${total}`,
     allPassagesMissing: "Le Passage cité n'a pas pu être retrouvé dans ce Document. Le Document est affiché en entier.",
     somePassagesMissing: "Un des Passages cités n'a pas pu être retrouvé dans ce Document.",
   },
@@ -176,10 +179,28 @@ export const texts = {
     // EXPERIENCE.md, « Panne de la Recherche ». Repris pour une Requête invalide : aucun texte propre
     // au catalogue, et le champ de la page Recherche (4.1b) empêche déjà une Requête vide.
     failed: "La Recherche n'a pas pu aboutir.",
+    // Page Recherche (story 4.1b, EXPERIENCE.md, E5).
+    help: "Décrivez ce que vous cherchez avec vos propres mots.",
+    fieldLabel: "Votre recherche",
+    submit: "Rechercher",
+    retry: "Réessayer",
+    examplesLabel: "Exemples de Requêtes",
+    // Requêtes du mini Jeu de démonstration (décision du 2026-11-12).
+    examples: ["organisation des congés", "remboursement des notes de frais", "revue après un incident critique"],
+    // Noms accessibles des listes (absents d'EXPERIENCE.md, ajoutés le 2026-11-12, story 4.1b).
+    resultsLabel: "Résultats de la Recherche",
+    count: (total: number) => (total === 1 ? "1 Document pertinent" : `${total} Documents pertinents`),
+    // Décision du 2026-11-12 (Q1 = B) : la fin de phrase « ou posez la question à l'Assistant » et le
+    // bouton « Poser la question à l'Assistant » sont rétablis ensemble par la story 5.2b.
+    noResults: "Aucun Document ne correspond suffisamment à votre recherche. Essayez d'autres mots.",
   },
   dashboard: {
     recentDocuments: "Derniers Documents",
     seeLibrary: "Voir la Bibliothèque",
+    // Champ de Recherche (story 4.1b) : libellé masqué et texte indicatif (EXPERIENCE.md, E3).
+    searchLabel: "Rechercher dans les Documents",
+    searchPlaceholder: "Rechercher dans les Documents…",
+    searchSubmit: "Rechercher",
   },
   categories: {
     procedure: "Procédure",
