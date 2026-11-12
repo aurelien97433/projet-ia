@@ -1141,4 +1141,13 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 
 **Déploiement.** Pas de migration ni d'Edge Function : un push suffira, sans `deploy:supabase`.
 
-**Statut.** Story 4.1b en `review`, non commitée, en attente de la validation de l'utilisateur puis de sa vérification en production. La story 2.6a n'est pas commencée.
+**Commit et déploiement.** `684bfb9` poussé sur `main` le 2026-11-12 ; Vercel : « Deployment has completed ».
+
+**Vérification en production, par l'utilisateur** (déploiement `684bfb9`) : réussie.
+- Recherche depuis le champ du Tableau de bord vers `/recherche`.
+- « organisation des congés » : « Procédure congés et absences » trouvée.
+- Ouverture du résultat : page Document au Passage, avec l'étiquette « Passage pertinent ».
+- « recette de la tarte aux pommes » : seul le message « …Essayez d'autres mots. », sans liste ni bouton.
+- Affichage correct à 375 px.
+
+**Statut final.** Story 4.1b passée à `done` le 2026-11-12, après la vérification en production de l'utilisateur. La story 2.6a n'est pas commencée.
