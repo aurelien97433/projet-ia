@@ -1250,4 +1250,13 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 
 **Déploiement.** Pas de migration ; `process-document` modifiée : `npm run deploy:supabase` avant le push.
 
-**Statut.** Story 2.6b en `review`, non commitée, en attente de la validation de l'utilisateur, du déploiement puis de sa vérification en production. La story 2.7 n'est pas commencée.
+**Commit et déploiement.** `223acb0` commité en local, `npm run deploy:supabase` lancé par l'utilisateur sur le projet distant (réussi), puis push sur `main` ; Vercel : « Deployment has completed ».
+
+**Vérification en production, par l'utilisateur** : réussie.
+- `windows-1252.txt` : *prêt*, accents, « € » et « œ » corrects.
+- `binaire.txt` : *en erreur*, message d'encodage non pris en charge, sans relance.
+- `vide.txt` : *en erreur*, message « aucun texte exploitable », distinct du précédent, sans relance.
+- Non rejoués en production, couverts par les tests : `utf8-bom.md` (intégration et unitaires) et le dépassement de 1 Mo après conversion (intégration).
+- Les Documents de test restent en production ; leur suppression par l'interface, avec la vérification de la suppression de leurs fichiers dans le stockage, est ajoutée à la story 3.4, avant l'Epic 5 (`epics.md`).
+
+**Statut final.** Story 2.6b passée à `done` le 2026-11-12, après la vérification en production de l'utilisateur. La story 2.7 n'est pas commencée.
