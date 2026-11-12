@@ -1211,3 +1211,43 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Refus d'un fichier de plus de 1 Mo : couvert par les tests e2e, non rejoué en production.
 
 **Statut final.** Story 2.6a passée à `done` le 2026-11-12, après la vérification en production de l'utilisateur. La story 2.6b n'est pas commencée.
+
+## Story 2.6b — Lire le texte des fichiers importés (2026-11-12)
+
+**Objectif.** Lire correctement le texte des fichiers importés, accents compris, et signaler clairement, sans relance possible, un fichier dont le texte est inexploitable.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter plan, fichiers et risques avant de coder.
+- UTF-8 strict avec gestion du BOM ; repli Windows-1252 avec des accents corrects ; vide ou fait d'espaces : `no_text` sans relance ; binaire renommé `.txt` : « Le texte de ce fichier n'a pas pu être lu (encodage non pris en charge). », sans relance.
+- Traiter le cas reporté par la 2.6a (texte de plus de 1 000 000 octets une fois converti) ; tests sur de vrais fichiers (UTF-8, UTF-8 avec BOM, Windows-1252, vide, binaire).
+- `procedure-test.md` reste en production pour la 3.4 ; revue ciblée sans les trois relecteurs ; aucun commit ni push sans validation ; ne pas commencer la 2.7.
+
+**Décisions de l'utilisateur.**
+- **Q1 = A.** Texte converti de plus de 1 000 000 octets : `no_text` définitif avec « Une fois converti, le texte de ce fichier dépasse 1 Mo, la taille maximale. Il ne peut pas être interrogé. » ; aucune migration, limite unique de 1 Mo.
+- Story gardée entière ; limites connues consignées (encodages proches de Windows-1252, binaire sans octet de contrôle) ; message d'encodage distinct à l'écran ; fichier de près de 1 Mo généré pendant le test, jamais versionné.
+
+**Ce que l'IA a produit.**
+- `_shared/rag/extract.ts` : UTF-8 strict (BOM retiré), repli Windows-1252, refus des caractères de contrôle (sauf tabulation, saut de ligne, retour chariot) après les deux décodages.
+- `process-document` : trois causes `no_text` définitives (encodage, trop long une fois converti, vide), avec des messages identiques au catalogue ; contrôle de la taille du texte canonique avant l'écriture finale.
+- Fichiers de test réels générés par un script versionné (`tests/fixtures/files/`), protégés de la conversion des fins de ligne par `.gitattributes`.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- Un octet nul est du UTF-8 valide : le contrôle des caractères s'applique donc aussi au décodage UTF-8, sinon un binaire « UTF-8 valide » serait devenu *prêt*.
+- Un BOM UTF-8 suivi d'octets invalides affichait « ï»¿ » après le repli : retiré.
+- `core.autocrlf = true` sur le poste aurait modifié les octets des fichiers de test au commit : `.gitattributes` et un test d'égalité octet par octet avec le script.
+- Limite connue ajoutée par la revue : un fichier UTF-8 contenant un seul octet invalide est relu entièrement en Windows-1252 (accents affichés « Ã© »), conformément au repli global d'AD-8.
+- Un premier passage complet de Vitest a duré plus de 10 minutes, avec 10 échecs par délai dépassé sur des tests qui interrogent la base par la CLI Supabase, dont des tests anciens sans lien avec la story. Commande vérifiée seule (7 s), puis suite relancée : 1 148 réussis en 66 s. Ralentissement passager de l'environnement local, cause non établie.
+
+**Tests.**
+- `npm test` : 1 148 réussis (67 fichiers), dont 8 cas d'intégration sur Supabase local (fichiers réels déposés, importés et traités : trois *prêts* avec accents corrects, vide, espaces, binaire et fichier de 1 000 000 octets généré pendant le test en `no_text`, relance refusée).
+- `lint`, `tsc`, `build:ci`, `check:secrets` : verts, aucun secret.
+- E2e complets : 302 réussis, 18 sautés, aucun échec ; dont binaire et vide importés par l'interface : messages distincts à l'écran, aucune relance proposée.
+
+**Durée.**
+- Lecture, contexte de l'Epic 2 et story : de 11:44 à 11:50 environ.
+- Implémentation, tests, revue ciblée et journal : de 11:50 à 12:25 environ (dont environ 12 min perdues par le passage de Vitest ralenti).
+- Total : environ 40 min, sans le déploiement ni la vérification en production.
+
+**Déploiement.** Pas de migration ; `process-document` modifiée : `npm run deploy:supabase` avant le push.
+
+**Statut.** Story 2.6b en `review`, non commitée, en attente de la validation de l'utilisateur, du déploiement puis de sa vérification en production. La story 2.7 n'est pas commencée.

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { texts } from "@/lib/texts";
 import { handle } from "../../supabase/functions/process-document/index.ts";
@@ -31,10 +32,12 @@ type Backend = {
   fail?: () => Response;
   embeddings?: (input: string[]) => Response;
   complete?: () => Response;
+  // Fichier importé (story 2.6b) : la lecture renvoie un Document file, le téléchargement ces octets.
+  file?: Uint8Array<ArrayBuffer>;
 };
 
 // Base et fournisseur simulés, pour le travail complet : chaque appel est conservé.
-function backend({ text = "Texte de la Note.", superseded = false, read, fail, embeddings, complete }: Backend = {}) {
+function backend({ text = "Texte de la Note.", superseded = false, read, fail, embeddings, complete, file }: Backend = {}) {
   const calls = {
     provider: [] as string[][],
     completed: [] as Record<string, unknown>[],
@@ -47,6 +50,10 @@ function backend({ text = "Texte de la Note.", superseded = false, read, fail, e
       calls.provider.push(input);
       if (embeddings) return embeddings(input);
       return Response.json({ data: input.map((_, index) => ({ index, embedding: new Array(1536).fill(0.1) })) });
+    }
+    if (file && url.includes("/storage/v1/object/documents/")) return new Response(file);
+    if (file && url.includes("select=content_text")) {
+      return Response.json([{ content_text: null, text_version: 1, kind: "file", storage_path: "auteur/uploads/u.txt" }]);
     }
     if (url.includes("rpc/complete_processing")) {
       calls.completed.push(JSON.parse(init?.body as string));
@@ -282,6 +289,50 @@ describe("accusé et travail d'arrière-plan", () => {
     expect(calls.completed).toEqual([]);
     expect(calls.failed).toHaveLength(1);
     expect(calls.failed[0]).toMatchObject({ p_kind: "no_text" });
+  });
+
+  describe("fichier importé (story 2.6b) : refus définitifs en no_text, message propre à chaque cause", () => {
+    const encode = (text: string) => new TextEncoder().encode(text);
+    // « é » en Windows-1252 (1 octet) devient 2 octets en UTF-8.
+    const accents = (bytes: number) => new Uint8Array(bytes).fill(0xe9);
+
+    it.each([
+      ["binaire (octet nul)", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00, 0x01]), texts.documentStatus.noTextEncoding],
+      ["UTF-8 valide avec un caractère de contrôle", encode("Textecaché"), texts.documentStatus.noTextEncoding],
+      ["vide", new Uint8Array(), texts.documentStatus.noText],
+      ["BOM seul", new Uint8Array([0xef, 0xbb, 0xbf]), texts.documentStatus.noText],
+      ["Windows-1252 dépassant 1 000 000 octets une fois converti", accents(600_000), texts.documentStatus.noTextTooLarge],
+    ])("%s : no_text, aucun appel à l'IA, rien d'écrit", async (_label, bytes, message) => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const calls = backend({ file: bytes });
+      await runDefaultWork();
+      expect(calls.provider).toEqual([]);
+      expect(calls.completed).toEqual([]);
+      expect(calls.failed).toEqual([
+        { p_document_id: DOCUMENT_ID, p_attempt_id: ATTEMPT_ID, p_kind: "no_text", p_message: message },
+      ]);
+    });
+
+    it("Windows-1252 de 500 000 « é » (1 000 000 octets une fois converti) : traité jusqu'au bout", async () => {
+      const calls = backend({ file: accents(500_000) });
+      await runDefaultWork();
+      expect(calls.failed).toEqual([]);
+      expect(calls.completed).toHaveLength(1);
+      expect(calls.completed[0].p_content_text).toBe("é".repeat(500_000));
+    });
+
+    it("Windows-1252 avec accents : texte converti, accents corrects", async () => {
+      const calls = backend({ file: new Uint8Array([0x43, 0x6f, 0xfb, 0x74, 0x20, 0x3a, 0x20, 0x31, 0x32, 0x20, 0x80]) });
+      await runDefaultWork();
+      expect(calls.completed[0].p_content_text).toBe("Coût : 12 €");
+    });
+
+    it("trois messages distincts, identiques à ceux du catalogue", () => {
+      const { noText, noTextEncoding, noTextTooLarge } = texts.documentStatus;
+      expect(new Set([noText, noTextEncoding, noTextTooLarge]).size).toBe(3);
+      const source = fs.readFileSync("supabase/functions/process-document/index.ts", "utf8");
+      for (const message of [noText, noTextEncoding, noTextTooLarge]) expect(source).toContain(JSON.stringify(message));
+    });
   });
 
   it.each([

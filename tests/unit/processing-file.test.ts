@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decodeFileText } from "../../supabase/functions/_shared/rag/extract.ts";
 import { downloadFile, readDocumentText } from "../../supabase/functions/_shared/processing.ts";
 
 // Lecture du texte d'un fichier importé par process-document (story 2.6a) : téléchargement avec
-// service_role et décodage UTF-8 minimal (BOM retiré). Le décodage complet relève de la story 2.6b.
+// service_role, puis décodage (tests/unit/extract.test.ts) ; refus d'encodage signalé sans exception.
 const env: Record<string, string> = {};
 const fetchMock = vi.fn();
 const ATTEMPT = { documentId: "doc", attemptId: "tentative" };
@@ -22,14 +21,6 @@ afterEach(() => {
 
 const encode = (text: string) => new TextEncoder().encode(text);
 
-describe("decodeFileText", () => {
-  it("UTF-8, accents compris ; BOM retiré", () => {
-    expect(decodeFileText(encode("Procédure congés"))).toBe("Procédure congés");
-    expect(decodeFileText(new Uint8Array([0xef, 0xbb, 0xbf, ...encode("Été")]))).toBe("Été");
-    expect(decodeFileText(new Uint8Array())).toBe("");
-  });
-});
-
 describe("readDocumentText", () => {
   const rows = (row: Record<string, unknown> | null) => Response.json(row ? [row] : []);
 
@@ -46,6 +37,20 @@ describe("readDocumentText", () => {
     const download = vi.fn(async () => encode("# Titre"));
     expect(await readDocumentText(ATTEMPT, download)).toEqual({ text: "# Titre", textVersion: 1 });
     expect(download).toHaveBeenCalledWith("a/uploads/x.md");
+  });
+
+  it("fichier illisible (binaire) : texte vide marqué « encoding », sans exception", async () => {
+    fetchMock.mockResolvedValueOnce(rows({ content_text: null, text_version: 4, kind: "file", storage_path: "a/uploads/x.txt" }));
+    const download = vi.fn(async () => new Uint8Array([0x89, 0x50, 0x00]));
+    expect(await readDocumentText(ATTEMPT, download)).toEqual({ text: "", textVersion: 4, unreadable: "encoding" });
+  });
+
+  it("fichier Windows-1252 : décodé avec ses accents", async () => {
+    fetchMock.mockResolvedValueOnce(rows({ content_text: null, text_version: 1, kind: "file", storage_path: "a/uploads/x.txt" }));
+    expect(await readDocumentText(ATTEMPT, vi.fn(async () => new Uint8Array([0xc9, 0x74, 0xe9])))).toEqual({
+      text: "Été",
+      textVersion: 1,
+    });
   });
 
   it("tentative remplacée : null, aucun téléchargement", async () => {

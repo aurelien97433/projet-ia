@@ -52,7 +52,8 @@ export async function isCurrentAttempt({ documentId, attemptId }: Attempt): Prom
   return Date.now() - new Date(rows[0].processing_started_at).getTime() < ATTEMPT_LIFETIME_MS;
 }
 
-export type DocumentSource = { text: string; textVersion: number };
+// unreadable : fichier importé dont le texte n'a pas pu être lu (encodage, story 2.6b) ; erreur no_text.
+export type DocumentSource = { text: string; textVersion: number; unreadable?: "encoding" };
 
 type SourceRow = { content_text: string | null; text_version: number; kind: "note" | "file"; storage_path: string | null };
 
@@ -71,7 +72,8 @@ export async function downloadFile(path: string): Promise<Uint8Array> {
 }
 
 // Texte du Document, si cette tentative est encore la tentative courante ; sinon null. Fichier
-// importé dont le texte n'est pas encore extrait (story 2.6a) : téléchargé puis décodé en UTF-8.
+// importé dont le texte n'est pas encore extrait : téléchargé puis décodé (UTF-8 strict, repli
+// Windows-1252, contrôle des caractères ; story 2.6b).
 export async function readDocumentText(
   { documentId, attemptId }: Attempt,
   download: (path: string) => Promise<Uint8Array> = downloadFile,
@@ -89,7 +91,10 @@ export async function readDocumentText(
   if (!row) return null;
   if (row.kind === "file" && row.content_text === null) {
     if (!row.storage_path) throw new Error("Fichier sans chemin");
-    return { text: decodeFileText(await download(row.storage_path)), textVersion: row.text_version };
+    const decoded = decodeFileText(await download(row.storage_path));
+    return decoded.ok
+      ? { text: decoded.text, textVersion: row.text_version }
+      : { text: "", textVersion: row.text_version, unreadable: decoded.reason };
   }
   return { text: row.content_text ?? "", textVersion: row.text_version };
 }

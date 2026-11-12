@@ -220,3 +220,28 @@ test("changer d'onglet ne perd ni le titre, ni la Catégorie, ni le fichier dép
   await expect(fileMessage(page)).toHaveText(t.uploaded("onglets.md"));
   await expect(importButton(page)).not.toHaveAttribute("aria-disabled", "true");
 });
+
+test("fichiers inexploitables (story 2.6b) : messages distincts à l'écran, aucune relance proposée", async ({ page }) => {
+  const shown: string[] = [];
+  for (const [name, message] of [
+    ["binaire.txt", texts.documentStatus.noTextEncoding],
+    ["vide.txt", texts.documentStatus.noText],
+  ] as const) {
+    await openFileTab(page);
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: t.chooseFile }).click();
+    await (await chooser).setFiles(`tests/fixtures/files/${name}`);
+    await expect(fileMessage(page)).toHaveText(t.uploaded(name));
+    await page.locator("#file-category").selectOption("other");
+    await importButton(page).click();
+
+    await expect(page).toHaveURL(DOCUMENT_URL, { timeout: 30_000 });
+    created.push(DOCUMENT_URL.exec(page.url())![1]);
+    // Le paragraphe commence par un « ▲ » décoratif (masqué aux lecteurs d'écran) : correspondance partielle.
+    await expect(page.locator("main").getByText(message)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("main dl").getByText(texts.status.error)).toBeVisible();
+    await expect(page.getByRole("button", { name: texts.documentStatus.retry })).toHaveCount(0);
+    shown.push(message);
+  }
+  expect(shown[0]).not.toBe(shown[1]);
+});

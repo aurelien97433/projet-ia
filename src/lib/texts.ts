@@ -152,8 +152,13 @@ export const texts = {
     // Même texte que la raison enregistrée en base (AD-5).
     temporaryAuthor: "Le traitement n'a pas pu aboutir. Vous pouvez le relancer.",
     temporaryOther: "Le traitement n'a pas pu aboutir. Seul l'Auteur de ce Document peut relancer le traitement.",
-    // Repli : la raison d'un no_text est lue en base (la story 2.6b ajoute un message d'encodage).
+    // Repli : la raison d'un no_text est lue en base. Les trois raisons possibles, écrites par
+    // process-document (textes identiques, vérifiés par un test) :
     noText: "Ce fichier ne contient aucun texte exploitable. Il ne peut pas être interrogé.",
+    // EXPERIENCE.md, « Encodage illisible » (story 2.6b).
+    noTextEncoding: "Le texte de ce fichier n'a pas pu être lu (encodage non pris en charge).",
+    // Décision du 2026-11-12 (story 2.6b, Q1 = A).
+    noTextTooLarge: "Une fois converti, le texte de ce fichier dépasse 1 Mo, la taille maximale. Il ne peut pas être interrogé.",
     retry: "Relancer le traitement",
     retrying: "Relance…",
     // Absents d'EXPERIENCE.md pour la relance : textes validés le 2026-11-09 (story 2.5, Q2 = A).

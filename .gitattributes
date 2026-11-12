@@ -1,0 +1,2 @@
+# Fichiers de test du décodage (story 2.6b) : octets exacts, jamais de conversion des fins de ligne.
+tests/fixtures/files/** binary

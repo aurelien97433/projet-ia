@@ -20,6 +20,11 @@ import { hasBearerSecret } from "../_shared/secret.ts";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FAILURE_MESSAGE = "Le traitement n'a pas pu aboutir. Vous pouvez le relancer.";
 const NO_TEXT_MESSAGE = "Ce fichier ne contient aucun texte exploitable. Il ne peut pas être interrogé.";
+// Story 2.6b : messages identiques au catalogue (src/lib/texts.ts, documentStatus), vérifiés par un test.
+const ENCODING_MESSAGE = "Le texte de ce fichier n'a pas pu être lu (encodage non pris en charge).";
+const TOO_LARGE_MESSAGE = "Une fois converti, le texte de ce fichier dépasse 1 Mo, la taille maximale. Il ne peut pas être interrogé.";
+// Même limite que la contrainte documents_content_size : 1 000 000 octets UTF-8 de texte canonique.
+const MAX_TEXT_BYTES = 1_000_000;
 
 type Work = (attempt: Attempt) => Promise<void>;
 
@@ -35,14 +40,22 @@ const processDocument: Work = async (attempt) => {
     return;
   }
 
-  const text = normalizeText(source.text);
-  const chunks = chunkText(text);
-  if (chunks.length === 0) {
-    const recorded = await failProcessing(attempt, "no_text", NO_TEXT_MESSAGE);
-    if (recorded) logInfo("process_document_no_text", ids);
+  // Texte inexploitable : erreur no_text définitive (sans relance), jamais une erreur temporaire.
+  const noText = async (message: string, cause: string) => {
+    const recorded = await failProcessing(attempt, "no_text", message);
+    if (recorded) logInfo("process_document_no_text", { ...ids, cause });
     else logEvent("fail_processing_refused", ids);
-    return;
-  }
+  };
+
+  if (source.unreadable) return noText(ENCODING_MESSAGE, "encoding");
+
+  const text = normalizeText(source.text);
+  // Texte converti (Windows-1252 riche en accents, NFC) au-delà de la limite : complete_processing
+  // échouerait sur la contrainte de taille, en erreur temporaire relançable sans fin.
+  if (new TextEncoder().encode(text).length > MAX_TEXT_BYTES) return noText(TOO_LARGE_MESSAGE, "too_large");
+
+  const chunks = chunkText(text);
+  if (chunks.length === 0) return noText(NO_TEXT_MESSAGE, "empty");
 
   const embedStarted = Date.now();
   const { vectors, model, version } = await embed(

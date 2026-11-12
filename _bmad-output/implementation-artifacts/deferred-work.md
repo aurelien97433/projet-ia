@@ -123,3 +123,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-6a-déposer-et-importer-un-fichier-txt-ou-md.md`
   summary: Story 2.6b et 2.7 : un fichier non UTF-8 proche de 1 Mo, décodé sans contrôle, peut dépasser 1 000 000 octets une fois converti (caractères de remplacement de 3 octets) et faire échouer `complete_processing` (contrainte `documents_content_size`) en erreur temporaire.
   evidence: Revue de 2.6a (maybe-false, non mesuré) : 2.6a décode en UTF-8 non strict, comme prévu ; le décodage strict et le repli Windows-1252 de 2.6b, et le test de charge de 2.7, doivent vérifier la taille après décodage et produire une erreur explicite plutôt qu'une erreur temporaire relançable sans fin.
+- source_spec: `_bmad-output/implementation-artifacts/2-6b-lire-le-texte-des-fichiers-importés.md`
+  summary: Traité par 2.6b — texte de plus de 1 000 000 octets une fois converti (entrée de 2.6a) : `no_text` définitif avec un message propre, contrôlé avant `complete_processing`.
+  evidence: Décision Q1 = A du 2026-11-12 ; test d'intégration avec un fichier Windows-1252 de 1 000 000 octets généré pendant le test (2 000 000 octets une fois converti). Reste pour 2.7 : mesurer la durée et la mémoire d'un fichier proche de la limite qui, lui, devient *prêt*.
