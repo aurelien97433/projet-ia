@@ -12,8 +12,9 @@ const relations = localSqlRows(
 ).map((row) => String(row.table_name));
 
 describe("Visiteur : appel direct avec la clé publique", () => {
-  it("la liste des tables de public est connue (profiles au moins)", () => {
+  it("la liste des tables de public est connue (profiles au moins, Conversations de la story 5.1)", () => {
     expect(relations).toContain("profiles");
+    expect(relations).toEqual(expect.arrayContaining(["conversations", "messages", "message_sources"]));
   });
 
   it.each(relations)("lecture de %s : aucune ligne", async (table) => {

@@ -1462,3 +1462,41 @@ La production est prête pour l'Epic 5.
 **Retrait.** Fonction distante supprimée par l'utilisateur (`functions list` : `process-document` et `semantic-search` seulement), branche distante supprimée, prévisualisation laissée (protégée). Sur `main`, documents seulement.
 
 **Statut.** Story 5.0 `done`. Pour 5.5 : reprendre les réglages de la variante de base pour `app/api/chat`. Prochaine story de l'Epic 5 : 5.1 (lundi 16/11).
+
+## Story 5.1 — Stocker les Conversations de façon strictement privée (2026-11-13)
+
+**Décisions de l'utilisateur.**
+- Q1 = A : une Source ne garde que les identifiants et positions des Passages, aucun extrait.
+- Q2 = A : pas de suppression de Conversation avant la story P1.
+- « Réessayer » verrouillé : seul un échec de l'Assistant de son propriétaire est modifiable, sans pouvoir changer `owner_id`, `conversation_id`, `role` ni `client_request_id`.
+- Story entière, trois relecteurs (règle 11).
+
+**Réalisation.**
+- Migration `20261113120000_conversations.sql` : `conversations`, `messages`, `message_sources`, propriétaire seul.
+- Cohérence du propriétaire par clés étrangères composites : B ne peut rattacher un message à la Conversation de A, même avec son propre `owner_id` (`23503`).
+- La Source de B passe à null quand A supprime son Document, sans que A puisse la lire.
+- Contraintes de taille sur le texte brut (question 2 000, réponse 20 000), unicité de la question par Compte, privilèges colonne par colonne, aucun droit pour `anon`.
+
+**Revue.** Trois relecteurs. Corrigés :
+- tailles contournables par des espaces ;
+- décision Q1 non imposée par la base (fonction de contrôle ajoutée) ;
+- Source rattachable à une question ou à un échec ;
+- ordre des messages d'une même transaction ;
+- `last_message_at` antérieur à la création ;
+- note fausse sur la course de la 5.2a ;
+- tests manquants.
+
+Deux constats rejetés, un différé à la 5.2a (journal de tri dans la spec).
+
+**Constats en chemin.**
+- En revenant de la branche d'essai, Git a réécrit `supabase/config.toml` en CRLF et un test de frontières ne normalisait pas les fins de ligne (corrigé).
+- Les builds de la branche d'essai avaient laissé des types qui cassaient `tsc` (`.next-e2e` supprimé, `.next` régénéré).
+
+**Résultats** : `npm test` 1 331 réussis ; `lint`, `tsc`, `build:ci` et `check:secrets` verts.
+
+**Statut.** Story 5.1 en `review`, non commitée. Ordre prévu après validation :
+1. commit local ;
+2. `npm run deploy:supabase` par l'utilisateur ;
+3. push ;
+4. contrôle en lecture seule des trois tables sur le projet distant ;
+5. commit de clôture.
