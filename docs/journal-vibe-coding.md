@@ -1357,4 +1357,18 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 
 **Durée de la story 2.7** : de 12:31 à 19:55 avec des interruptions. Travail effectif estimé à environ 2 h 30, dont trois exécutions distantes en échec et leurs diagnostics, sans les exécutions de l'utilisateur.
 
-**Statut.** Story 2.7 en `review`, non commitée. Ordre de déploiement : push, puis `npm run deploy:supabase`, puis vérification. Reste, après validation : exécution distante par l'utilisateur (`npm run load:1mo -- --remote`), relevé des durées dans les journaux de `process-document`, puis rapport, décision sur l'écriture par lots et `http_500`, et commit de clôture. La story 3.4 n'est pas commencée.
+**Commit et déploiement (2026-11-13).** Avant le commit, à la demande de l'utilisateur : aucun fichier `.env*` dans l'arbre (tous exclus par `.gitignore`), `npm run check:secrets` vert. `ec8aa83` poussé sur `main`, Vercel *Ready*. Ensuite `npm run deploy:supabase` par l'utilisateur : migration `20261112170000_limit_100000.sql` appliquée sur le projet distant, `process-document` redéployée, `semantic-search` inchangée.
+
+**Vérification en production, par l'utilisateur (de 07:25 à 07:35, environ 10 min)** : réussie.
+- `npm run load:1mo -- --remote` :
+  - `.txt` de 98 707 octets *prêt*, 116 Passages, 6,5 s ;
+  - `.md` de 98 221 octets *prêt*, 115 Passages, 2,9 s ;
+  - environ 1,1 Mo ajoutés par fichier, base à 17,7 Mo, « limite de 100 Ko confirmée » ;
+  - rapport `docs/mesures/charge-100000-octets-2.md`. `embed_ms` et `complete_ms` non relevés cette fois.
+- Fichier de 100 001 octets sur le site : refusé aussitôt (« Ce fichier dépasse 100 Ko, la taille maximale. »), sans dépôt.
+- La sortie du script n'affichait pas « 0 restant ». Contrôle par l'IA en lecture seule sur la production : 0 Document « Test de charge 1 Mo », 0 Passage rattaché, 13 Documents au total.
+- Constat en chemin : deux objets orphelins (34 et 0 octets) dans le bucket, déposés pendant la vérification de 2.6b, sans lien avec le test de charge. C'est le risque connu du dépôt avant l'import ; ajouté à `deferred-work.md`.
+
+**Points différés tranchés** : écriture par lots reportée après l'Epic 5 ; `http_500` expliqué (limite de 8 s par instruction, code `57014`, désormais journalisé).
+
+**Statut.** Story 2.7 `done`. Prochaine : 3.4, non commencée, à finir avant l'Epic 5 (lundi 16/11).

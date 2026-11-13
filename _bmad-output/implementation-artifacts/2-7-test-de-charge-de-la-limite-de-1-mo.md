@@ -2,7 +2,7 @@
 title: 'Story 2.7 : Test de charge de la limite de 1 Mo'
 type: 'feature'
 created: '2026-11-12'
-status: 'in-review'
+status: 'done'
 baseline_commit: '4ae6ef4ac147c302322c81701964fc0e6d384cf6'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -114,3 +114,9 @@ Revue ciblée faite dans la session, sans les trois relecteurs (demande de l'uti
 - **Mesures à 150 000 et 100 000 octets (utilisateur)** : 150 000 rejeté (`complete_ms` 3 339 et 7 005 ms) ; **100 000 retenu** (`complete_ms` 2 556 et 3 047 ms pour 116 et 115 Passages). Décision : **100 Ko = 100 000 octets** pour les fichiers et les Notes (après normalisation) ; écriture par lots reportée après l'Epic 5.
 - **Application de la limite** : migration `20261112170000_limit_100000.sql` (bucket, contrainte `documents_content_size`, `import_file_document` recréée à l'identique hormis la limite, droits conservés ; aucun Document existant au-delà, 4 036 octets au plus) ; `process-document` (texte converti à 100 Ko, message) ; `DbError.from` journalise le code Postgres ou PostgREST réel (`http_500:57014`), jamais le message ni les détails ; `src/lib/documents.ts` (`MAX_TEXT_BYTES = 100_000`, dont dépendent le contrôle navigateur, la route de dépôt et le schéma de la Note) ; messages « 100 Ko » ; `load:1mo` mesure la limite en vigueur par défaut, `--size` jusqu'à 1 000 000, rapports jamais écrasés ; PRD (FR-4, FR-5, SM-5, Jeu), addendum, architecture, EXPERIENCE.md, `epics.md` (note datée, critères livrés non réécrits), `docs/environnements.md` ; tests adaptés et test de concordance de la limite (`tests/unit/size-limit.test.ts`).
 - **Ordre de déploiement validé** : push d'abord (l'application refuse au-delà de 100 Ko, la base accepte encore jusqu'à 1 Mo : aucune erreur possible), puis `npm run deploy:supabase` (migration et `process-document`).
+- **Commit et déploiement (2026-11-13)** : `ec8aa83` poussé sur `main`, Vercel *Ready* ; ensuite `npm run deploy:supabase` par l'utilisateur (migration `20261112170000_limit_100000.sql` appliquée sur le projet distant, `process-document` redéployée, `semantic-search` inchangée).
+- **Vérification en production (2026-11-13, de 07:25 à 07:35, environ 10 min, par l'utilisateur)** : réussie.
+  - `npm run load:1mo -- --remote` : `.txt` de 98 707 octets *prêt* (116 Passages, 6,5 s) et `.md` de 98 221 octets *prêt* (115 Passages, 2,9 s) ; environ 1,1 Mo ajoutés par fichier ; base à 17,7 Mo ; « limite de 100 Ko confirmée » ; rapport `docs/mesures/charge-100000-octets-2.md`. `embed_ms` et `complete_ms` non relevés pour cette exécution ; références dans `charge-100000-octets.md`.
+  - Fichier de 100 001 octets sur le site : refusé aussitôt (« Ce fichier dépasse 100 Ko, la taille maximale. »), sans dépôt.
+  - Nettoyage contrôlé par l'IA, en lecture seule sur la production : 0 Document « Test de charge 1 Mo », 0 Passage rattaché, 13 Documents au total. Deux objets orphelins (34 et 0 octets) ont été trouvés dans le bucket : ils datent de la vérification de 2.6b (2026-11-12) et ne viennent pas du test de charge (`deferred-work.md`).
+- **Points différés tranchés** : écriture par lots reportée après l'Epic 5 ; cause de `http_500` établie (limite de 8 s par instruction, code `57014`) ; `deferred-work.md` mis à jour.
