@@ -22,9 +22,9 @@ const FAILURE_MESSAGE = "Le traitement n'a pas pu aboutir. Vous pouvez le relanc
 const NO_TEXT_MESSAGE = "Ce fichier ne contient aucun texte exploitable. Il ne peut pas être interrogé.";
 // Story 2.6b : messages identiques au catalogue (src/lib/texts.ts, documentStatus), vérifiés par un test.
 const ENCODING_MESSAGE = "Le texte de ce fichier n'a pas pu être lu (encodage non pris en charge).";
-const TOO_LARGE_MESSAGE = "Une fois converti, le texte de ce fichier dépasse 1 Mo, la taille maximale. Il ne peut pas être interrogé.";
-// Même limite que la contrainte documents_content_size : 1 000 000 octets UTF-8 de texte canonique.
-const MAX_TEXT_BYTES = 1_000_000;
+const TOO_LARGE_MESSAGE = "Une fois converti, le texte de ce fichier dépasse 100 Ko, la taille maximale. Il ne peut pas être interrogé.";
+// Même limite que la contrainte documents_content_size : 100 000 octets UTF-8 de texte canonique (100 Ko).
+const MAX_TEXT_BYTES = 100_000;
 
 type Work = (attempt: Attempt) => Promise<void>;
 

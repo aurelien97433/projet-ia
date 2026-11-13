@@ -5,7 +5,8 @@ import { texts } from "@/lib/texts";
 const errors = texts.addDocument.errors;
 
 // Création d'une Note (FR-4) : titre de 1 à 200 caractères, Catégorie de la liste, texte non vide de
-// 1 000 000 octets UTF-8 au plus, identifiant de demande (AD-16). Mêmes règles que la base.
+// 100 000 octets UTF-8 au plus (100 Ko, mesurés après normalisation), identifiant de demande (AD-16).
+// Mêmes règles que la base.
 export const noteSchema = z.object({
   title: z
     .string({ error: errors.titleMissing })

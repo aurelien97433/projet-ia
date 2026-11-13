@@ -31,23 +31,25 @@ describe("noteSchema", () => {
     expect(result.error?.issues.find((issue) => issue.path[0] === field)?.message).toBe(message);
   });
 
-  it("texte de 1 000 000 octets exactement : accepté ; 1 000 001 octets : refusé", () => {
+  it("texte de 100 000 octets exactement (100 Ko) : accepté ; 100 001 octets : refusé", () => {
+    expect(MAX_TEXT_BYTES).toBe(100_000);
     expect(noteSchema.safeParse({ ...valid, content: "a".repeat(MAX_TEXT_BYTES) }).success).toBe(true);
     const tooLarge = noteSchema.safeParse({ ...valid, content: "a".repeat(MAX_TEXT_BYTES + 1) });
     expect(tooLarge.error?.issues[0].message).toBe(e.textTooLarge);
   });
 
-  it("limite comptée en octets UTF-8, pas en caractères : 500 001 « é » (1 000 002 octets) refusés", () => {
-    expect(noteSchema.safeParse({ ...valid, content: "é".repeat(500_000) }).success).toBe(true);
-    expect(noteSchema.safeParse({ ...valid, content: "é".repeat(500_001) }).error?.issues[0].message).toBe(e.textTooLarge);
+  it("limite comptée en octets UTF-8, pas en caractères : 50 001 « é » (100 002 octets) refusés", () => {
+    expect(noteSchema.safeParse({ ...valid, content: "é".repeat(50_000) }).success).toBe(true);
+    expect(noteSchema.safeParse({ ...valid, content: "é".repeat(50_001) }).error?.issues[0].message).toBe(e.textTooLarge);
   });
 
   it("texte canonique avant la mesure : « \\r\\n » de l'envoi du formulaire compté comme « \\n », forme NFC", () => {
-    // 1 000 000 octets en « \n » deviennent 1 000 000 + 10 000 octets une fois envoyés en « \r\n ».
+    // 100 000 octets en « \n » deviennent 100 000 + 1 000 octets une fois envoyés en « \r\n » : la Note
+    // reste acceptée, car elle est mesurée après normalisation.
     const lines = "a".repeat(99) + "\r\n";
-    const sent = lines.repeat(10_000);
+    const sent = lines.repeat(1_000);
     const parsed = noteSchema.parse({ ...valid, content: sent });
-    expect(parsed.content).toBe(("a".repeat(99) + "\n").repeat(10_000));
+    expect(parsed.content).toBe(("a".repeat(99) + "\n").repeat(1_000));
     expect(noteSchema.parse({ ...valid, content: "é" }).content).toBe("é");
   });
 

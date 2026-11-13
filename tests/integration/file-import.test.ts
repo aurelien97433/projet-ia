@@ -74,10 +74,10 @@ afterAll(async () => {
 });
 
 describe("bucket documents", () => {
-  it("privé, 1 000 000 octets au plus, sans restriction de type MIME", async () => {
+  it("privé, 100 000 octets au plus (100 Ko), sans restriction de type MIME", async () => {
     const { data, error } = await admin.storage.getBucket(BUCKET);
     expect(error).toBeNull();
-    expect(data).toMatchObject({ public: false, file_size_limit: 1_000_000 });
+    expect(data).toMatchObject({ public: false, file_size_limit: 100_000 });
     expect(data?.allowed_mime_types ?? null).toBeNull();
   });
 
@@ -91,8 +91,9 @@ describe("bucket documents", () => {
     expect((await anon.storage.from(BUCKET).upload(`${a.id}/uploads/${newUploadId()}`, "x")).error).not.toBeNull();
   });
 
-  it("objet de plus de 1 000 000 octets refusé par le bucket", async () => {
-    expect(await deposit(a, newUploadId(), "a".repeat(1_000_001))).not.toBe(200);
+  it("objet de plus de 100 000 octets refusé par le bucket ; 100 000 acceptés", async () => {
+    expect(await deposit(a, newUploadId(), "a".repeat(100_001))).not.toBe(200);
+    expect(await deposit(a, newUploadId(), "a".repeat(100_000))).toBe(200);
   });
 });
 
@@ -243,11 +244,11 @@ describe("import_file_document", () => {
     expect((await importAs(a, uploadId)).error?.message).toBe("upload_not_found");
   });
 
-  it("taille enregistrée au-delà de 1 000 000 octets : refusé", async () => {
+  it("taille enregistrée au-delà de 100 000 octets : refusé", async () => {
     const uploadId = newUploadId();
     expect(await deposit(a, uploadId, "Texte.")).toBe(200);
     localSqlRows(
-      `update storage.objects set metadata = jsonb_set(metadata, '{size}', '1000001') where bucket_id = 'documents' and name = '${a.id}/uploads/${uploadId}'`,
+      `update storage.objects set metadata = jsonb_set(metadata, '{size}', '100001') where bucket_id = 'documents' and name = '${a.id}/uploads/${uploadId}'`,
     );
     expect((await importAs(a, uploadId)).error?.message).toBe("file_too_large");
   });

@@ -11,7 +11,7 @@ export type UploadOutcome =
   | { status: "failed" }
   | { status: "aborted" };
 
-// Au-delà, le dépôt est considéré comme échoué (1 Mo au plus).
+// Au-delà, le dépôt est considéré comme échoué (100 Ko au plus).
 export const UPLOAD_TIMEOUT_MS = 60_000;
 
 type UploadTarget = { uploadId: string; signedUrl: string };

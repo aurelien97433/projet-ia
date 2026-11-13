@@ -28,12 +28,12 @@ describe("fileExtension et checkFile (contrôle avant tout envoi)", () => {
     },
   );
 
-  it("taille : 0 et 1 000 000 octets acceptés, 1 000 001 et 1 200 000 refusés ; format vérifié d'abord", () => {
+  it("taille (100 Ko = 100 000 octets) : 0 et 100 000 octets acceptés, 100 001 et 120 000 refusés ; format vérifié d'abord", () => {
     expect(checkFile({ name: "a.txt", size: 0 })).toBeNull();
-    expect(checkFile({ name: "a.txt", size: 1_000_000 })).toBeNull();
-    expect(checkFile({ name: "a.txt", size: 1_000_001 })).toBe("size");
-    expect(checkFile({ name: "a.md", size: 1_200_000 })).toBe("size");
-    expect(checkFile({ name: "a.docx", size: 1_200_000 })).toBe("format");
+    expect(checkFile({ name: "a.txt", size: 100_000 })).toBeNull();
+    expect(checkFile({ name: "a.txt", size: 100_001 })).toBe("size");
+    expect(checkFile({ name: "a.md", size: 120_000 })).toBe("size");
+    expect(checkFile({ name: "a.docx", size: 120_000 })).toBe("format");
     expect(checkFile({ name: "a.txt", size: Number.NaN })).toBe("size");
   });
 });

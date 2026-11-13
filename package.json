@@ -15,6 +15,7 @@
     "test:ai": "vitest run --config vitest.live.config.mts",
     "test:search:live": "tsx scripts/test-search-live.ts",
     "measure:search": "tsx scripts/measure-search.ts",
+    "load:1mo": "tsx scripts/load-test-1mo.ts",
     "check:env": "tsx scripts/check-env.ts",
     "check:secrets": "tsx scripts/check-secrets.ts",
     "build:ci": "npm run check:secrets && next build && npm run check:secrets -- --static",

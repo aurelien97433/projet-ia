@@ -89,9 +89,12 @@ describe("création par un Collaborateur", () => {
     expect(count).toBe(0);
   });
 
-  it("texte de plus de 1 000 000 octets refusé par la base, même en appel direct", async () => {
-    const { error } = await a.client.from("documents").insert(note({ content_text: "é".repeat(500_001) }));
+  it("texte de plus de 100 000 octets (100 Ko) refusé par la base, même en appel direct ; 100 000 acceptés", async () => {
+    const { error } = await a.client.from("documents").insert(note({ content_text: "é".repeat(50_001) }));
     expect(error?.code).toBe("23514");
+    const accepted = await a.client.from("documents").insert(note({ content_text: "é".repeat(50_000) })).select("id").single();
+    expect(accepted.error).toBeNull();
+    if (accepted.data) await admin.from("documents").delete().eq("id", accepted.data.id);
   });
 
   it("titre vide ou de plus de 200 caractères refusé par la base", async () => {

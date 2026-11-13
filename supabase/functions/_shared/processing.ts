@@ -9,20 +9,37 @@ const ATTEMPT_LIFETIME_MS = 3 * 60 * 1000;
 const DB_TIMEOUT_MS = 4_000;
 // Écriture finale : tous les Passages et leurs vecteurs en une seule transaction.
 const COMPLETE_TIMEOUT_MS = 30_000;
-// Téléchargement d'un fichier importé (1 Mo au plus).
+// Téléchargement d'un fichier importé (100 Ko au plus).
 const DOWNLOAD_TIMEOUT_MS = 15_000;
 const STORAGE_BUCKET = "documents";
 
 export type Attempt = { documentId: string; attemptId: string };
 
 // Échec d'un appel à la base. Le code (http_413…) va aux journaux : il ne contient aucune donnée.
+// Code Postgres (SQLSTATE, ex. 57014 = délai dépassé) ou code de l'API (PGRST…) : seule partie de la
+// réponse d'erreur journalisée. Le message, les détails et l'indice ne le sont jamais : ils peuvent
+// citer des valeurs (texte de Document, vecteur).
+const ERROR_CODE = /^(?:[0-9A-Z]{5}|PGRST\d{3})$/;
+
 export class DbError extends Error {
   readonly code: string;
 
-  constructor(operation: string, status: number) {
+  constructor(operation: string, status: number, pgCode: string | null = null) {
     super(`${operation} impossible (${status})`);
     this.name = "DbError";
-    this.code = `http_${status}`;
+    this.code = pgCode ? `http_${status}:${pgCode}` : `http_${status}`;
+  }
+
+  // Erreur d'une réponse de l'API : statut HTTP, plus le code Postgres s'il est présent et bien formé.
+  static async from(operation: string, response: Response): Promise<DbError> {
+    let pgCode: string | null = null;
+    try {
+      const body = (await response.json()) as { code?: unknown } | null;
+      if (typeof body?.code === "string" && ERROR_CODE.test(body.code)) pgCode = body.code;
+    } catch {
+      // Corps absent ou illisible : le statut HTTP seul.
+    }
+    return new DbError(operation, response.status, pgCode);
   }
 }
 
@@ -46,7 +63,7 @@ export async function isCurrentAttempt({ documentId, attemptId }: Attempt): Prom
     select: "processing_started_at",
   });
   const response = await restRequest(`documents?${query}`);
-  if (!response.ok) throw new DbError("Lecture de la tentative", response.status);
+  if (!response.ok) throw await DbError.from("Lecture de la tentative", response);
   const rows = (await response.json()) as { processing_started_at: string }[];
   if (rows.length === 0) return false;
   return Date.now() - new Date(rows[0].processing_started_at).getTime() < ATTEMPT_LIFETIME_MS;
@@ -67,7 +84,7 @@ export async function downloadFile(path: string): Promise<Uint8Array> {
     headers: { apikey: key, Authorization: `Bearer ${key}` },
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   });
-  if (!response.ok) throw new DbError("Lecture du fichier", response.status);
+  if (!response.ok) throw await DbError.from("Lecture du fichier", response);
   return new Uint8Array(await response.arrayBuffer());
 }
 
@@ -85,7 +102,7 @@ export async function readDocumentText(
     select: "content_text,text_version,kind,storage_path",
   });
   const response = await restRequest(`documents?${query}`);
-  if (!response.ok) throw new DbError("Lecture du texte", response.status);
+  if (!response.ok) throw await DbError.from("Lecture du texte", response);
   const rows = (await response.json()) as SourceRow[];
   const row = rows[0];
   if (!row) return null;
@@ -128,7 +145,7 @@ export async function completeProcessing({ documentId, attemptId }: Attempt, com
     },
     COMPLETE_TIMEOUT_MS,
   );
-  if (!response.ok) throw new DbError("complete_processing", response.status);
+  if (!response.ok) throw await DbError.from("complete_processing", response);
   return (await response.json()) === true;
 }
 
@@ -142,6 +159,6 @@ export async function failProcessing(
     method: "POST",
     body: JSON.stringify({ p_document_id: documentId, p_attempt_id: attemptId, p_kind: kind, p_message: message }),
   });
-  if (!response.ok) throw new DbError("fail_processing", response.status);
+  if (!response.ok) throw await DbError.from("fail_processing", response);
   return (await response.json()) === true;
 }

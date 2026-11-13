@@ -1,6 +1,6 @@
 import { MAX_TEXT_BYTES, MAX_TITLE_LENGTH } from "@/lib/documents";
 
-// Fichiers importables (story 2.6a, AD-7) : .txt et .md, 1 000 000 octets au plus, même valeur que
+// Fichiers importables (story 2.6a, AD-7) : .txt et .md, 100 000 octets au plus (100 Ko), même valeur que
 // le bucket, la route de dépôt et la fonction SQL d'import.
 export const FILE_EXTENSIONS = ["txt", "md"] as const;
 export type FileExtension = (typeof FILE_EXTENSIONS)[number];

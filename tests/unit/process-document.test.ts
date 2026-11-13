@@ -215,14 +215,16 @@ describe("accusé et travail d'arrière-plan", () => {
     expect(passage.embedding).toHaveLength(1536);
   });
 
-  it("plus de 96 Passages : deux lots, ordre conservé", async () => {
+  it("plus de 96 Passages (texte de 99 000 octets, sous la limite de 100 Ko) : deux lots, ordre conservé", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
-    const calls = backend({ text: "x".repeat(1200 * 97) });
+    const text = "Phrase de test numero un. ".repeat(3_800).slice(0, 99_000);
+    const calls = backend({ text });
     await runDefaultWork();
-    expect(calls.provider.map((batch) => batch.length)).toEqual([96, 1]);
     const passages = calls.completed[0].p_passages as { ordinal: number; start: number }[];
-    expect(passages.map((passage) => passage.ordinal)).toEqual(Array.from({ length: 97 }, (_, index) => index));
-    expect(passages[96].start).toBe(1200 * 96);
+    expect(passages.length).toBeGreaterThan(96);
+    expect(calls.provider.map((batch) => batch.length)).toEqual([96, passages.length - 96]);
+    expect(passages.map((passage) => passage.ordinal)).toEqual(Array.from({ length: passages.length }, (_, index) => index));
+    expect(passages[96].start).toBeGreaterThan(passages[95].start);
   });
 
   it("tentative remplacée avant la lecture : rien n'est écrit, aucun appel à l'IA", async () => {
@@ -301,7 +303,7 @@ describe("accusé et travail d'arrière-plan", () => {
       ["UTF-8 valide avec un caractère de contrôle", encode("Textecaché"), texts.documentStatus.noTextEncoding],
       ["vide", new Uint8Array(), texts.documentStatus.noText],
       ["BOM seul", new Uint8Array([0xef, 0xbb, 0xbf]), texts.documentStatus.noText],
-      ["Windows-1252 dépassant 1 000 000 octets une fois converti", accents(600_000), texts.documentStatus.noTextTooLarge],
+      ["Windows-1252 dépassant 100 000 octets une fois converti", accents(60_000), texts.documentStatus.noTextTooLarge],
     ])("%s : no_text, aucun appel à l'IA, rien d'écrit", async (_label, bytes, message) => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       const calls = backend({ file: bytes });
@@ -313,12 +315,12 @@ describe("accusé et travail d'arrière-plan", () => {
       ]);
     });
 
-    it("Windows-1252 de 500 000 « é » (1 000 000 octets une fois converti) : traité jusqu'au bout", async () => {
-      const calls = backend({ file: accents(500_000) });
+    it("Windows-1252 de 50 000 « é » (100 000 octets une fois converti, la limite exacte) : traité jusqu'au bout", async () => {
+      const calls = backend({ file: accents(50_000) });
       await runDefaultWork();
       expect(calls.failed).toEqual([]);
       expect(calls.completed).toHaveLength(1);
-      expect(calls.completed[0].p_content_text).toBe("é".repeat(500_000));
+      expect(calls.completed[0].p_content_text).toBe("é".repeat(50_000));
     });
 
     it("Windows-1252 avec accents : texte converti, accents corrects", async () => {

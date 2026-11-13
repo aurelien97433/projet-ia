@@ -6,7 +6,7 @@ import { texts } from "@/lib/texts";
 const errors = texts.addDocument.errors;
 
 // Demande d'URL de dépôt (POST /api/uploads) : nom (pour l'extension) et taille annoncée. Le bucket
-// refuse de toute façon un objet de plus de 1 000 000 octets.
+// refuse de toute façon un objet de plus de 100 000 octets.
 export const uploadRequestSchema = z.object({
   fileName: z
     .string({ error: errors.fileFormat })

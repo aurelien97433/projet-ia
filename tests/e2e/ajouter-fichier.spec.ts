@@ -75,7 +75,7 @@ test("parcours au clavier : .md déposé, titre prérempli et modifiable, import
   expect(data?.storage_path).toMatch(new RegExp(`^${account.id}/uploads/[0-9a-f-]{36}\\.md$`));
 });
 
-test(".docx et .txt de 1 200 000 octets : refusés avant tout envoi, autres champs conservés", async ({ page }) => {
+test(".docx et .txt de 120 000 octets : refusés avant tout envoi, autres champs conservés", async ({ page }) => {
   const requests: string[] = [];
   page.on("request", (request) => {
     if (request.url().includes("/api/uploads") || isStorageUpload(request.url())) requests.push(request.url());
@@ -86,7 +86,7 @@ test(".docx et .txt de 1 200 000 octets : refusés avant tout envoi, autres cham
 
   await chooseFile(page, "rapport.docx", "PK");
   await expect(fileMessage(page)).toHaveText(t.errors.fileFormat);
-  await chooseFile(page, "gros.txt", Buffer.alloc(1_200_000, 97));
+  await chooseFile(page, "gros.txt", Buffer.alloc(120_000, 97));
   await expect(fileMessage(page)).toHaveText(t.errors.fileTooLarge);
 
   await expect(page.locator("#file-title")).toHaveValue("Titre saisi");
@@ -244,4 +244,25 @@ test("fichiers inexploitables (story 2.6b) : messages distincts à l'écran, auc
     shown.push(message);
   }
   expect(shown[0]).not.toBe(shown[1]);
+});
+
+test("fichier de 100 001 octets (story 2.7) : refusé avant tout envoi ; 100 000 octets (100 Ko) : déposé", async ({ page, account }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/uploads") || isStorageUpload(request.url())) requests.push(request.url());
+  });
+  await openFileTab(page);
+  await chooseFile(page, "limite.txt", Buffer.alloc(100_001, 97));
+  await expect(fileMessage(page)).toHaveText(t.errors.fileTooLarge);
+  expect(t.errors.fileTooLarge).toBe("Ce fichier dépasse 100 Ko, la taille maximale.");
+  expect(requests).toEqual([]);
+
+  await chooseFile(page, "limite.txt", Buffer.alloc(100_000, 97));
+  await expect(fileMessage(page)).toHaveText(t.uploaded("limite.txt"), { timeout: 30_000 });
+
+  // Fichier déposé mais jamais importé : retiré, pour ne pas le laisser dans la base locale.
+  const { data } = await admin().storage.from("documents").list(`${account.id}/uploads`, { limit: 1000 });
+  const deposited = (data ?? []).filter((object) => object.metadata?.size === 100_000);
+  expect(deposited.length).toBeGreaterThan(0);
+  await admin().storage.from("documents").remove(deposited.map((object) => `${account.id}/uploads/${object.name}`));
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { downloadFile, readDocumentText } from "../../supabase/functions/_shared/processing.ts";
+import { completeProcessing, DbError, downloadFile, readDocumentText } from "../../supabase/functions/_shared/processing.ts";
 
 // Lecture du texte d'un fichier importé par process-document (story 2.6a) : téléchargement avec
 // service_role, puis décodage (tests/unit/extract.test.ts) ; refus d'encodage signalé sans exception.
@@ -80,5 +80,45 @@ describe("downloadFile", () => {
   it("réponse en erreur : DbError (code http_404, sans contenu)", async () => {
     fetchMock.mockResolvedValueOnce(new Response("absent", { status: 404 }));
     await expect(downloadFile("p")).rejects.toMatchObject({ code: "http_404" });
+  });
+});
+
+describe("DbError : code Postgres réel dans les journaux (story 2.7)", () => {
+  const response = (status: number, body: string) => new Response(body, { status });
+
+  it("statement timeout de l'API : http_500:57014, sans message ni détails", async () => {
+    const error = await DbError.from(
+      "complete_processing",
+      response(
+        500,
+        JSON.stringify({
+          code: "57014",
+          message: "canceling statement due to statement timeout",
+          details: "Passage « secret de Document »",
+          hint: "valeur citée",
+        }),
+      ),
+    );
+    expect(error.code).toBe("http_500:57014");
+    const shown = `${error.code} ${error.message}`;
+    expect(shown).not.toMatch(/canceling|secret|valeur|hint|details/);
+  });
+
+  it("code de l'API (PGRST…) accepté ; corps sans code, illisible ou vide : statut seul", async () => {
+    expect((await DbError.from("x", response(406, JSON.stringify({ code: "PGRST116", message: "m" })))).code).toBe("http_406:PGRST116");
+    expect((await DbError.from("x", response(500, JSON.stringify({ message: "m" })))).code).toBe("http_500");
+    expect((await DbError.from("x", response(502, "<html>Bad gateway</html>"))).code).toBe("http_502");
+    expect((await DbError.from("x", response(500, ""))).code).toBe("http_500");
+  });
+
+  it.each(["", "5701", "570144", "57014; drop", "Texte du Document", 57014, null])("code inattendu (%j) : ignoré", async (code) => {
+    expect((await DbError.from("x", response(500, JSON.stringify({ code })))).code).toBe("http_500");
+  });
+
+  it("complete_processing en échec : le code Postgres atteint l'erreur levée", async () => {
+    fetchMock.mockResolvedValueOnce(response(500, JSON.stringify({ code: "57014", message: "canceling statement" })));
+    await expect(
+      completeProcessing(ATTEMPT, { text: "t", textVersion: 1, embeddingModel: "m", embeddingVersion: 1, passages: [] }),
+    ).rejects.toMatchObject({ code: "http_500:57014" });
   });
 });

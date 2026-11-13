@@ -13,8 +13,10 @@ export type DocumentCategory = (typeof DOCUMENT_CATEGORIES)[number];
 export type DocumentStatus = "processing" | "ready" | "error";
 export type DocumentErrorKind = "temporary" | "no_text";
 
-// 1 Mo = 1 000 000 octets UTF-8, même définition dans tous les contrôles (décision du 2026-11-03).
-export const MAX_TEXT_BYTES = 1_000_000;
+// 100 Ko = 100 000 octets UTF-8, même définition dans tous les contrôles (décision du 2026-11-12, story 2.7 :
+// au-delà, l'écriture finale des Passages dépasse la limite de 8 s par instruction de l'API ; mesures dans
+// docs/mesures/charge-100000-octets.md). Fichiers .txt et .md, et texte des Notes après normalisation.
+export const MAX_TEXT_BYTES = 100_000;
 export const MAX_TITLE_LENGTH = 200;
 
 export const utf8Length = (value: string) => new TextEncoder().encode(value).length;

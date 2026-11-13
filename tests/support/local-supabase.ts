@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { parseCliRows } from "../../scripts/cli-rows";
 
 // Accès à Supabase local pour les tests. Les clés locales sont lues à l'exécution avec
 // `supabase status` et ne sont jamais écrites dans un fichier suivi.
@@ -46,11 +47,11 @@ export function localSqlRows(sql: string): Record<string, unknown>[] {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   });
-  // Une instruction sans résultat (CREATE, DROP) renvoie un texte, pas du JSON.
-  const start = output.indexOf("{");
-  if (start === -1) return [];
-  const parsed = JSON.parse(output.slice(start));
-  return Array.isArray(parsed) ? parsed : (parsed.rows ?? []);
+  // Une instruction sans résultat (CREATE, DROP, UPDATE) renvoie un texte, pas du JSON. Sinon, forme
+  // propre au mode de la CLI (tableau nu dans un terminal, enveloppe « rows » pour un agent) :
+  // analyse partagée avec le test de charge (scripts/cli-rows.ts).
+  if (!/[[{]/.test(output)) return [];
+  return parseCliRows(output);
 }
 
 export function uniqueEmail(prefix: string): string {

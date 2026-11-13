@@ -126,3 +126,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/2-6b-lire-le-texte-des-fichiers-importés.md`
   summary: Traité par 2.6b — texte de plus de 1 000 000 octets une fois converti (entrée de 2.6a) : `no_text` définitif avec un message propre, contrôlé avant `complete_processing`.
   evidence: Décision Q1 = A du 2026-11-12 ; test d'intégration avec un fichier Windows-1252 de 1 000 000 octets généré pendant le test (2 000 000 octets une fois converti). Reste pour 2.7 : mesurer la durée et la mémoire d'un fichier proche de la limite qui, lui, devient *prêt*.
+- source_spec: `_bmad-output/implementation-artifacts/2-7-test-de-charge-de-la-limite-de-1-mo.md`
+  summary: Mesuré par 2.7 — écriture des Passages en un seul `complete_processing` (entrée de 2.4) : échec en production pour un fichier de 1 Mo (environ 1 160 Passages, 25 Mo de JSON, plus de 30 s, environ 40 s de travail en base, puis `fail_processing` bloqué par le verrou du Document). Décision de l'utilisateur attendue : A (écriture par lots, limite de 1 Mo) ou B (limite de 300 000 octets pour fichiers et Notes, après une mesure de confirmation).
+  evidence: `docs/mesures/charge-1mo.md` (analyse, propositions chiffrées, recommandation : B avant l'Epic 5, A plus tard). Les Notes de 1 000 000 octets sont exposées au même échec.
+- source_spec: `_bmad-output/implementation-artifacts/2-7-test-de-charge-de-la-limite-de-1-mo.md`
+  summary: `http_500` de `process-document` sous charge locale (entrée de 3.2) : cause probable, non prouvée, la même écriture unique et lourde de `complete_processing`, ralentie par les suites e2e en parallèle.
+  evidence: Échecs locaux après 15 à 27 s, comparables à l'échec mesuré en production (délai de 30 s dépassé). À confirmer si l'option A est retenue (écritures courtes), ou en journalisant l'appel en échec.
+- source_spec: `_bmad-output/implementation-artifacts/2-7-test-de-charge-de-la-limite-de-1-mo.md`
+  summary: Écriture des Passages par lots (option A de 2.7), seulement si des Documents de plus de 100 Ko deviennent nécessaires, après l'Epic 5 ; chaque lot sous 4 s (limite de 8 s par instruction de l'API).
+  evidence: Décision de l'utilisateur du 2026-11-12. Mesures : `docs/mesures/charge-1mo.md`, `charge-300000-octets.md`, `charge-150000-octets.md`, `charge-100000-octets.md`. Remesurer avec `npm run load:1mo -- --remote --size=<octets>` après relèvement de la limite du bucket.
+- source_spec: `_bmad-output/implementation-artifacts/2-7-test-de-charge-de-la-limite-de-1-mo.md`
+  summary: Surveiller la marge de l'écriture finale à 100 Ko : environ 3 s pour 115 Passages sous une limite de 8 s, avec une forte variation observée (3,3 et 7,0 s pour deux fichiers de 150 000 octets).
+  evidence: Remesurer (`npm run load:1mo -- --remote`) avant la démonstration et après tout changement du plan Supabase, du découpage ou du modèle de vectorisation ; les journaux de `process-document` donnent désormais le code Postgres (`57014` = délai dépassé).

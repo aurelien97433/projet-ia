@@ -72,7 +72,7 @@ describe("choix du fichier", () => {
 
   it.each([
     ["rapport.docx", 20, t.errors.fileFormat],
-    ["notes.txt", 1_200_000, t.errors.fileTooLarge],
+    ["notes.txt", 100_001, t.errors.fileTooLarge],
   ])("%s (%i octets) : refusé avant tout envoi, autres champs conservés", async (name, size, message) => {
     render(<FileForm />);
     fireEvent.change(title(), { target: { value: "Mon titre" } });

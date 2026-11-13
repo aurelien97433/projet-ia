@@ -102,27 +102,27 @@ test("champs manquants : aucun envoi, focus sur le premier champ manquant, messa
   expect(requests).toBe(0);
 });
 
-test("texte de plus de 1 000 000 octets : message sous « Texte », saisie conservée, aucun Document", async ({ page }) => {
+test("texte de plus de 100 000 octets (100 Ko) : message sous « Texte », saisie conservée, aucun Document", async ({ page }) => {
   const title = uniqueTitle("Trop long");
   await page.goto("/ajouter");
-  // Environ 500 000 caractères pour 1 000 001 octets UTF-8 : la limite est comptée en octets.
-  await fillNote(page, title, textOfBytes(1_000_001));
+  // Environ 50 000 caractères pour 100 001 octets UTF-8 : la limite est comptée en octets.
+  await fillNote(page, title, textOfBytes(100_001));
   await page.getByRole("button", { name: t.submit }).click();
   await expect(page.locator("#content")).toHaveAccessibleDescription(t.errors.textTooLarge);
   await expect(page.locator("#content")).toBeFocused();
-  expect(await page.locator("#content").evaluate((el) => (el as HTMLTextAreaElement).value.length)).toBe(502_526);
+  expect(await page.locator("#content").evaluate((el) => (el as HTMLTextAreaElement).value.length)).toBe(50_303);
   await expect(page).toHaveURL(/\/ajouter$/);
   expect(await countByTitle(title)).toBe(0);
 });
 
-test("texte de 1 000 000 octets exactement : Document créé (limite des Server Actions relevée à 2 Mo)", async ({ page }) => {
+test("texte de 100 000 octets exactement (100 Ko) : Document créé", async ({ page }) => {
   const title = uniqueTitle("À la limite");
   await page.goto("/ajouter");
-  await fillNote(page, title, textOfBytes(1_000_000));
+  await fillNote(page, title, textOfBytes(100_000));
   await page.getByRole("button", { name: t.submit }).click();
   await expect(page).toHaveURL(DOCUMENT_URL, { timeout: 60_000 });
   const { data } = await admin().from("documents").select("content_text").eq("title", title).single();
-  expect(new TextEncoder().encode(data?.content_text ?? "").length).toBe(1_000_000);
+  expect(new TextEncoder().encode(data?.content_text ?? "").length).toBe(100_000);
 });
 
 test("double clic : une seule requête, « Enregistrement… » en aria-disabled, un seul Document", async ({ page }) => {

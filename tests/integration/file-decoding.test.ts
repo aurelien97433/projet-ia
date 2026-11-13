@@ -97,10 +97,10 @@ describe("fichiers inexploitables : no_text, message propre à la cause", () => 
     });
   }, 30_000);
 
-  it("Windows-1252 de 1 000 000 octets, généré pendant le test (2 000 000 octets une fois converti)", async () => {
+  it("Windows-1252 de 100 000 octets, généré pendant le test (200 000 octets une fois converti)", async () => {
     // Lignes de « é » (0xE9) : un fichier à la limite du bucket, jamais versionné.
     const line = [...new Array(99).fill(0xe9), 0x0a];
-    const bytes = new Uint8Array(1_000_000);
+    const bytes = new Uint8Array(100_000);
     for (let index = 0; index < bytes.length; index++) bytes[index] = line[index % line.length];
     expect(await importAndProcess(bytes, "txt")).toEqual({
       status: "error",

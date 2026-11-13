@@ -57,7 +57,7 @@ beforeEach(() => {
 
 describe("createUpload", () => {
   it("upload_id choisi par le serveur ({uuid}.{ext}), chemin du Collaborateur, sans écrasement", async () => {
-    const result = await createUpload({ fileName: "Procédure.MD", size: 1_000_000 }, "auteur", storage());
+    const result = await createUpload({ fileName: "Procédure.MD", size: 100_000 }, "auteur", storage());
     expect(result).toMatchObject({ status: "created", signedUrl: "https://stockage/signe" });
     const uploadId = (result as { uploadId: string }).uploadId;
     expect(uploadId).toMatch(/^[0-9a-f-]{36}\.md$/);
@@ -68,7 +68,7 @@ describe("createUpload", () => {
     [{ fileName: "rapport.docx", size: 10 }, "FILE_TYPE_UNSUPPORTED", errors.fileFormat],
     [{ fileName: "", size: 10 }, "FILE_TYPE_UNSUPPORTED", errors.fileFormat],
     [{ size: 10 }, "FILE_TYPE_UNSUPPORTED", errors.fileFormat],
-    [{ fileName: "a.txt", size: 1_200_000 }, "FILE_TOO_LARGE", errors.fileTooLarge],
+    [{ fileName: "a.txt", size: 100_001 }, "FILE_TOO_LARGE", errors.fileTooLarge],
     [{ fileName: "a.txt", size: -1 }, "FILE_TOO_LARGE", errors.fileTooLarge],
     [{ fileName: "a.txt", size: 1.5 }, "FILE_TOO_LARGE", errors.fileTooLarge],
     [{ fileName: "a.txt", size: "10" }, "FILE_TOO_LARGE", errors.fileTooLarge],

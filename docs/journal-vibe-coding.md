@@ -1260,3 +1260,101 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 - Les Documents de test restent en production ; leur suppression par l'interface, avec la vérification de la suppression de leurs fichiers dans le stockage, est ajoutée à la story 3.4, avant l'Epic 5 (`epics.md`).
 
 **Statut final.** Story 2.6b passée à `done` le 2026-11-12, après la vérification en production de l'utilisateur. La story 2.7 n'est pas commencée.
+
+## Story 2.7 — Test de charge de la limite de 1 Mo (2026-11-12)
+
+**Objectif.** Vérifier en production qu'un fichier `.txt` ou `.md` proche de 1 Mo est traité dans les limites du plan gratuit, avant de construire l'Assistant.
+
+**Instructions clés données à l'IA.**
+- Créer le fichier de story et présenter plan, fichiers et risques avant de coder.
+- Import réel en production d'un `.txt` et d'un `.md` de texte français réaliste de 950 000 à 1 000 000 octets ; mesurer durée, Statut, Passages, taille ajoutée, taille totale de la base et coût ; relever `embed_ms`, `complete_ms`, `duration_ms`.
+- Conditions : *prêt* en moins de 3 min, moins de 50 Mo ajoutés, base sous 400 Mo ; refus d'un fichier de 1 000 001 octets avant tout envoi ; évaluer l'écriture des Passages par lots (2.4) et observer `http_500` (3.2).
+- Nettoyage garanti, rapport `docs/mesures/charge-1mo.md`, proposition chiffrée non appliquée en cas d'échec ; aucun secret affiché, appels réels limités ; revue ciblée sans les trois relecteurs ; aucun commit ni push sans validation ; ne pas commencer la 3.4.
+
+**Décisions de l'utilisateur.**
+- Story gardée entière.
+- Nettoyage limité aux Documents du Compte de mesure 1 intitulés exactement « Test de charge 1 Mo », et à leurs fichiers ; nombre affiché avant toute suppression ; `--cleanup` refuse au-delà de 2 sans confirmation explicite.
+- Requêtes de `supabase db query --remote` en lecture fixe seulement ; clé `service_role` lue dans `.env.seed` seulement, jamais affichée.
+
+**Ce que l'IA a produit.**
+- `npm run load:1mo` (`scripts/load-test-1mo.ts`) : cible exigée (projet lié, `.env.seed` et clé publique concordants), deux fichiers générés en mémoire, import par le vrai chemin (dépôt par URL signée, `import_file_document`, `process-document`), tailles lues par la CLI, conditions jugées, rapport, nettoyage dans un `finally` et sur Ctrl+C, mode `--cleanup`.
+- Pile locale, deux exécutions par l'IA (vecteurs simulés, valeur de mise au point seulement) : `.txt` de 989 984 octets et `.md` de 989 208 octets *prêts* en moins de 2,5 s, 1 162 et 1 157 Passages, 10,8 à 18,6 Mo ajoutés par fichier, nettoyage complet.
+- Test e2e : 1 000 001 octets refusés avant tout envoi avec « Ce fichier dépasse 1 Mo, la taille maximale. », 1 000 000 octets déposés.
+
+**Ce qui a été corrigé ou refusé, et pourquoi.**
+- Revue ciblée :
+  - **le plus grave** : avec `--remote`, une CLI sans projet lié aurait mesuré la base **locale** sans le dire. La référence liée est désormais exigée et doit correspondre à la cible.
+  - les fichiers sont supprimés avant les Documents : un échec du Storage ne fait plus perdre leurs chemins.
+  - le Compte local temporaire n'est plus laissé en cas d'erreur précoce.
+- Arrêt brutal du terminal non rattrapable : consigné, `--cleanup` sert de filet.
+- Le test e2e de 1 000 000 octets laissait son dépôt dans la base locale : il le supprime désormais ; les deux fichiers de la première exécution ont été retirés.
+
+**Tests.**
+- `npm test` : 1 167 réussis (68 fichiers). `lint`, `tsc`, `build:ci`, `check:secrets` : verts, aucun secret.
+- E2e complets : 304 réussis, 18 sautés, aucun échec.
+
+**Durée.**
+- Lecture, contexte de l'Epic 2 et story : de 12:31 à 12:34 environ.
+- Implémentation, exécutions locales, tests, revue ciblée et journal : de 12:34 à 12:50 environ.
+- Total : environ 20 min, sans l'exécution distante.
+
+**Première exécution distante (utilisateur) : échec avant tout import, corrigé.**
+- Cause : `supabase db query --remote` exige une confirmation sur le projet de production (`HostedMutationConsentRequiredError`) et ne peut pas la demander hors terminal interactif ; rien n'a été exécuté ni modifié. Le script masquait la sortie de la CLI.
+- Correctifs : option `--read-only` (lecture seule, sans confirmation) ; cause réelle de la CLI affichée, secrets masqués ; cible affichée une seule fois (elle l'était déjà par la session) ; « nettoyage incomplet » n'est plus signalé quand seule la mesure de taille échoue ; rapport existant non écrasé si rien n'est mesuré. Tests ajoutés avec la sortie réelle de la CLI.
+- Vérification en lecture seule sur le projet distant : base de 12,9 Mo. Nouvelle exécution locale réussie ; `npm test` : 1 171 réussis.
+
+**Deuxième exécution distante (utilisateur) : `SyntaxError` avant tout import, corrigé.**
+- Cause : la CLI renvoie un tableau JSON nu dans le terminal de l'utilisateur, mais une enveloppe `{ boundary, rows, warning }` quand elle détecte un agent (cas de mes vérifications). Le script analysait la sortie à partir du premier « { » : l'objet intérieur du tableau, puis le « ] » final provoquait l'erreur. Ma vérification précédente, faite en mode agent, ne pouvait pas le révéler : leçon, rejouer les commandes dans le mode de l'utilisateur (variables d'agent retirées).
+- Correctifs : analyseur partagé `scripts/cli-rows.ts`, tolérant aux deux formes, au BOM et au texte autour du JSON, aussi utilisé par l'outil de test `localSqlRows` (même défaut latent) ; message d'échec avec l'étape, le message réel et un extrait masqué de la sortie.
+- Vérifié en mode terminal : lecture distante en lecture seule, exécution locale complète, 110 tests utilisant `localSqlRows` ; `npm test` : 1 185 réussis.
+
+**Troisième exécution distante (utilisateur) : la mesure a abouti, la limite de 1 Mo n'est pas tenue.**
+- Les deux fichiers (989 984 et 989 208 octets) sont acceptés (202), mais passent *en erreur* temporaire, avec 0 Passage, 54 et 57 s après leur création. Aucun Mo n'est ajouté ; la base reste à 12,9 Mo.
+- Journaux relevés par l'utilisateur : `process_document_work_failed` (`TimeoutError`) à 39,5 et 37,7 s, puis `fail_processing_failed` (`TimeoutError`).
+- Cause : l'écriture finale `complete_processing` envoie en un seul appel environ 1 160 Passages et leurs vecteurs (25 Mo de JSON). Elle dépasse son délai de 30 s : environ 40 s de travail en base sur le plan gratuit, contre 1 à 2 s sur la pile locale. `fail_processing` expire à son tour (4 s), bloqué par le verrou que la transaction abandonnée garde sur le Document, puis s'exécute quand ce verrou est libéré.
+- Constat ajouté : une Note de 1 000 000 octets échouerait de la même façon.
+- Rapport `docs/mesures/charge-1mo.md` complété : analyse, proposition **A** (écriture par lots, limite de 1 Mo, environ 1 min par fichier, une story, risque moyen sur le cœur du traitement) et proposition **B** (limite de 300 000 octets pour fichiers et Notes, marge de 2 estimée, à confirmer par une mesure, une à deux heures, risque faible). Recommandation : **B avant l'Epic 5, A plus tard**. Rien n'est appliqué.
+- Le nettoyage avait échoué pendant ce test, la base étant encore occupée ; `--cleanup` confirme ensuite 0 Document restant. Le message « undefined » (erreur sans code) est corrigé : la cause réelle est affichée et le nettoyage fait trois essais espacés de 10 s. `npm test` : 1 191 réussis.
+
+**Décision de l'utilisateur : option B.** Limite de 300 000 octets pour les `.txt`, les `.md` et les Notes (Note mesurée après normalisation), sous réserve d'une mesure de confirmation en production. Option A reportée après l'Epic 5, seulement si 1 Mo devient nécessaire.
+- Option `--size=<octets>` ajoutée à `load:1mo` : rapport propre à chaque taille, celui de 1 Mo est conservé. Essai local à 300 000 octets réussi (351 et 349 Passages).
+- Lecture seule en production : aucun des 13 Documents ne dépasse 300 000 octets (texte le plus long : 4 036 octets).
+
+**Mesure de confirmation à 300 000 octets (utilisateur) : échec, cause réelle trouvée.**
+- Les deux fichiers (298 905 et 298 273 octets) sont *en erreur* à 15,2 et 20,6 s, avec 0 Passage. Journaux : `process_document_work_failed` (`http_500`) à 14,4 et 20,0 s ; `fail_processing` a réussi.
+- Cause : en lecture seule sur le projet distant, `pg_roles` montre que la connexion de l'API (`authenticator`) a `statement_timeout=8s` et `lock_timeout=8s`, dont `service_role` hérite. L'écriture finale `complete_processing` (environ 350 Passages) est annulée par Postgres à 8 s, et l'API répond 500 (code `57014`).
+- La même cause explique l'échec à 1 Mo. Le délai de 30 s de `process-document` n'était pas le vrai budget : c'est 8 s par instruction, soit environ 23 à 30 ms par Passage.
+- Leçon : vérifier les limites réelles de la plateforme (réglages des rôles) avant d'estimer une marge ; ma première estimation reposait sur le délai du client.
+- Rapport `docs/mesures/charge-300000-octets.md` :
+  - option 1 : mesurer 150 000 puis 100 000 octets, et retenir la plus grande taille dont l'écriture reste à 4 s au plus ; probablement 100 000 ; une à deux heures ensuite, risque faible ;
+  - option 2 : écriture par lots maintenant, lots de 100 Passages sous 4 s, environ 1 min pour 1 Mo ; une demi-journée à une journée, faisable vendredi sans décaler l'Epic 5, mais avec un risque de débordement sur lundi ;
+  - piste complémentaire : limite de durée relevée pour `service_role` seulement.
+  Recommandation : option 1 maintenant, option 2 après l'Epic 5. Rien n'est appliqué.
+
+**Mesures à 150 000 et 100 000 octets (utilisateur) et décision.**
+- 150 000 octets : *prêts*, mais `complete_ms` de 3,3 et 7,0 s, trop proche des 8 s : rejeté.
+- 100 000 octets : *prêts*, `complete_ms` de 2,6 et 3,0 s (116 et 115 Passages) : retenu.
+- **Limite fixée à 100 Ko = 100 000 octets** pour les fichiers `.txt` et `.md` et pour les Notes (après normalisation). Écriture par lots reportée après l'Epic 5. Marge à surveiller consignée dans les rapports : environ 3 s pour 115 Passages, sous 8 s.
+
+**Application de la limite (plan validé par l'utilisateur).**
+- **Base** : migration `20261112170000_limit_100000.sql` :
+  - bucket et contrainte `documents_content_size` à 100 000 octets ;
+  - `import_file_document` recréée à l'identique hormis la limite (différence vérifiée), droits conservés ;
+  - aucun Document existant n'est au-delà (4 036 octets au plus, lu en production).
+- **`process-document`** :
+  - texte converti limité à 100 Ko, avec son message ;
+  - journaux avec le code Postgres réel (`http_500:57014`), jamais le message ni les détails.
+- **Application** : `MAX_TEXT_BYTES = 100_000` (contrôle navigateur, route de dépôt, schéma de la Note) ; messages « 100 Ko ».
+- **Script** : `load:1mo` mesure la limite en vigueur ; `--size` gardé jusqu'à 1 000 000 ; rapports jamais écrasés.
+- **Documents** : PRD, addendum, architecture, EXPERIENCE.md, `epics.md` (note datée), `docs/environnements.md`.
+- **Tests** : adaptés, plus un test de concordance de la limite entre application, Edge Function, migration et script.
+- **Revue ciblée** :
+  - typographie identique à celle de l'ancien catalogue ;
+  - Note toujours mesurée après normalisation ;
+  - limite de 2 Mo des Server Actions sans effet.
+  Un défaut trouvé par `build:ci` : deux tests de masquage contenaient des clés factices écrites telles quelles, refusées par `check:secrets`. Elles sont maintenant composées à l'exécution.
+- **Résultats** : `npm test` 1 216 réussis ; e2e 304 réussis, 18 sautés ; `lint`, `tsc`, `build:ci` et `check:secrets` verts.
+
+**Durée de la story 2.7** : de 12:31 à 19:55 avec des interruptions. Travail effectif estimé à environ 2 h 30, dont trois exécutions distantes en échec et leurs diagnostics, sans les exécutions de l'utilisateur.
+
+**Statut.** Story 2.7 en `review`, non commitée. Ordre de déploiement : push, puis `npm run deploy:supabase`, puis vérification. Reste, après validation : exécution distante par l'utilisateur (`npm run load:1mo -- --remote`), relevé des durées dans les journaux de `process-document`, puis rapport, décision sur l'écriture par lots et `http_500`, et commit de clôture. La story 3.4 n'est pas commencée.

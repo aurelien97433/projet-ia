@@ -86,7 +86,7 @@ export const texts = {
     // Onglet Fichier (story 2.6a, EXPERIENCE.md, E8).
     fileTab: "Fichier",
     chooseFile: "Choisir un fichier",
-    formats: "Formats acceptés : .txt et .md, 1 Mo au maximum.",
+    formats: "Formats acceptés : .txt et .md, 100 Ko au maximum.",
     uploading: "Dépôt du fichier…",
     // Absents d'EXPERIENCE.md : nom de la zone et état « déposé », ajoutés le 2026-11-12 (story 2.6a).
     fileLabel: "Fichier",
@@ -108,12 +108,12 @@ export const texts = {
       categoryMissing: "Choisissez une Catégorie.",
       textMissing: "Le texte ne peut pas être vide.",
       // Absent d'EXPERIENCE.md pour une Note : texte validé le 2026-11-05 (story 2.2, option A).
-      textTooLarge: "Le texte dépasse 1 Mo, la taille maximale.",
+      textTooLarge: "Le texte dépasse 100 Ko, la taille maximale.",
       saveFailed: "Le Document n'a pas pu être enregistré. Votre saisie est conservée.",
       fileMissing: "Choisissez un fichier.",
       fileFormat: "Ce format n'est pas pris en charge. Formats acceptés : .txt et .md.",
-      // 1 Mo = 1 000 000 octets, valeur identique à celle des contrôles.
-      fileTooLarge: "Ce fichier dépasse 1 Mo, la taille maximale.",
+      // 100 Ko = 100 000 octets, valeur identique à celle des contrôles (story 2.7).
+      fileTooLarge: "Ce fichier dépasse 100 Ko, la taille maximale.",
       uploadFailed: "Le fichier n'a pas pu être déposé.",
     },
     abandon: {
@@ -158,7 +158,7 @@ export const texts = {
     // EXPERIENCE.md, « Encodage illisible » (story 2.6b).
     noTextEncoding: "Le texte de ce fichier n'a pas pu être lu (encodage non pris en charge).",
     // Décision du 2026-11-12 (story 2.6b, Q1 = A).
-    noTextTooLarge: "Une fois converti, le texte de ce fichier dépasse 1 Mo, la taille maximale. Il ne peut pas être interrogé.",
+    noTextTooLarge: "Une fois converti, le texte de ce fichier dépasse 100 Ko, la taille maximale. Il ne peut pas être interrogé.",
     retry: "Relancer le traitement",
     retrying: "Relance…",
     // Absents d'EXPERIENCE.md pour la relance : textes validés le 2026-11-09 (story 2.5, Q2 = A).
