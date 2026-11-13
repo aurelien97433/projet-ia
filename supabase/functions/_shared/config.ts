@@ -17,6 +17,23 @@ export const DEFAULT_GENERATION_MODEL = "gpt-5.4-mini";
 
 export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
+// Génération de la réponse (story 5.2a-1, non diffusée ; la diffusion arrive en 5.5). Délai par
+// tentative ; sortie bornée (une réponse est limitée à 20 000 caractères en base, story 5.1).
+export const GENERATION_TIMEOUT_MS = 45_000;
+export const GENERATION_MAX_COMPLETION_TOKENS = 1_500;
+// Échantillonnage, pour limiter le non-déterminisme (critère 3 sur 3 de la 5.2a-2). La documentation
+// d'OpenAI ne confirme pas que gpt-5.4-mini accepte temperature et seed (lue le 2026-11-13) : la
+// génération d'essai de `npm run test:ai` le vérifie ; un paramètre refusé est retiré d'ici.
+export const GENERATION_SAMPLING: Readonly<{ temperature?: number; seed?: number }> = { temperature: 0, seed: 20261113 };
+// Raisonnement désactivé : valeur par défaut de gpt-5.4-mini, envoyée explicitement.
+export const GENERATION_REASONING_EFFORT = "none";
+
+// Consignes de l'Assistant (AD-9, AD-13) : 8 Passages au plus ; titre neutralisé, 200 caractères au plus.
+export const CHAT_MAX_PASSAGES = 8;
+// Question de 2 000 caractères au plus (NFR-8, même limite que messages en base, story 5.1).
+export const CHAT_MAX_QUESTION_LENGTH = 2_000;
+export const PASSAGE_TITLE_MAX_LENGTH = 200;
+
 // Nouvelles tentatives sur 429 (hors plafond) et 5xx, appels non diffusés uniquement (AD-16).
 export const AI_MAX_RETRIES = 2;
 export const AI_RETRY_BASE_DELAY_MS = 500;

@@ -28,6 +28,11 @@ export class AiError extends Error {
     readonly code: Extract<ErrorCode, `AI_${string}` | "VALIDATION_FAILED">,
     readonly retryable: boolean,
     message: string,
+    // Code renvoyé par le fournisseur (ex. unsupported_parameter), pour le diagnostic : jamais son
+    // message, qui pourrait citer la requête.
+    readonly providerCode?: string,
+    // Paramètre refusé par le fournisseur (ex. temperature), nom de champ seulement.
+    readonly providerParam?: string,
   ) {
     super(message);
     this.name = "AiError";

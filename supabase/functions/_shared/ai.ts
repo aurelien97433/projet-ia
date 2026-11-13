@@ -9,11 +9,17 @@ import {
   EMBEDDING_MODEL,
   EMBEDDING_TIMEOUT_MS,
   EMBEDDING_VERSION,
+  GENERATION_MAX_COMPLETION_TOKENS,
+  GENERATION_REASONING_EFFORT,
+  GENERATION_SAMPLING,
+  GENERATION_TIMEOUT_MS,
+  generationModel,
   MODEL_CHECK_TIMEOUT_MS,
   OPENAI_BASE_URL,
   readEnv,
 } from "./config.ts";
 import { AiError, logEvent } from "./errors.ts";
+import type { ChatMessage } from "./rag/prompt.ts";
 
 // Dépendances injectables : le fournisseur est simulé dans les tests unitaires.
 export type AiDeps = {
@@ -45,12 +51,17 @@ type RequestSpec = {
   acceptStatus?: number;
 };
 
-async function providerError(response: Response): Promise<{ code?: string; type?: string }> {
+// Nom de paramètre renvoyé par le fournisseur (ex. « temperature ») : gardé seulement s'il a la forme
+// d'un nom de champ court, pour ne jamais recopier de texte libre.
+const PARAM_NAME = /^[A-Za-z0-9_.[\]]{1,64}$/;
+
+async function providerError(response: Response): Promise<{ code?: string; type?: string; param?: string }> {
   try {
-    const body = (await response.json()) as { error?: { code?: unknown; type?: unknown } };
+    const body = (await response.json()) as { error?: { code?: unknown; type?: unknown; param?: unknown } };
     const code = typeof body.error?.code === "string" ? body.error.code : undefined;
     const type = typeof body.error?.type === "string" ? body.error.type : undefined;
-    return { code, type };
+    const param = typeof body.error?.param === "string" && PARAM_NAME.test(body.error.param) ? body.error.param : undefined;
+    return { code, type, param };
   } catch {
     return {};
   }
@@ -79,18 +90,26 @@ async function callProvider(spec: RequestSpec, deps: AiDeps): Promise<unknown> {
         body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
         signal: controller.signal,
       });
-      if (response.ok) return await response.json();
+      if (response.ok) {
+        // Réponse reçue (et payée) mais illisible : jamais réessayée comme une panne réseau.
+        try {
+          return await response.json();
+        } catch {
+          logEvent("ai_output_invalid", { operation: spec.operation, reason: "json" });
+          throw new AiError("AI_OUTPUT_INVALID", false, "réponse illisible");
+        }
+      }
       if (response.status === spec.acceptStatus) return null;
 
-      const { code, type } = await providerError(response);
-      const details = { operation: spec.operation, status: response.status, code: code ?? type, attempt };
+      const { code, type, param } = await providerError(response);
+      const details = { operation: spec.operation, status: response.status, code: code ?? type, param, attempt };
       if (response.status === 429 && (BUDGET_ERROR_CODES.has(code ?? "") || BUDGET_ERROR_CODES.has(type ?? ""))) {
         logEvent("ai_budget_exhausted", details);
-        throw new AiError("AI_BUDGET_EXHAUSTED", false, "plafond du fournisseur atteint");
+        throw new AiError("AI_BUDGET_EXHAUSTED", false, "plafond du fournisseur atteint", code ?? type);
       }
       if (response.status !== 429 && response.status < 500) {
         logEvent("ai_provider_rejected", details);
-        throw new AiError("AI_UNAVAILABLE", false, `refus du fournisseur (${response.status})`);
+        throw new AiError("AI_UNAVAILABLE", false, `refus du fournisseur (${response.status})`, code ?? type, param);
       }
       retryReason = `status_${response.status}`;
     } catch (error) {
@@ -163,6 +182,65 @@ export async function embed(texts: string[], options: AiOptions = {}): Promise<E
   }
 
   return { vectors, model: EMBEDDING_MODEL, version: EMBEDDING_VERSION };
+}
+
+export type GenerationResult = {
+  text: string;
+  model: string;
+  usage: { inputTokens: number; outputTokens: number };
+};
+
+// Génération d'une réponse, non diffusée (story 5.2a-1 ; la diffusion arrive en 5.5) : Chat
+// Completions, raisonnement désactivé, échantillonnage de GENERATION_SAMPLING, sortie bornée. Une
+// réponse vide, tronquée ou filtrée (finish_reason autre que « stop ») est invalide : aucun fait
+// partiel n'est rendu. Ni les consignes ni la réponse ne sont journalisées.
+export async function generateAnswer(messages: ChatMessage[], options: AiOptions = {}): Promise<GenerationResult> {
+  const deps = { ...defaultDeps(), ...options.deps };
+  const model = generationModel();
+  const body = await callProvider(
+    {
+      operation: "generate",
+      path: "/chat/completions",
+      method: "POST",
+      body: {
+        model,
+        messages,
+        reasoning_effort: GENERATION_REASONING_EFFORT,
+        max_completion_tokens: GENERATION_MAX_COMPLETION_TOKENS,
+        ...GENERATION_SAMPLING,
+      },
+      timeoutMs: options.timeoutMs ?? GENERATION_TIMEOUT_MS,
+    },
+    deps,
+  );
+
+  const parsed = body as {
+    model?: unknown;
+    choices?: { message?: { content?: unknown; refusal?: unknown }; finish_reason?: unknown }[];
+    usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+  } | null;
+  const choice = Array.isArray(parsed?.choices) ? parsed.choices[0] : undefined;
+  const text = typeof choice?.message?.content === "string" ? choice.message.content : "";
+  const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : "absent";
+  if (finishReason !== "stop" || text.trim() === "") {
+    logEvent("ai_output_invalid", {
+      operation: "generate",
+      finish_reason: finishReason,
+      empty: text.trim() === "",
+      // Refus de sécurité du modèle : signalé, jamais son texte.
+      refusal: typeof choice?.message?.refusal === "string",
+    });
+    // Sortie tronquée ou filtrée : avec un échantillonnage fixe, la même demande redonnerait le même
+    // résultat ; elle n'est donc pas réessayable.
+    const deterministic = finishReason === "length" || finishReason === "content_filter";
+    throw new AiError("AI_OUTPUT_INVALID", !deterministic, `réponse inexploitable (${finishReason})`);
+  }
+  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  return {
+    text,
+    model: typeof parsed?.model === "string" ? parsed.model : model,
+    usage: { inputTokens: count(parsed?.usage?.prompt_tokens), outputTokens: count(parsed?.usage?.completion_tokens) },
+  };
 }
 
 // Accès du projet aux modèles, sans coût (GET /models/{id}) : true si le modèle est accessible,

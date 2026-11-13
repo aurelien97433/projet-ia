@@ -1507,3 +1507,36 @@ Deux constats rejetés, un différé à la 5.2a (journal de tri dans la spec).
 Constat en chemin : ma première requête de contrôle a échoué sur un type (`confdeltype` est un `"char"`), corrigée par `::text`.
 
 **Statut.** Story 5.1 `done`. Prochaine story de l'Epic 5 : 5.2a (fonction `chat`), avec les points différés de la 3.4 et de la 5.1 (course à l'insertion d'une Source, titre et version tirés du Document).
+
+## Story 5.2a-1 — Consignes, génération et citations (2026-11-13)
+
+**Découpage.** La 5.2a est coupée en deux, à la demande de l'utilisateur :
+- 5.2a-1 : consignes, génération, citations ; code pur, sans déploiement ;
+- 5.2a-2 : fonction `chat`, enregistrement, route, tests réels, déploiement.
+
+Garde-fou contre l'épuisement du crédit, décidé pour la 5.2a-2 : quota par Compte et par jour, et plafond global du projet par jour (options A + B).
+
+**Réalisation.**
+- Consignes (`_shared/rag/prompt.ts`) : au plus 8 Passages, balisés `<passage id="P{n}" document="…">`, avec contenu, titre et question neutralisés.
+- Citations (`_shared/rag/citations.ts`) : `[P{n}]` regroupés par Document, dans l'ordre de première citation. Une seule liste de Passages sert aux consignes et aux citations.
+- `generateAnswer` (`_shared/ai.ts`) : Chat Completions, `reasoning_effort: "none"`, `temperature: 0`, `seed` fixe, sortie bornée à 1 500 tokens.
+- Génération d'essai dans la fonction locale `ai-health`.
+
+**Température.** La documentation d'OpenAI ne confirmait pas que `gpt-5.4-mini` accepte `temperature` et `seed` : la page du modèle n'en parle pas, et la référence de l'API les liste sans exception de modèle. Vérification par un appel réel (`npm run test:ai`, utilisateur) : 3 tests réussis, `{"ok":true,"model":"gpt-5.4-mini-2026-03-17","sampling":{"temperature":0,"seed":20261113},"outputTokens":4}`. Les deux paramètres sont acceptés par l'instantané daté `gpt-5.4-mini-2026-03-17` : aucun repli.
+
+**Revue.** Trois relecteurs. Corrigés :
+- nom du paramètre refusé conservé, pour le repli ;
+- sortie tronquée ou filtrée non réessayable ;
+- repères inconnus restreints aux vraies formes de citation (aucun texte de réponse journalisé) ;
+- liste de Passages unique ;
+- `test:ai` à un seul appel payant ;
+- gardes sur la question et sur le titre ;
+- réponse illisible jamais réessayée.
+
+Différés à la 5.2a-2 : l'échéance globale de la génération et ses nouvelles tentatives.
+
+**Constats en chemin.**
+- L'écriture de ` ` dans un fichier produisait un vrai séparateur de ligne, qui cassait une expression régulière : remplacé par `\p{Zl}` et `\p{Zp}`.
+- Sur une machine chargée, un test de `check-secrets` a dépassé son délai dans la suite complète ; relancé seul, il passe.
+
+**Statut.** Story 5.2a-1 terminée, non commitée. La ligne `5-2a` du sprint reste `in-progress` jusqu'à la fin de la 5.2a-2.
