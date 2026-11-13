@@ -163,17 +163,20 @@ test.describe("session expirée ou Document inaccessible", () => {
       await expect.poll(() => calls, { timeout: 8_000 }).toBe(1);
       await page.waitForTimeout(4_000);
       expect(calls).toBe(1);
+      // 404 : Document supprimé pendant la consultation (story 3.4).
+      if (status === 404) await expect(banner(page)).toContainText(t.deleted);
     });
   }
 });
 
-test("erreur sans texte exploitable : raison lue en base, ni relance ni suppression", async ({ page, account }) => {
+test("erreur sans texte exploitable, Auteur : raison lue en base, « Supprimer » seul, sans relance", async ({ page, account }) => {
   const id = await insertDocument(account.id);
   await updateDocument(id, { status: "error", error_kind: "no_text", error_message: "Raison enregistrée en base." });
   await page.goto(`/documents/${id}`);
   await expect(badge(page).getByText(texts.status.error)).toBeVisible();
   await expect(banner(page)).toContainText("Raison enregistrée en base.");
-  await expect(banner(page).getByRole("button")).toHaveCount(0);
+  await expect(banner(page).getByRole("button")).toHaveText([texts.deleteDocument.action]);
+  await expect(page.getByRole("button", { name: t.retry })).toHaveCount(0);
 });
 
 test("sans texte exploitable, autre Collaborateur : même raison, sans action", async ({ page }) => {
@@ -438,7 +441,9 @@ test.describe("relance", () => {
     await expect(page).toHaveURL(/\/connexion/, { timeout: 15_000 });
   });
 
-  test("Document supprimé au moment du clic : page E9", async ({ page, account }) => {
+  // Story 3.4 : un Document supprimé pendant la consultation n'affiche plus E9, mais son état propre ;
+  // un rechargement complet mène ensuite à E9.
+  test("Document supprimé au moment du clic : « Ce Document a été supprimé. », puis E9 au rechargement", async ({ page, account }) => {
     const id = await insertDocument(account.id);
     await updateDocument(id, temporaryError);
     await page.goto(`/documents/${id}`);
@@ -448,7 +453,11 @@ test.describe("relance", () => {
     const { error } = await admin().from("documents").delete().eq("id", id);
     expect(error).toBeNull();
     await retry.click();
-    await expect(page.getByText(texts.notFound.title)).toBeVisible({ timeout: 15_000 });
+    await expect(banner(page)).toContainText(t.deleted, { timeout: 15_000 });
+    await expect(banner(page).getByRole("link", { name: t.backToLibrary })).toBeVisible();
+    await expect(retry).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByText(texts.notFound.title)).toBeVisible();
   });
 
   test("Document expiré : l'Auteur relance jusqu'à « prêt »", async ({ page, account }) => {

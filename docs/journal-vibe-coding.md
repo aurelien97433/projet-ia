@@ -1372,3 +1372,52 @@ Constat en chemin : la CLI Supabase met 31 s à répondre via `npx`, contre 9 s 
 **Points différés tranchés** : écriture par lots reportée après l'Epic 5 ; `http_500` expliqué (limite de 8 s par instruction, code `57014`, désormais journalisé).
 
 **Statut.** Story 2.7 `done`. Prochaine : 3.4, non commencée, à finir avant l'Epic 5 (lundi 16/11).
+
+## Story 3.4 — Supprimer son Document (2026-11-13)
+
+**Plan approuvé par l'utilisateur**, avec trois décisions :
+- notifications par Sonner, ajouté avec shadcn ;
+- « Supprimer » reste disponible pendant le traitement ;
+- les deux fichiers orphelins de 2.6b sont supprimés par l'utilisateur au tableau de bord Supabase, sans script.
+
+En plus : un relecteur séparé, consacré à la sécurité seulement ; la note sur ce que l'Epic 5 doit prévoir ; `deploy:supabase` avant le push.
+
+**Réalisation.**
+- **Base** : migration `20261113090000_delete_document.sql`.
+  - Droit de suppression sur `documents` pour l'Auteur seul ; les Passages suivent en cascade.
+  - Suppression dans le Storage limitée à son propre dossier, et seulement pour un fichier qu'aucun Document ne référence plus. C'est ce qui impose « Document d'abord, puis fichier ».
+  - Rien pour `anon`.
+- **Serveur** : une Server Action supprime le Document avec le jeton du Collaborateur, puis son fichier.
+  - Si aucune ligne n'est supprimée : « Cette action n'est pas autorisée. » quand le Document existe encore, l'état « supprimé » sinon.
+  - Un fichier non retiré est journalisé, sans annuler la suppression.
+- **Interface** :
+  - « Supprimer » avec un dialogue de confirmation, le focus sur « Annuler » ;
+  - notification « Document supprimé. » et retour à la Bibliothèque ;
+  - le bandeau `no_text` propose « Supprimer » à l'Auteur ;
+  - un Document supprimé pendant la consultation affiche « Ce Document a été supprimé. » avec « Retour à la Bibliothèque ».
+- **`process-document`** : un Document supprimé pendant son traitement ne laisse qu'un journal d'information (`process_document_document_deleted`).
+- **Epic 5** : `deferred-work.md` note ce qu'il faudra prévoir pour une Source dont le Document est supprimé :
+  - des identifiants de Passages devenus invalides ;
+  - une course à l'enregistrement de la réponse ;
+  - la mise à null des Sources des autres Comptes ;
+  - la réutilisation du 404.
+
+**Revue.**
+- Revue ciblée de l'IA.
+- Relecteur sécurité séparé : aucune vulnérabilité exploitable. Il a vérifié par des appels directs (PostgREST et API Storage, avec les jetons de A, de B et `anon`, et des chemins altérés) que B ne peut supprimer ni le Document ni le fichier de A.
+- Un constat corrigé : la fonction `is_unreferenced_upload` pouvait être appelée directement sur le chemin d'un autre Compte. Elle vérifie désormais elle-même le dossier.
+- Deux constats faibles rejetés, et un déjà différé (journal de tri dans la spec).
+
+**Constat en chemin** : depuis Git Bash, Vitest échoue (« failed to find the runner ») à cause de la casse de la lettre de lecteur. Les tests sont lancés depuis PowerShell.
+
+**Résultats** :
+- `npm test` 1 265 réussis, dont intégration 245 après `supabase db reset` ;
+- e2e 320 réussis, 18 sautés ;
+- `lint`, `tsc`, `build:ci` et `check:secrets` verts.
+
+**Statut.** Story 3.4 en `review`, non commitée et non déployée. Ordre prévu après validation :
+1. commit ;
+2. `npm run deploy:supabase` par l'utilisateur ;
+3. push ;
+4. vérification en production, avec la suppression par l'interface des Documents de test de 2.6a et 2.6b, puis le contrôle en lecture seule (9 Documents, fichiers disparus) ;
+5. commit de clôture.

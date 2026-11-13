@@ -9,6 +9,7 @@ import {
   type Attempt,
   completeProcessing,
   DbError,
+  documentExists,
   failProcessing,
   isCurrentAttempt,
   readDocumentText,
@@ -44,7 +45,7 @@ const processDocument: Work = async (attempt) => {
   const noText = async (message: string, cause: string) => {
     const recorded = await failProcessing(attempt, "no_text", message);
     if (recorded) logInfo("process_document_no_text", { ...ids, cause });
-    else logEvent("fail_processing_refused", ids);
+    else await logRefusal("fail_processing_refused", ids);
   };
 
   if (source.unreadable) return noText(ENCODING_MESSAGE, "encoding");
@@ -80,8 +81,24 @@ const processDocument: Work = async (attempt) => {
     duration_ms: finished - started,
   };
   if (completed) logInfo("process_document_work_done", details);
-  else logEvent("complete_processing_refused", details);
+  else await logRefusal("complete_processing_refused", details);
 };
+
+// Vrai si le Document a disparu ; en cas de doute (lecture en échec), faux : l'échec reste signalé.
+async function wasDeleted(documentId: string): Promise<boolean> {
+  try {
+    return !(await documentExists(documentId));
+  } catch {
+    return false;
+  }
+}
+
+// Écriture refusée : la tentative n'est plus courante. Un Document supprimé par son Auteur pendant le
+// traitement (story 3.4) est un cas normal, journalisé en information seulement.
+async function logRefusal(event: string, details: { document_id: string } & Record<string, string | number>): Promise<void> {
+  if (await wasDeleted(details.document_id)) logInfo("process_document_document_deleted", details);
+  else logEvent(event, details);
+}
 
 // Cause d'un échec pour les journaux : le code de l'IA ou le nom de l'erreur, jamais son message,
 // qui pourrait citer du texte de Document.
@@ -96,6 +113,11 @@ async function runAttempt(attempt: Attempt, work: Work): Promise<void> {
   try {
     await work(attempt);
   } catch (error) {
+    // Document supprimé pendant le traitement (objet déjà retiré, par exemple) : rien à enregistrer.
+    if (await wasDeleted(attempt.documentId)) {
+      logInfo("process_document_document_deleted", { ...ids, code: causeOf(error), duration_ms: Date.now() - started });
+      return;
+    }
     logEvent("process_document_work_failed", { ...ids, code: causeOf(error), duration_ms: Date.now() - started });
     try {
       const recorded = await failProcessing(attempt, "temporary", FAILURE_MESSAGE);

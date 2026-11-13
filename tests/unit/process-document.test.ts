@@ -34,10 +34,12 @@ type Backend = {
   complete?: () => Response;
   // Fichier importé (story 2.6b) : la lecture renvoie un Document file, le téléchargement ces octets.
   file?: Uint8Array<ArrayBuffer>;
+  // Document supprimé par son Auteur pendant le traitement (story 3.4).
+  deleted?: boolean;
 };
 
 // Base et fournisseur simulés, pour le travail complet : chaque appel est conservé.
-function backend({ text = "Texte de la Note.", superseded = false, read, fail, embeddings, complete, file }: Backend = {}) {
+function backend({ text = "Texte de la Note.", superseded = false, read, fail, embeddings, complete, file, deleted = false }: Backend = {}) {
   const calls = {
     provider: [] as string[][],
     completed: [] as Record<string, unknown>[],
@@ -51,6 +53,7 @@ function backend({ text = "Texte de la Note.", superseded = false, read, fail, e
       if (embeddings) return embeddings(input);
       return Response.json({ data: input.map((_, index) => ({ index, embedding: new Array(1536).fill(0.1) })) });
     }
+    if (url.endsWith("select=id")) return Response.json(deleted ? [] : [{ id: "d" }]);
     if (file && url.includes("/storage/v1/object/documents/")) return new Response(file);
     if (file && url.includes("select=content_text")) {
       return Response.json([{ content_text: null, text_version: 1, kind: "file", storage_path: "auteur/uploads/u.txt" }]);
@@ -389,8 +392,9 @@ describe("accusé et travail d'arrière-plan", () => {
     await handle(post(BODY), () => Promise.reject(new Error("panne")));
     await waitUntil.mock.calls[0][0];
 
-    const [url, init] = dbFetch.mock.calls[1];
-    expect(url).toBe("http://base.test/rest/v1/rpc/fail_processing");
+    const failCall = dbFetch.mock.calls.find(([url]) => url === "http://base.test/rest/v1/rpc/fail_processing");
+    expect(failCall).toBeDefined();
+    const [, init] = failCall!;
     expect(JSON.parse(init?.body as string)).toMatchObject({
       p_document_id: DOCUMENT_ID,
       p_attempt_id: ATTEMPT_ID,
@@ -420,5 +424,55 @@ describe("accusé et travail d'arrière-plan", () => {
     dbFetch.mockImplementation(async () => new Response("", { status: 500 }));
     await handle(post(BODY), () => Promise.reject(new Error("panne")));
     await expect(waitUntil.mock.calls[0][0]).resolves.toBeUndefined();
+  });
+});
+
+describe("Document supprimé pendant le traitement (story 3.4) : journal Info seulement", () => {
+  const output = () => ({
+    info: vi.mocked(console.log).mock.calls.flat().join(" "),
+    error: vi.mocked(console.error).mock.calls.flat().join(" "),
+  });
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  it("écriture finale refusée, Document absent : process_document_document_deleted, aucun Error", async () => {
+    const calls = backend({ complete: () => Response.json(false), deleted: true });
+    await runDefaultWork();
+    expect(calls.failed).toEqual([]);
+    expect(output().info).toContain("process_document_document_deleted");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("no_text refusé, Document absent : journal Info", async () => {
+    backend({ text: "\n\n", fail: () => Response.json(false), deleted: true });
+    await runDefaultWork();
+    expect(output().info).toContain("process_document_document_deleted");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("travail en échec (fichier déjà retiré), Document absent : ni fail_processing ni Error", async () => {
+    const calls = backend({ deleted: true });
+    await handle(post(BODY), () => Promise.reject(new Error("objet absent")));
+    await waitUntil.mock.calls[0][0];
+    expect(calls.failed).toEqual([]);
+    expect(output().info).toContain("process_document_document_deleted");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("lecture de l'existence en échec : le refus reste signalé en Error", async () => {
+    backend({ complete: () => Response.json(false) });
+    const base = dbFetch.getMockImplementation()!;
+    dbFetch.mockImplementation(async (url, init) => (url.endsWith("select=id") ? new Response("", { status: 500 }) : base(url, init)));
+    await runDefaultWork();
+    expect(output().error).toContain("complete_processing_refused");
+    expect(output().info).not.toContain("process_document_document_deleted");
+  });
+
+  it("Document toujours présent : refus signalé en Error, comme avant", async () => {
+    backend({ complete: () => Response.json(false) });
+    await runDefaultWork();
+    expect(output().error).toContain("complete_processing_refused");
   });
 });

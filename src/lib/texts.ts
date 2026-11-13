@@ -166,6 +166,22 @@ export const texts = {
     forbidden: "Cette action n'est pas autorisée.",
     statusUnavailable: "Le Statut n'a pas pu être actualisé.",
     refresh: "Actualiser",
+    // EXPERIENCE.md, « Document supprimé pendant la consultation » (story 3.4).
+    deleted: "Ce Document a été supprimé.",
+    backToLibrary: "Retour à la Bibliothèque",
+  },
+  // Suppression d'un Document (story 3.4, EXPERIENCE.md, « Supprimer un Document »).
+  deleteDocument: {
+    action: "Supprimer",
+    deleting: "Suppression…",
+    title: (title: string) => `Supprimer « ${title} » ?`,
+    text: "Ce Document disparaîtra de la Bibliothèque, de la Recherche et des réponses futures de l'Assistant. Cette action est définitive.",
+    cancel: "Annuler",
+    confirm: "Supprimer",
+    done: "Document supprimé.",
+    forbidden: "Cette action n'est pas autorisée.",
+    // Absent d'EXPERIENCE.md : sur le modèle de la relance (story 2.5), ajouté le 2026-11-13.
+    failed: "La suppression n'a pas abouti. Veuillez réessayer.",
   },
   library: {
     categoryLabel: "Catégorie",

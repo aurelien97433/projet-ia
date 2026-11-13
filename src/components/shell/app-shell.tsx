@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import { texts } from "@/lib/texts";
 import { Logo } from "./logo";
 import { MobileNav } from "./mobile-nav";
@@ -65,6 +66,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Suspense>
         </div>
       </main>
+      {/* Notifications brèves (EXPERIENCE.md, Succès) : montées une fois, elles survivent à la navigation. */}
+      <Toaster />
     </div>
   );
 }

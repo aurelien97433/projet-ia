@@ -68,8 +68,8 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
           </dl>
         </header>
 
-        <StatusBanner documentId={document.id} isAuthor={isAuthor} />
-        <DocumentActions isAuthor={isAuthor} />
+        <StatusBanner documentId={document.id} title={document.title} isAuthor={isAuthor} />
+        <DocumentActions documentId={document.id} title={document.title} isAuthor={isAuthor} />
       </DocumentStatusProvider>
 
       <section aria-label={texts.document.textLabel}>

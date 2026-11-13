@@ -69,6 +69,17 @@ export async function isCurrentAttempt({ documentId, attemptId }: Attempt): Prom
   return Date.now() - new Date(rows[0].processing_started_at).getTime() < ATTEMPT_LIFETIME_MS;
 }
 
+// Vrai si le Document existe encore (story 3.4 : il peut être supprimé par son Auteur pendant le
+// traitement). Sert seulement à qualifier un refus ou un échec dans les journaux.
+export async function documentExists(documentId: string): Promise<boolean> {
+  const query = new URLSearchParams({ id: `eq.${documentId}`, select: "id" });
+  const response = await restRequest(`documents?${query}`);
+  if (!response.ok) throw await DbError.from("Lecture du Document", response);
+  const rows: unknown = await response.json();
+  if (!Array.isArray(rows)) throw new Error("Réponse inattendue");
+  return rows.length > 0;
+}
+
 // unreadable : fichier importé dont le texte n'a pas pu être lu (encodage, story 2.6b) ; erreur no_text.
 export type DocumentSource = { text: string; textVersion: number; unreadable?: "encoding" };
 

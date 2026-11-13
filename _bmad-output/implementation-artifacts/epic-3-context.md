@@ -39,6 +39,7 @@ Un Collaborateur parcourt la Bibliothèque, ouvre et lit n'importe quel Document
 - **Passages dans l'URL.** La page Document reçoit `?passages=…&actif=…`.
 - **Mutations.** Server Action pour la suppression, Route Handler pour l'interrogation du Statut. Forme d'erreur unique `{ error: { code, message, retryable, resetAt? } }` ; `NOT_FOUND` couvre aussi l'accès refusé, le détail technique reste dans les journaux.
 - **Suppression.** Politique `delete` réservée à l'Auteur ; le serveur supprime le Document, puis l'objet Storage. Passages en cascade ; `message_sources.document_id` passe à null (`document_title` conservé). Un Document sans `storage_path` (Note) se supprime sans erreur.
+- **Storage.** Le bucket privé `documents` n'a, depuis l'import de fichiers, que des politiques de dépôt et de lecture pour le propriétaire, dans `{author_id}/uploads/…`. Next.js n'a pas `service_role` : la suppression de l'objet par l'Auteur demande une politique `delete` limitée à son dossier (ou une fonction SQL). Un dépôt précède toujours la création du Document : des objets orphelins existent (nettoyage différé). Fichiers et Notes sont limités à 100 000 octets.
 - **RLS.** Les privilèges et politiques de la suppression sont vérifiés par des tests d'intégration à deux Comptes.
 
 ## UX & Interaction Patterns
@@ -54,10 +55,12 @@ Un Collaborateur parcourt la Bibliothèque, ouvre et lit n'importe quel Document
 
 ## Cross-Story Dependencies
 
-- Ordre : 3.1 → 3.2 → 3.3, puis 3.5 et 3.4 ; 3.6 (FINITION) en dernier, seulement si un jour se libère ; sa coupe éventuelle est présentée à l'utilisateur aux points de contrôle du 18/11 et du 20/11 au soir, jamais décidée sans lui. Le 10/11 : 3.3 puis 3.5 ; 3.4 le 16/11.
+- Ordre : 3.1 → 3.2 → 3.3, puis 3.5 et 3.4 ; 3.6 (FINITION) en dernier, seulement si un jour se libère ; sa coupe éventuelle est présentée à l'utilisateur aux points de contrôle du 18/11 et du 20/11 au soir, jamais décidée sans lui. Le 10/11 : 3.3 puis 3.5 ; 3.4 avancée au 13/11, avant l'Epic 5 (16/11).
 - Rappel (le 10/11) : dès qu'une page prérendue affiche des données, étendre `check:secrets --static` aux pages prérendues.
 - 3.1 s'appuie sur les Documents pièges de 2.8.
 - 3.2 instaure une seule source d'état du Document pour le badge et le bandeau de Statut, afin de stabiliser les tests e2e `en cours : bandeau…` et `rafraîchissement périmé…` (`deferred-work.md`), sans augmenter leur délai.
-- 3.4 complète l'action « Supprimer » du bandeau `no_text` de `StatusBanner`, reportée de 2.5. Elle peut précéder 2.6a : la suppression de l'objet Storage est alors testée dès la livraison de 2.6a.
+- 3.4 complète l'action « Supprimer » du bandeau `no_text` de `StatusBanner`, reportée de 2.5. 2.6a et 2.6b sont livrées : 3.4 teste que l'objet Storage d'un Document importé disparaît et que B ne peut supprimer ni le Document ni l'objet de A.
+- 3.4 doit être livrée avant l'Epic 5 : les Documents de test importés en production par 2.6a et 2.6b y sont ensuite supprimés **par l'interface** (y compris depuis le bandeau `no_text`), avec vérification de la disparition de leurs objets.
+- E5 référence les Documents par `message_sources` (`document_id` en `on delete set null`, `document_title` copié) : la suppression de 3.4 doit rester compatible avec ce modèle.
 - 3.5 réserve des emplacements pour le champ de Recherche (E4) et les dernières Conversations (E5) ; le bouton « Poser une question » du Tableau de bord arrive avec 5.2b.
 - E4 et E5 valident le Lecteur en navigation réelle ; il doit donc rester réutilisable sans dépendre de la page.

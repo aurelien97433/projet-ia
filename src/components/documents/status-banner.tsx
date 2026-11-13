@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { retryProcessingAction } from "@/app/(app)/documents/[id]/actions";
 import { Button } from "@/components/ui/button";
+import { DeleteDocumentButton } from "@/components/documents/delete-document-button";
 import { useDocumentStatus } from "@/components/documents/document-status-provider";
 import { texts } from "@/lib/texts";
 
@@ -13,9 +15,11 @@ const t = texts.documentStatus;
 
 // Bandeau de Statut de la page Document (E7) : il affiche l'état du fournisseur et porte la relance.
 // « Actualiser » apparaît après trois échecs consécutifs de l'interrogation, jusqu'au premier succès.
-export function StatusBanner({ documentId, isAuthor }: { documentId: string; isAuthor: boolean }) {
+// Document supprimé pendant la consultation (story 3.4) : ce seul message, avec le retour à la
+// Bibliothèque, sans « Réessayer ».
+export function StatusBanner({ documentId, title, isAuthor }: { documentId: string; title: string; isAuthor: boolean }) {
   const router = useRouter();
-  const { status, justReady, pollFailing, serverStatusKey, pollNow, applyStatus } = useDocumentStatus();
+  const { status, justReady, pollFailing, serverStatusKey, pollNow, applyStatus, deleted, markDeleted } = useDocumentStatus();
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   // Sans réponse reçue, le même identifiant est réutilisé : le serveur reconnaît alors le rejeu.
@@ -31,9 +35,9 @@ export function StatusBanner({ documentId, isAuthor }: { documentId: string; isA
     setRetryError(null);
   }
 
-  const processing = status.effectiveStatus === "processing";
-  const temporaryError = status.effectiveStatus === "error" && status.effectiveErrorKind === "temporary";
-  const noTextError = status.effectiveStatus === "error" && status.effectiveErrorKind === "no_text";
+  const processing = !deleted && status.effectiveStatus === "processing";
+  const temporaryError = !deleted && status.effectiveStatus === "error" && status.effectiveErrorKind === "temporary";
+  const noTextError = !deleted && status.effectiveStatus === "error" && status.effectiveErrorKind === "no_text";
 
   // Le bouton activé a disparu : le focus retomberait sur la page, il passe au bandeau.
   useEffect(() => {
@@ -54,8 +58,12 @@ export function StatusBanner({ documentId, isAuthor }: { documentId: string; isA
       const result = await retryProcessingAction(documentId, retryRequestId.current);
       retryRequestId.current = null;
       if (result.status === "error") {
+        if (result.error.code === "NOT_FOUND") {
+          markDeleted();
+          return;
+        }
         setRetryError(result.error.message);
-        if (result.error.code === "UNAUTHENTICATED" || result.error.code === "NOT_FOUND") router.refresh();
+        if (result.error.code === "UNAUTHENTICATED") router.refresh();
         return;
       }
       applyStatus(result.view);
@@ -75,6 +83,20 @@ export function StatusBanner({ documentId, isAuthor }: { documentId: string; isA
   // Vide, elle ne doit pas ajouter d'espace : la marge négative annule l'écart de la page.
   return (
     <div ref={bannerRef} tabIndex={-1} role="status" className="empty:-mb-6">
+      {deleted ? (
+        <div className="rounded-lg bg-destructive-soft p-4 text-sm text-foreground">
+          <p className="font-semibold text-destructive">
+            <span aria-hidden="true">▲ </span>
+            {t.deleted}
+          </p>
+          <div className="mt-3">
+            <Button asChild variant="outline">
+              <Link href="/bibliotheque">{t.backToLibrary}</Link>
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {processing ? (
         <div className="rounded-lg bg-pending-soft p-4 text-sm text-foreground">
           <p className="font-semibold text-pending">
@@ -93,7 +115,7 @@ export function StatusBanner({ documentId, isAuthor }: { documentId: string; isA
         </div>
       ) : null}
 
-      {justReady ? (
+      {justReady && !deleted ? (
         <div className="rounded-lg bg-success-soft p-4 text-sm font-semibold text-success">
           <span aria-hidden="true">● </span>
           {isAuthor ? t.ready : t.readyOther}
@@ -126,10 +148,15 @@ export function StatusBanner({ documentId, isAuthor }: { documentId: string; isA
 
       {noTextError ? (
         <div className="rounded-lg bg-destructive-soft p-4 text-sm text-foreground">
-          <p className="font-semibold text-destructive">
+          <p id="no-text-reason" className="font-semibold text-destructive">
             <span aria-hidden="true">▲ </span>
             {status.effectiveErrorMessage ?? t.noText}
           </p>
+          {isAuthor ? (
+            <div className="mt-3">
+              <DeleteDocumentButton documentId={documentId} title={title} describedBy="no-text-reason" />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

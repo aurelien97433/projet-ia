@@ -27,6 +27,9 @@ type DocumentStatusContextValue = {
   pollNow: () => Promise<void>;
   // Statut renvoyé par une action de l'utilisateur (relance).
   applyStatus: (next: Status) => void;
+  // Document supprimé pendant la consultation (story 3.4) : l'état est définitif sur cette page.
+  deleted: boolean;
+  markDeleted: () => void;
 };
 
 const DocumentStatusContext = createContext<DocumentStatusContextValue | null>(null);
@@ -37,15 +40,16 @@ export function useDocumentStatus(): DocumentStatusContextValue {
   return value;
 }
 
-// Résultat d'une interrogation : le Statut, « gone » si la session a expiré ou si le Document n'est
-// plus accessible (401, 404), null pour une panne passagère.
-async function fetchStatus(documentId: string): Promise<Status | "gone" | null> {
+// Résultat d'une interrogation : le Statut, « gone » si la session a expiré (401), « deleted » si le
+// Document n'existe plus (404 : supprimé pendant la consultation), null pour une panne passagère.
+async function fetchStatus(documentId: string): Promise<Status | "gone" | "deleted" | null> {
   try {
     const response = await fetch(`/api/documents/${documentId}/status`, {
       cache: "no-store",
       signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
     });
-    if (response.status === 401 || response.status === 404) return "gone";
+    if (response.status === 401) return "gone";
+    if (response.status === 404) return "deleted";
     return response.ok ? ((await response.json()) as Status) : null;
   } catch {
     return null;
@@ -56,7 +60,8 @@ async function fetchStatus(documentId: string): Promise<Status | "gone" | null> 
 // donc au même rendu. Tant que le Statut est « en cours », il est interrogé toutes les 3 s : chaque
 // requête attend la fin de la précédente. Une panne passagère n'interrompt pas le suivi ; après trois
 // échecs consécutifs, `pollFailing` reste vrai jusqu'au premier succès. Session expirée ou Document
-// inaccessible : le suivi s'arrête et le serveur décide de la page à afficher.
+// supprimé : le suivi s'arrête ; le serveur décide de la page dans le premier cas, la page affiche
+// « Ce Document a été supprimé. » dans le second (un rechargement complet mène ensuite à E9).
 export function DocumentStatusProvider({
   documentId,
   effectiveStatus,
@@ -75,6 +80,7 @@ export function DocumentStatusProvider({
   // Dernier Statut non « prêt » connu à l'ouverture ou reçu du serveur.
   const [openedStatus, setOpenedStatus] = useState(effectiveStatus);
   const [pollFailing, setPollFailing] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const pollRef = useRef<(() => Promise<void>) | null>(null);
 
   // Le Statut reçu du serveur a changé (relance depuis un autre onglet, retour sur la page) : l'état
@@ -91,7 +97,7 @@ export function DocumentStatusProvider({
     if (effectiveStatus !== "ready") setOpenedStatus(effectiveStatus);
   }
 
-  const processing = status.effectiveStatus === "processing";
+  const processing = status.effectiveStatus === "processing" && !deleted;
 
   useEffect(() => {
     if (!processing) return;
@@ -106,6 +112,10 @@ export function DocumentStatusProvider({
       if (cancelled) return;
       if (next === "gone") {
         router.refresh();
+        return;
+      }
+      if (next === "deleted") {
+        setDeleted(true);
         return;
       }
       if (next) {
@@ -138,8 +148,9 @@ export function DocumentStatusProvider({
 
   // Les données serveur de la page peuvent être périmées : tant que le serveur n'a pas rattrapé le
   // Statut suivi, on recommence, dans une limite fixe.
+  // Document supprimé : rien à rattraper, un rafraîchissement mènerait à E9.
   useEffect(() => {
-    if (status.effectiveStatus === effectiveStatus) return;
+    if (deleted || status.effectiveStatus === effectiveStatus) return;
     router.refresh();
     let retries = 0;
     const timer = setInterval(() => {
@@ -148,7 +159,9 @@ export function DocumentStatusProvider({
       if (retries >= MAX_REFRESH_RETRIES) clearInterval(timer);
     }, REFRESH_RETRY_MS);
     return () => clearInterval(timer);
-  }, [status.effectiveStatus, effectiveStatus, router]);
+  }, [deleted, status.effectiveStatus, effectiveStatus, router]);
+
+  const markDeleted = useCallback(() => setDeleted(true), []);
 
   const pollNow = useCallback(async () => {
     await pollRef.current?.();
@@ -163,6 +176,8 @@ export function DocumentStatusProvider({
         serverStatusKey,
         pollNow,
         applyStatus: setStatus,
+        deleted,
+        markDeleted,
       }}
     >
       {children}

@@ -184,9 +184,12 @@ describe("lecture et modification à deux Comptes", () => {
     await a.client.from("documents").update({ title: "Procédure de facturation", category: "procedure" }).eq("id", docA.id);
   });
 
-  it("aucune suppression avant la story 3.4 (42501)", async () => {
-    const { error } = await a.client.from("documents").delete().eq("id", docA.id);
-    expect(error?.code).toBe(DENIED);
+  // Suppression (story 3.4) : couverte en détail par delete-document.test.ts.
+  it("B ne supprime pas le Document de A (aucune ligne touchée)", async () => {
+    const { data, error } = await b.client.from("documents").delete().eq("id", docA.id).select("id");
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
+    expect(await readAsAdmin(docA.id)).not.toBeNull();
   });
 });
 
@@ -224,7 +227,7 @@ describe("privilèges SQL réels", () => {
       upd_status: false,
       upd_content: false,
       upd_category: true,
-      del: false,
+      del: true,
       anon_doc: false,
       anon_list: false,
     });
