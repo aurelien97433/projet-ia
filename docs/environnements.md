@@ -112,7 +112,7 @@ Ce secret autorise Next.js à appeler `process-document`. Il est lu côté serve
    ```powershell
    Set-Clipboard -Value $secret
    ```
-4. Dans Vercel › projet › Settings › Environment Variables : `Add`, nom `PROCESS_DOCUMENT_SECRET`, valeur collée, environnements **Production** et **Preview**, option **Sensitive** activée, puis `Save`.
+4. Dans Vercel › projet › Settings › Environment Variables : `Add`, nom `PROCESS_DOCUMENT_SECRET`, valeur collée, environnement **Production** seulement (relevé du 2026-11-13 : jamais en Preview ; une prévisualisation ne déclenche donc aucun traitement), option **Sensitive** activée, puis `Save`.
 5. Effacer la valeur :
    ```powershell
    Set-Clipboard -Value " "
@@ -155,7 +155,7 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
    powershell -NoProfile -File scripts\setup-seed-env.ps1
    ```
    Le script refuse de s'exécuter hors de la racine. Il demande la clé `service_role` en saisie masquée (Supabase › Project Settings › API Keys) et vérifie son format sans l'afficher. Il contrôle que la CLI vise bien le projet lié, l'affiche et demande de retaper sa référence. Il génère ensuite le nouveau secret et les mots de passe, pose ce seul secret dans Supabase, puis écrit `.env.seed` ; en cas d'échec, ce fichier reste inchangé. Relancé plus tard, il conserve les identifiants, mais **régénère toujours le secret** : reprendre alors les étapes 2 à 4.
-2. **Vercel.** Le secret est dans le presse-papiers : Settings › Environment Variables › `PROCESS_DOCUMENT_SECRET`, Production et Preview, **Sensitive**. Enregistrer, puis taper `OK` dans le terminal : le presse-papiers est effacé.
+2. **Vercel.** Le secret est dans le presse-papiers : Settings › Environment Variables › `PROCESS_DOCUMENT_SECRET`, Production seulement (pas en Preview), **Sensitive**. Enregistrer, puis taper `OK` dans le terminal : le presse-papiers est effacé.
 3. **Redéploiement.** Vercel › Deployments › dernier déploiement de production › Redeploy. Une variable Vercel ne s'applique qu'aux déploiements suivants. Jusqu'à la fin du redéploiement, chaque Note créée passe *en erreur*.
 4. **Vérification.** Créer une Note courte sur Vercel : elle doit passer à *prêt*. Sinon, les secrets diffèrent : ne pas continuer.
 5. **Nettoyage des Notes de test.** Dans l'éditeur SQL de Supabase, lister d'abord ce qui serait supprimé :
@@ -212,7 +212,7 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
 | Nom | Où | Navigateur |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `.env.local`, Vercel | Oui (publiques) |
-| `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase (`supabase/functions/.env` en local, ignoré par git), `.env.seed` | Non |
+| `PROCESS_DOCUMENT_SECRET` | Vercel (Production seulement), secrets Supabase (`supabase/functions/.env` en local, ignoré par git), `.env.seed` | Non |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase, `.env.seed` | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement (`supabase/functions/.env` en local, ignoré par git) | Non |
 | `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |

@@ -1430,3 +1430,35 @@ En plus : un relecteur séparé, consacré à la sécurité seulement ; la note 
 La production est prête pour l'Epic 5.
 
 **Statut.** Story 3.4 `done`. Epic 3 : reste 3.6 (FINITION). L'Epic 5 commence lundi 16/11.
+
+## Story 5.0 — Essai léger du flux sur Vercel (2026-11-13)
+
+**But.** Vérifier, avant l'Epic 5, que Vercel Hobby relaie un flux Edge Function → Route Handler Next.js → navigateur morceau par morceau (AD-16).
+
+**Décisions de l'utilisateur.**
+- 5.0 aujourd'hui, 3.6 en tampon.
+- Essai sur la branche `probe/5-0-stream` seulement, rien sur `main` pour l'essai.
+- Chauffe non comptée (Q1 = A) ; plan B seulement si le flux est mis en tampon ou si la médiane dépasse 5 s (Q2 = A) ; documents seuls sur `main` à la fin (Q3 = A).
+
+**Réalisation (branche).**
+- Fonction `stream-probe` : 20 morceaux SSE, un toutes les 250 ms, sans IA ni base ; session de Collaborateur exigée, clé publique seule refusée.
+- Relais `/api/stream-probe` (`maxDuration = 60`, sous le plafond de 300 s de Vercel Hobby), variantes de base et B1.
+- Page `/essai-flux` qui mesure chaque morceau dans le navigateur et produit un résultat à copier, sans jeton.
+- Tests : unitaires, intégration locale, e2e local.
+
+**Écart trouvé.** Next.js 16 avec Cache Components refuse `runtime = 'edge'` dans un Route Handler : la variante B2 du plan B est impossible telle qu'écrite. Décision de l'utilisateur : n'en parler que si la base et B1 échouent.
+
+**Mesure (utilisateur, depuis La Réunion, variante de base, `fra1`)** : **réussite, 10 sur 10**.
+- Premier morceau : médiane 760 ms, maximum 1 061 ms ; chauffe 1 550 ms.
+- Pas de mise en tampon : un morceau toutes les 248 ms environ, étalement reçu proche de l'étalement émis.
+- Essai 4 : trois morceaux reçus groupés après un trou de 968 ms, probable variation du réseau, sans effet.
+- Ni B1 ni B3.
+
+**Constats en chemin.**
+- La variable `PROCESS_DOCUMENT_SECRET` est en Production seulement sur Vercel, et non en Production et Preview comme l'écrivait la documentation : `docs/environnements.md` est aligné, et elle n'est pas ajoutée en Preview.
+- En local, une nouvelle Edge Function n'est servie qu'après `supabase stop` puis `supabase start`.
+- Le collage d'un long résultat dans le chat a échoué deux fois avant de passer.
+
+**Retrait.** Fonction distante supprimée par l'utilisateur (`functions list` : `process-document` et `semantic-search` seulement), branche distante supprimée, prévisualisation laissée (protégée). Sur `main`, documents seulement.
+
+**Statut.** Story 5.0 `done`. Pour 5.5 : reprendre les réglages de la variante de base pour `app/api/chat`. Prochaine story de l'Epic 5 : 5.1 (lundi 16/11).
