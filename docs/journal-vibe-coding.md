@@ -1494,9 +1494,16 @@ Deux constats rejetés, un différé à la 5.2a (journal de tri dans la spec).
 
 **Résultats** : `npm test` 1 331 réussis ; `lint`, `tsc`, `build:ci` et `check:secrets` verts.
 
-**Statut.** Story 5.1 en `review`, non commitée. Ordre prévu après validation :
-1. commit local ;
-2. `npm run deploy:supabase` par l'utilisateur ;
-3. push ;
-4. contrôle en lecture seule des trois tables sur le projet distant ;
-5. commit de clôture.
+**Commits et déploiement.**
+- À la demande de l'utilisateur, la normalisation des fins de ligne du test de frontières est dans un commit séparé, `35b3e47`, avant la story, `86632ff`. Les deux sont poussés.
+- `npm run deploy:supabase` a été lancé par l'utilisateur ; la migration est appliquée sur le projet distant.
+
+**Contrôle en lecture seule sur le projet distant** :
+- trois tables avec RLS activée et 8 règles d'accès `to authenticated` ;
+- aucun droit pour `anon` et aucun droit de suppression ;
+- clés étrangères composites et `set null` présentes ;
+- 0 ligne dans chaque table.
+
+Constat en chemin : ma première requête de contrôle a échoué sur un type (`confdeltype` est un `"char"`), corrigée par `::text`.
+
+**Statut.** Story 5.1 `done`. Prochaine story de l'Epic 5 : 5.2a (fonction `chat`), avec les points différés de la 3.4 et de la 5.1 (course à l'insertion d'une Source, titre et version tirés du Document).

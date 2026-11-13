@@ -2,7 +2,7 @@
 title: 'Story 5.1 : Stocker les Conversations de façon strictement privée'
 type: 'feature'
 created: '2026-11-13'
-status: 'in-review'
+status: 'done'
 baseline_commit: '6ff18873d3b54c8a3af30e4742bacb1bd9006857'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -129,3 +129,14 @@ Revue à trois relecteurs (règle 11) : Blind Hunter, Edge Case Hunter, Verifica
 **Commands:**
 - `npx supabase db reset` puis `npx vitest run tests/integration` (PowerShell) -- expected : vert.
 - `npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build:ci` -- expected : vert.
+
+## Verification Results
+
+- **Commits (2026-11-13)** : `35b3e47` (normalisation des fins de ligne de `config.toml` dans le test de frontières, commit séparé à la demande de l'utilisateur) puis `86632ff` (story 5.1), poussés sur `main`.
+- **Déploiement** : `npm run deploy:supabase` par l'utilisateur ; migration `20261113120000_conversations.sql` appliquée sur le projet distant, `process-document` et `semantic-search` inchangées.
+- **Contrôle en lecture seule sur le projet distant (IA)** :
+  - `conversations`, `messages`, `message_sources` : RLS activée ; 3, 3 et 2 politiques, toutes `to authenticated` ; aucun droit pour `anon` ; aucun droit de suppression ;
+  - clés étrangères : `messages_conversation_owner_fk` et `message_sources_message_owner_fk` (composites, cascade), `message_sources_document_id_fkey` (`set null`), `owner_id` → `profiles` (cascade) ;
+  - `messages.created_at` par `clock_timestamp()` ; `is_valid_source_passages` non exécutable par `anon` ; migration `20261113120000` enregistrée ;
+  - 0 ligne dans chacune des trois tables.
+- Aucun écran ni aucune Edge Function ne change : rien à vérifier côté Vercel.
