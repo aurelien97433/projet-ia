@@ -2,7 +2,7 @@
 title: 'Story 3.4 : Supprimer son Document'
 type: 'feature'
 created: '2026-11-13'
-status: 'in-review'
+status: 'done'
 baseline_commit: '91388117bc27de4d0cb4397e524bebfe93ab08e1'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -113,3 +113,12 @@ Couches standard (Blind Hunter, Edge Case Hunter, Verification Gap) non lancées
 **Commands:**
 - `npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build:ci`, `npm run test:e2e`, `npm run check:secrets` -- expected : tout vert.
 - `supabase db reset` local puis tests d'intégration -- expected : migration rejouée depuis zéro.
+
+## Verification Results
+
+- **Commit et déploiement (2026-11-13)** : `c8b7e40` commité en local ; `npm run deploy:supabase` par l'utilisateur (migration `20261113090000_delete_document.sql` appliquée sur le projet distant, `process-document` redéployée, `semantic-search` inchangée) ; puis push, Vercel *Ready*.
+- **Vérification en production (par l'utilisateur)** : `procedure-test` et `windows-1252` supprimés par « Supprimer » de la page, `vide` et `binaire` par le bandeau *en erreur* ; à chaque fois, confirmation avec le focus sur « Annuler », notification « Document supprimé. », retour à la Bibliothèque. Bibliothèque : 9 Documents. Les 2 fichiers orphelins de 2.6b ont été supprimés par l'utilisateur au tableau de bord Supabase.
+- **Contrôle en lecture seule (IA)** :
+  - 9 Documents, tous *prêts* ; aucun Document de test restant ; aucun Passage orphelin ;
+  - aucun Document avec fichier ; les fichiers des 4 Documents supprimés et les 2 orphelins ont disparu du bucket ;
+  - seul objet restant : `a23cfad2…/uploads/.emptyFolderPlaceholder` (0 octet, 2026-11-13 05:44 UTC), marqueur créé par le tableau de bord Supabase quand un dossier est vidé, pas un fichier de l'application.

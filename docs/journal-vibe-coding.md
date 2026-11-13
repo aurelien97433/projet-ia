@@ -1415,9 +1415,18 @@ En plus : un relecteur séparé, consacré à la sécurité seulement ; la note 
 - e2e 320 réussis, 18 sautés ;
 - `lint`, `tsc`, `build:ci` et `check:secrets` verts.
 
-**Statut.** Story 3.4 en `review`, non commitée et non déployée. Ordre prévu après validation :
-1. commit ;
-2. `npm run deploy:supabase` par l'utilisateur ;
-3. push ;
-4. vérification en production, avec la suppression par l'interface des Documents de test de 2.6a et 2.6b, puis le contrôle en lecture seule (9 Documents, fichiers disparus) ;
-5. commit de clôture.
+**Commit et déploiement.** `c8b7e40` commité en local, sans fichier `.env*`, `check:secrets` vert. `npm run deploy:supabase` lancé par l'utilisateur : migration `20261113090000_delete_document.sql` appliquée sur le projet distant, `process-document` redéployée, `semantic-search` inchangée. Ensuite push sur `main`, Vercel *Ready*.
+
+**Vérification en production, par l'utilisateur** : réussie.
+- `procedure-test` et `windows-1252` ont été supprimés par le bouton « Supprimer » de la page ; `vide` et `binaire` par le bandeau *en erreur*.
+- À chaque fois : confirmation avec le focus sur « Annuler », notification « Document supprimé. », retour à la Bibliothèque. La Bibliothèque affiche ensuite 9 Documents.
+- Les 2 fichiers orphelins de 2.6b ont été supprimés par l'utilisateur depuis le tableau de bord Supabase.
+
+**Contrôle en lecture seule par l'IA** :
+- 9 Documents, tous *prêts* ; aucun Document de test restant ; aucun Passage orphelin ;
+- les fichiers des 4 Documents supprimés et les 2 orphelins ont disparu du bucket ;
+- seul objet restant : un `.emptyFolderPlaceholder` de 0 octet, que le tableau de bord Supabase crée quand un dossier est vidé. Ce n'est pas un fichier de l'application.
+
+La production est prête pour l'Epic 5.
+
+**Statut.** Story 3.4 `done`. Epic 3 : reste 3.6 (FINITION). L'Epic 5 commence lundi 16/11.
