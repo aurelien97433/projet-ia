@@ -75,7 +75,8 @@ describe("supabase/config.toml", () => {
   });
 
   it("seul le secret fait foi pour process-document", () => {
-    expect(config).toMatch(/^\[functions\.process-document\]\nverify_jwt = false$/m);
+    // Fins de ligne normalisées : avec core.autocrlf, une extraction Git écrit le fichier en CRLF.
+    expect(config.replace(/\r\n/g, "\n")).toMatch(/^\[functions\.process-document\]\nverify_jwt = false$/m);
   });
 
   it("semantic-search exige un jeton valide dès la passerelle, et fait partie du déploiement", async () => {
