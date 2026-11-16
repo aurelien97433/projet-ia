@@ -213,7 +213,15 @@ describe("page du Tableau de bord", () => {
     expect(screen.getByRole("link", { name: texts.dashboard.seeLibrary }).getAttribute("href")).toBe("/bibliotheque");
     expect(container.querySelectorAll("[data-skeleton-rows] > div")).toHaveLength(5);
     // Story 5.2b : l'Assistant est utilisable, le bouton est affiché pendant le chargement de la liste.
-    expect(screen.getByRole("link", { name: texts.assistant.askQuestion }).getAttribute("href")).toBe("/assistant");
+    const ask = screen.getByRole("link", { name: texts.assistant.askQuestion });
+    expect(ask.getAttribute("href")).toBe("/assistant");
+    // Décision du 2026-11-16 : « Ajouter un Document » reste le seul bouton plein ; « Poser une
+    // question » en style secondaire (contour).
+    const addDocument = screen.getByRole("link", { name: texts.library.addDocument });
+    expect(ask.getAttribute("data-variant")).toBe("outline");
+    expect(addDocument.getAttribute("data-variant")).toBe("default");
+    const band = container.querySelector("[data-action-band]");
+    expect(band?.querySelectorAll('[data-variant="default"]')).toHaveLength(1);
     // Champ de Recherche ajouté par la story 4.1b, en tête de la bande d'actions.
     expect(screen.getByRole("searchbox", { name: texts.dashboard.searchLabel })).toBeTruthy();
     vi.doUnmock("@/components/dashboard/recent-documents");

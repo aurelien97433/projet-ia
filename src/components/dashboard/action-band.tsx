@@ -13,8 +13,10 @@ export function ActionBand() {
     <div data-action-band className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
       {/* Champ de Recherche en tête de la bande (story 4.1b) ; focus au changement d'écran. */}
       <DashboardSearch />
-      {/* Story 5.2b : nouvelle Conversation, focus dans le champ de question (PageTitle). */}
-      <Button asChild className="w-full sm:w-auto">
+      {/* Story 5.2b : nouvelle Conversation, focus dans le champ de question (PageTitle). Style
+          secondaire (contour) : « Ajouter un Document » reste le seul bouton plein (décision du
+          2026-11-16, vérification en production). */}
+      <Button asChild variant="outline" className="w-full sm:w-auto">
         <Link href={ASSISTANT_HREF}>{texts.assistant.askQuestion}</Link>
       </Button>
       <Button asChild className="w-full sm:w-auto">

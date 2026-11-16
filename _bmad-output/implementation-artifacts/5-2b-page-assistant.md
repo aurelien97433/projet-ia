@@ -90,6 +90,13 @@ context:
 
 **Pièges connus du poste (Windows) :** lancer Vitest depuis PowerShell (Git Bash casse la casse C:/c:) ; écrire code et scripts avec l'outil d'écriture de fichiers, jamais par heredoc Git Bash ; `MSYS_NO_PATHCONV=1` pour `docker exec` depuis Git Bash ; ne jamais lire `supabase/functions/.env` ; le conteneur `supabase_edge_runtime_projet-ia` peut s'arrêter (`docker start`) ; `supabase db query` multi-ligne : passer par `-f fichier` ; `supabase db query` renvoie une enveloppe JSON en mode agent (analyseur `scripts/cli-rows.ts`). E2e : specs Playwright en CommonJS (pas d'`import.meta`) ; cliquer après l'hydratation ; actions React 19 encore en attente entre deux tests ; jamais de délai de test augmenté ; `tsc` casse si `.next-e2e` vient d'une autre branche (le supprimer). Valeurs de clés factices des tests toujours composées (check:secrets). Aucun commit, déploiement ni push.
 
+**Vérification en production (2026-11-16, utilisateur, sur `2e2baf8`) :** points 1 à 5 conformes ; `POST /api/chat` en 200 (7,21 s, démarrage à froid), `x-vercel-id` `cpt1::fra1::…`, aucune requête vers `supabase.co/functions` ni `openai.com`. Trois écarts relevés :
+- A. « Poser une question » en bouton plein comme « Ajouter un Document ». Décision de l'utilisateur : « Ajouter un Document » reste le seul bouton plein ; « Poser une question » en style secondaire (contour). Corrigé (`action-band.tsx`, test `dashboard.test.tsx`).
+- B. Repères bruts « [P2] » et « 1. » pour un point unique : rendu des repères prévu par la 5.4 (renvois ¹ ²) ; numérotation d'un point unique reportée aux consignes de la 5.4 (`deferred-work.md`).
+- C. « Document de test : .md piège » et « Document de test : piège à 375 px » sur le Tableau de bord : Documents du mini Jeu (story 2.8, UX-DR31), préchargés le 2026-11-06, dans les 9 attendus ; aucun test n'a écrit en production (lecture seule).
+
+En corrigeant A, le test e2e « 375 px : bande empilée… » du Tableau de bord échouait lancé seul (5 éléments attendus, 2 Documents créés par le test) : il dépendait des Documents des autres fichiers. Rendu autonome (il crée ses 5 Documents).
+
 ## Review Triage Log
 
 Relecteur séparé unique (décision de l'utilisateur), périmètre : relais `/api/chat`, frontière réseau, accessibilité du fil, `globalSetup`.

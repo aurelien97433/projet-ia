@@ -180,6 +180,9 @@ test("bande d'actions hors de la frontière de la liste : envoyée avant le sque
 test("375 px : bande empilée, bouton pleine largeur, titres longs sans défilement horizontal", async ({ page, account }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   const marker = tag();
+  // Liste pleine (5 éléments) sans dépendre des Documents des autres fichiers : le test reste vrai
+  // lancé seul sur une base vide (constaté le 2026-11-16).
+  for (let index = 0; index < 3; index += 1) await insertDocument(account, { title: `${tag()} Document ${index + 1}`, at: future() });
   await insertDocument(account, { title: `${marker}${"Motsansespace".repeat(14)}`, category: "client_report", at: future() });
   await insertDocument(account, {
     title: `${marker} https://exemple.test/${"chemin/".repeat(20)}`,
