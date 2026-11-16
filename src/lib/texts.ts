@@ -1,5 +1,11 @@
 // Catalogue des textes de l'interface (EXPERIENCE.md, « Textes clés de l'interface »).
 // Tous les libellés affichés viennent d'ici : aucun texte codé en dur dans les composants.
+
+// Nombre entier groupé par milliers avec une espace insécable (« 2 000 », EXPERIENCE.md, règle 9).
+function formatCount(value: number): string {
+  return String(Math.trunc(value)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
 export const texts = {
   app: {
     name: "NexaMind AI",
@@ -226,9 +232,10 @@ export const texts = {
     // Noms accessibles des listes (absents d'EXPERIENCE.md, ajoutés le 2026-11-12, story 4.1b).
     resultsLabel: "Résultats de la Recherche",
     count: (total: number) => (total === 1 ? "1 Document pertinent" : `${total} Documents pertinents`),
-    // Décision du 2026-11-12 (Q1 = B) : la fin de phrase « ou posez la question à l'Assistant » et le
-    // bouton « Poser la question à l'Assistant » sont rétablis ensemble par la story 5.2b.
-    noResults: "Aucun Document ne correspond suffisamment à votre recherche. Essayez d'autres mots.",
+    // Phrase complète de FR-15, rétablie avec le bouton vers l'Assistant (story 5.2b).
+    noResults:
+      "Aucun Document ne correspond suffisamment à votre recherche. Essayez d'autres mots ou posez la question à l'Assistant.",
+    askAssistant: "Poser la question à l'Assistant",
   },
   // Assistant (story 5.2a-2, EXPERIENCE.md, « Textes clés de l'interface »).
   assistant: {
@@ -245,8 +252,29 @@ export const texts = {
     // Plafond global du projet : texte validé le 2026-11-16 (story 5.2a-2), ajouté à EXPERIENCE.md.
     dailyCapReached: (moment: string) =>
       `L'Assistant a atteint sa limite d'utilisation pour aujourd'hui. Il sera de nouveau disponible ${moment}. La Recherche reste disponible.`,
-    // Absent d'EXPERIENCE.md : rejeu d'une question déjà reçue (story 5.2a-2 ; rejeu complet en 5.9).
+    // Rejeu d'une question déjà reçue (story 5.2a-2 ; rejeu complet en 5.9), ajouté à EXPERIENCE.md en 5.2b.
     inProgress: "Cette question est déjà en cours de traitement.",
+    // Saisie invalide (story 5.2b, report g de la 5.2a-2), ajoutés à EXPERIENCE.md.
+    questionEmpty: "Écrivez votre question avant de l'envoyer.",
+    invalidRequest: "Votre question n'a pas pu être envoyée. Vérifiez-la puis réessayez.",
+    // Page Assistant (story 5.2b, EXPERIENCE.md, E4).
+    intro: "L'Assistant répond uniquement à partir des Documents de NexaWorks et cite ses Sources.",
+    fieldLabel: "Votre question",
+    placeholder: "Posez une question sur les Documents de NexaWorks…",
+    keyboardHelp: "Entrée pour envoyer · Maj + Entrée pour aller à la ligne",
+    submit: "Envoyer",
+    counter: (length: number, max: number) => `${formatCount(length)} / ${formatCount(max)}`,
+    pending: "Recherche dans les Documents…",
+    retry: "Réessayer",
+    // Noms accessibles du fil (EXPERIENCE.md, Accessibilité : chaque message précédé de « Vous » ou « Assistant »).
+    threadLabel: "Conversation",
+    you: "Vous",
+    assistantLabel: "Assistant",
+    sourcesLabel: "Sources",
+    passagesCount: (count: number) => `${count} Passages`,
+    sourceDeleted: (title: string) => `${title} — Document supprimé`,
+    // Entrées vers l'Assistant : Tableau de bord et page Document (Document prêt).
+    askQuestion: "Poser une question",
   },
   dashboard: {
     recentDocuments: "Derniers Documents",

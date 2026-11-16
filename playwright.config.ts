@@ -9,6 +9,8 @@ const supabase = localSupabase();
 
 export default defineConfig({
   testDir: "tests/e2e",
+  // Compteurs du garde-fou du crédit d'IA remis à zéro sur la pile locale à chaque lancement (5.2b).
+  globalSetup: "./tests/e2e/global-setup.ts",
   // Serveur de développement : chaque route est compilée à son premier appel, ce qui peut prendre
   // plusieurs secondes quand deux workers tournent en parallèle.
   timeout: 60_000,

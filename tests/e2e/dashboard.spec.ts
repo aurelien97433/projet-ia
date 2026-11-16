@@ -56,7 +56,7 @@ const items = (page: Page) => section(page).getByRole("listitem");
 const ids = (page: Page) => items(page).evaluateAll((elements) => elements.map((e) => e.getAttribute("data-document-id")));
 const addAction = (page: Page) => page.getByRole("main").getByRole("link", { name: texts.library.addDocument, exact: true });
 
-test("ouverture : 5 derniers Documents de A et B, badge et lien, « Voir la Bibliothèque », sans « Poser une question »", async ({
+test("ouverture : 5 derniers Documents de A et B, badge et lien, « Voir la Bibliothèque », « Poser une question »", async ({
   page,
   account,
 }) => {
@@ -98,8 +98,11 @@ test("ouverture : 5 derniers Documents de A et B, badge et lien, « Voir la Bibl
 
     await expect(addAction(page)).toHaveAttribute("href", "/ajouter");
     await expect(section(page).getByRole("link", { name: texts.dashboard.seeLibrary })).toHaveAttribute("href", "/bibliotheque");
-    await expect(page.getByRole("main").getByRole("button", { name: /poser une question/i })).toHaveCount(0);
-    await expect(page.getByRole("main").getByRole("link", { name: /poser une question/i })).toHaveCount(0);
+    // Story 5.2b : « Poser une question » ouvre l'Assistant (parcours complet dans assistant.spec.ts).
+    await expect(page.getByRole("main").getByRole("link", { name: texts.assistant.askQuestion, exact: true })).toHaveAttribute(
+      "href",
+      "/assistant",
+    );
 
     expect(bodies.length).toBeGreaterThan(0);
     for (const body of bodies) {

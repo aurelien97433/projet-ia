@@ -163,7 +163,7 @@ test("état initial : phrase d'aide, trois exemples ; un exemple lance la Recher
   await expect(announcement(page)).toHaveText(t.noResults);
 });
 
-test("chargement : trois cartes squelettes ; sans résultat : message FR-15, sans liste ni bouton vers l'Assistant", async ({
+test("chargement : trois cartes squelettes ; sans résultat : phrase FR-15 complète et bouton vers l'Assistant, sans liste", async ({
   page,
 }) => {
   let release!: () => void;
@@ -180,7 +180,8 @@ test("chargement : trois cartes squelettes ; sans résultat : message FR-15, san
   await expect(announcement(page)).toHaveText(t.noResults);
   await expect(announcement(page).locator("p")).toBeFocused();
   await expect(page.getByRole("list", { name: t.resultsLabel })).toHaveCount(0);
-  await expect(page.getByText(/Poser la question/)).toHaveCount(0);
+  // Parcours du bouton (Requête pré-remplie, rien d'envoyé) : assistant.spec.ts.
+  await expect(page.getByRole("link", { name: t.askAssistant })).toBeVisible();
   await expect(page.locator("[data-search-skeleton]")).toHaveCount(0);
 });
 

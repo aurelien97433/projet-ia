@@ -39,6 +39,10 @@ export function chatMessage(code: ErrorCode, resetAt?: string): string {
       return texts.assistant.budgetExhausted;
     case "REQUEST_IN_PROGRESS":
       return texts.assistant.inProgress;
+    // Demande refusée par chat (corps illisible, identifiant invalide, 405) : saisie invalide, pas une
+    // panne (story 5.2b, report g). La route a déjà refusé une question vide ou trop longue.
+    case "VALIDATION_FAILED":
+      return texts.assistant.invalidRequest;
     default:
       return texts.assistant.failed;
   }

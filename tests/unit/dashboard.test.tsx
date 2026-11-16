@@ -197,7 +197,7 @@ describe("suivi des badges (Q3)", () => {
 });
 
 describe("page du Tableau de bord", () => {
-  it("bande d'actions et en-tête hors de la frontière de la liste : affichés pendant le chargement, champ de Recherche, sans « Poser une question »", async () => {
+  it("bande d'actions et en-tête hors de la frontière de la liste : affichés pendant le chargement, champ de Recherche, « Poser une question »", async () => {
     vi.doMock("@/components/dashboard/recent-documents", () => ({
       // Lecture qui ne se termine jamais : la frontière reste sur son squelette.
       RecentDocuments: () => use(NEVER),
@@ -212,8 +212,8 @@ describe("page du Tableau de bord", () => {
     expect(screen.getByRole("heading", { level: 2, name: texts.dashboard.recentDocuments })).toBeTruthy();
     expect(screen.getByRole("link", { name: texts.dashboard.seeLibrary }).getAttribute("href")).toBe("/bibliotheque");
     expect(container.querySelectorAll("[data-skeleton-rows] > div")).toHaveLength(5);
-    expect(screen.queryByRole("button", { name: /poser une question/i })).toBeNull();
-    expect(screen.queryByRole("link", { name: /poser une question/i })).toBeNull();
+    // Story 5.2b : l'Assistant est utilisable, le bouton est affiché pendant le chargement de la liste.
+    expect(screen.getByRole("link", { name: texts.assistant.askQuestion }).getAttribute("href")).toBe("/assistant");
     // Champ de Recherche ajouté par la story 4.1b, en tête de la bande d'actions.
     expect(screen.getByRole("searchbox", { name: texts.dashboard.searchLabel })).toBeTruthy();
     vi.doUnmock("@/components/dashboard/recent-documents");

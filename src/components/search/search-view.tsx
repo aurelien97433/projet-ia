@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { assistantHref } from "@/components/assistant/constants";
 import { ErrorAlert } from "@/components/forms/error-alert";
 import { Button } from "@/components/ui/button";
 import { SEARCH_QUERY_MAX_LENGTH, searchResponseSchema, type SearchResult } from "@/lib/schemas/search";
@@ -229,9 +230,15 @@ export function SearchView() {
         </ul>
       ) : null}
 
-      {/* Emplacement réservé (story 5.2b) : bouton « Poser la question à l'Assistant » dans l'état sans
-          résultat, avec la phrase complète de FR-15, ajoutés ensemble une fois l'Assistant utilisable
-          (même règle que la story 3.2). Rien n'est affiché avant. */}
+      {/* Sans résultat (FR-15, story 5.2b) : l'Assistant s'ouvre avec la Requête pré-remplie, jamais
+          envoyée d'office. */}
+      {view.kind === "success" && view.cards.length === 0 && query !== null ? (
+        <div>
+          <Button asChild variant="outline" className="w-full sm:w-auto">
+            <Link href={assistantHref(query)}>{t.askAssistant}</Link>
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

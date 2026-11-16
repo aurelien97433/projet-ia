@@ -53,6 +53,15 @@ describe("POST /api/chat", () => {
     expect(maxDuration).toBe(120);
   });
 
+  it("chaîne des délais (décision du 2026-11-16) : chat 60 s < relais 70 s < navigateur 85 s < maxDuration 120 s", async () => {
+    const { CHAT_TIMEOUT_MS } = await import("../../supabase/functions/_shared/config.ts");
+    const { CHAT_CLIENT_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
+    expect([CHAT_TIMEOUT_MS, CHAT_RELAY_TIMEOUT_MS, CHAT_CLIENT_TIMEOUT_MS, maxDuration * 1_000]).toEqual([60_000, 70_000, 85_000, 120_000]);
+    expect(CHAT_TIMEOUT_MS).toBeLessThan(CHAT_RELAY_TIMEOUT_MS);
+    expect(CHAT_RELAY_TIMEOUT_MS).toBeLessThan(CHAT_CLIENT_TIMEOUT_MS);
+    expect(CHAT_CLIENT_TIMEOUT_MS).toBeLessThan(maxDuration * 1_000);
+  });
+
   it("relaie la question avec le jeton de la session et la clé publique ; réponse relue, jamais en cache", async () => {
     fetchMock.mockResolvedValue(Response.json({ ...ANSWER, secret: "x", message: { ...ANSWER.message, extra: 1 } }));
     const response = await POST(post({ question: `  ${QUESTION}  `, clientRequestId: REQUEST_ID }));
@@ -86,15 +95,20 @@ describe("POST /api/chat", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // Report g (story 5.2b) : textes de saisie invalide, jamais « Le service d'IA ne répond pas ».
   it.each([
-    ["vide", { question: "  ", clientRequestId: REQUEST_ID }],
-    ["identifiant absent", { question: QUESTION }],
-    ["identifiant invalide", { question: QUESTION, clientRequestId: "123" }],
-    ["corps illisible", "pas du json"],
-  ])("demande %s : 400 VALIDATION_FAILED, aucun relais", async (_, body) => {
+    ["vide", { question: "  ", clientRequestId: REQUEST_ID }, texts.assistant.questionEmpty],
+    ["vide, identifiant invalide", { question: "", clientRequestId: "123" }, texts.assistant.questionEmpty],
+    ["identifiant absent", { question: QUESTION }, texts.assistant.invalidRequest],
+    ["identifiant invalide", { question: QUESTION, clientRequestId: "123" }, texts.assistant.invalidRequest],
+    ["question absente", { clientRequestId: REQUEST_ID }, texts.assistant.invalidRequest],
+    ["question non textuelle", { question: 42, clientRequestId: REQUEST_ID }, texts.assistant.invalidRequest],
+    ["corps illisible", "pas du json", texts.assistant.invalidRequest],
+  ])("demande %s : 400 VALIDATION_FAILED avec le texte de saisie, aucun relais", async (_, body, message) => {
     const response = await POST(post(body));
     expect(response.status).toBe(400);
-    expect((await response.json()).error.code).toBe("VALIDATION_FAILED");
+    expect(await response.json()).toEqual(appError("VALIDATION_FAILED", message, false));
+    expect(message).not.toBe(texts.assistant.failed);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -172,6 +186,9 @@ describe("relayChat", () => {
     ["AI_OUTPUT_INVALID", 502, false, texts.assistant.failed],
     ["REQUEST_IN_PROGRESS", 409, false, texts.assistant.inProgress],
     ["INTERNAL", 500, true, texts.assistant.failed],
+    // Report g (story 5.2b) : demande refusée par chat (400) ou méthode refusée (405).
+    ["VALIDATION_FAILED", 400, false, texts.assistant.invalidRequest],
+    ["VALIDATION_FAILED", 405, false, texts.assistant.invalidRequest],
   ] as const)("code %s relayé avec le texte du catalogue", async (code, status, retryable, message) => {
     fetchMock.mockResolvedValue(Response.json({ error: { code, message: "détail", retryable } }, { status }));
     expect(await relayChat(request, TOKEN, undefined, TARGET)).toEqual({ status, body: appError(code, message, retryable) });

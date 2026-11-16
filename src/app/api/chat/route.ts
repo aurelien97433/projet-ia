@@ -24,7 +24,14 @@ export async function POST(request: Request) {
 
   const parsed = parseChatRequest(await request.json().catch(() => undefined));
   if (!parsed.ok) {
-    return failure(appError("VALIDATION_FAILED", parsed.tooLong ? texts.assistant.questionTooLong : texts.assistant.failed, false), 400);
+    // Saisie invalide (story 5.2b, report g) : jamais le texte de panne du service d'IA.
+    const message =
+      parsed.reason === "empty"
+        ? texts.assistant.questionEmpty
+        : parsed.reason === "tooLong"
+          ? texts.assistant.questionTooLong
+          : texts.assistant.invalidRequest;
+    return failure(appError("VALIDATION_FAILED", message, false), 400);
   }
 
   const { data } = await (await createClient()).auth.getSession();

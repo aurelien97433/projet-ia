@@ -15,13 +15,24 @@ export const chatRequestSchema = z.object({
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
-export type ChatRequestParse = { ok: true; data: ChatRequest } | { ok: false; tooLong: boolean };
+// Raison d'un refus de saisie : question vide (ou faite d'espaces), trop longue, ou autre demande
+// invalide (identifiant absent ou invalide, corps illisible).
+export type ChatQuestionIssue = "empty" | "tooLong";
+export type ChatRequestParse = { ok: true; data: ChatRequest } | { ok: false; reason: ChatQuestionIssue | "invalid" };
+
+// Contrôle de la question seule, partagé par le navigateur (avant tout appel) et la route.
+export function questionIssue(question: string): ChatQuestionIssue | null {
+  const length = question.trim().length;
+  if (length === 0) return "empty";
+  return length > CHAT_MAX_QUESTION_LENGTH ? "tooLong" : null;
+}
 
 export function parseChatRequest(body: unknown): ChatRequestParse {
   const parsed = chatRequestSchema.safeParse(body);
   if (parsed.success) return { ok: true, data: parsed.data };
   const question = (body as { question?: unknown } | null)?.question;
-  return { ok: false, tooLong: typeof question === "string" && question.trim().length > CHAT_MAX_QUESTION_LENGTH };
+  const issue = typeof question === "string" ? questionIssue(question) : null;
+  return { ok: false, reason: issue ?? "invalid" };
 }
 
 // Réponse relayée au navigateur. Les objets zod retirent toute clé non déclarée.

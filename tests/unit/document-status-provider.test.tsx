@@ -159,6 +159,8 @@ const noText: Status = {
 const d = texts.deleteDocument;
 const buttonsIn = (testId: string) =>
   Array.from(screen.getByTestId(testId).querySelectorAll("button")).map((button) => button.textContent);
+const linksIn = (testId: string) =>
+  Array.from(screen.getByTestId(testId).querySelectorAll("a")).map((link) => [link.textContent, link.getAttribute("href")]);
 
 describe("barre d'actions (story 3.4)", () => {
   it.each([
@@ -171,13 +173,30 @@ describe("barre d'actions (story 3.4)", () => {
   });
 
   it.each([
-    ["prêt", ready],
     ["en cours", processing],
     ["sans texte exploitable", noText],
   ] as const)("autre Collaborateur, %s : aucun « Supprimer »", (_label, status) => {
     render(page(status, false));
     expect(screen.getByTestId("actions").childNodes).toHaveLength(0);
     expect(buttonsIn("banner")).not.toContain(d.action);
+  });
+
+  it("autre Collaborateur, prêt : « Poser une question » seul, aucun « Supprimer »", () => {
+    render(page(ready, false));
+    expect(buttonsIn("actions")).toEqual([]);
+    expect(linksIn("actions")).toEqual([[texts.assistant.askQuestion, "/assistant"]]);
+    expect(buttonsIn("banner")).not.toContain(d.action);
+  });
+
+  // Story 5.2b : « Poser une question » pour un Document prêt seulement, vers une nouvelle Conversation.
+  it.each([
+    ["prêt", ready, [[texts.assistant.askQuestion, "/assistant"]]],
+    ["en cours", processing, []],
+    ["erreur temporaire", failed, []],
+    ["sans texte exploitable", noText, []],
+  ] as const)("Auteur, %s : « Poser une question » seulement si prêt", (_label, status, links) => {
+    render(page(status, true));
+    expect(linksIn("actions")).toEqual(links);
   });
 
   it("Auteur, sans texte exploitable : « Supprimer » dans le bandeau seulement, sans relance", () => {

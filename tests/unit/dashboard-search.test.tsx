@@ -40,11 +40,14 @@ describe("DashboardSearch", () => {
     expect(document.activeElement).toBe(field());
   });
 
-  it("bande d'actions : le champ est en tête, avant « Ajouter un Document », sans « Poser une question »", () => {
+  it("bande d'actions : le champ en tête, puis « Poser une question » (→ /assistant) et « Ajouter un Document »", () => {
     const { container } = render(<ActionBand />);
     const band = container.querySelector("[data-action-band]")!;
     expect(band.firstElementChild?.getAttribute("role")).toBe("search");
-    expect(screen.getByRole("link", { name: texts.library.addDocument })).toBeTruthy();
-    expect(screen.queryByText(/Poser une question/)).toBeNull();
+    const links = Array.from(band.querySelectorAll(":scope > a")).map((link) => [link.textContent, link.getAttribute("href")]);
+    expect(links).toEqual([
+      [texts.assistant.askQuestion, "/assistant"],
+      [texts.library.addDocument, "/ajouter"],
+    ]);
   });
 });

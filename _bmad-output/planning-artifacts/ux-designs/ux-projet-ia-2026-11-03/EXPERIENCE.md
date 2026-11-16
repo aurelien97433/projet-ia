@@ -220,6 +220,9 @@ Une contradiction entre Passages n'a pas de texte d'interface : c'est une répon
 | Échec de l'envoi d'un ajout | « Le Document n'a pas pu être enregistré. Votre saisie est conservée. » · « Réessayer » |
 | Champs du formulaire d'ajout | « Indiquez un titre. » · « Choisissez une Catégorie. » · « Le texte ne peut pas être vide. » · « Choisissez un fichier. » |
 | Question trop longue | « Votre question dépasse 2 000 caractères. Raccourcissez-la pour l'envoyer. » |
+| Question vide (ou faite d'espaces) | « Écrivez votre question avant de l'envoyer. » (navigateur, sans appel, et route `/api/chat` ; ajouté le 2026-11-16, story 5.2b) |
+| Demande de question invalide (`VALIDATION_FAILED` hors question vide ou trop longue : identifiant de demande invalide, corps illisible, méthode refusée) | « Votre question n'a pas pu être envoyée. Vérifiez-la puis réessayez. » (jamais le texte de panne du service d'IA ; ajouté le 2026-11-16, story 5.2b) |
+| Question déjà en cours (`REQUEST_IN_PROGRESS`, double envoi) | « Cette question est déjà en cours de traitement. » (sans « Réessayer » ; ajouté le 2026-11-16, story 5.2b, texte de la 5.2a-2 ; rejeu complet en 5.9) |
 | Identifiants invalides | « E-mail ou mot de passe incorrect. » |
 | Création de Compte | « Cette adresse e-mail n'est pas valide. » · « Le mot de passe doit contenir au moins 8 caractères. » · « Cette adresse e-mail est déjà utilisée. » |
 | Session expirée | « Votre session a expiré. Reconnectez-vous pour continuer. » |

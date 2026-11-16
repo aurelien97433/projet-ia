@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ASSISTANT_HREF } from "@/components/assistant/constants";
 import { ADD_HREF } from "@/components/shell/nav-items";
 import { Button } from "@/components/ui/button";
 import { texts } from "@/lib/texts";
@@ -12,11 +13,13 @@ export function ActionBand() {
     <div data-action-band className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
       {/* Champ de Recherche en tête de la bande (story 4.1b) ; focus au changement d'écran. */}
       <DashboardSearch />
+      {/* Story 5.2b : nouvelle Conversation, focus dans le champ de question (PageTitle). */}
+      <Button asChild className="w-full sm:w-auto">
+        <Link href={ASSISTANT_HREF}>{texts.assistant.askQuestion}</Link>
+      </Button>
       <Button asChild className="w-full sm:w-auto">
         <Link href={ADD_HREF}>{texts.library.addDocument}</Link>
       </Button>
-      {/* Emplacement réservé (story 5.2b) : bouton « Poser une question », affiché seulement une fois
-          l'Assistant utilisable (même règle que la story 3.2). */}
     </div>
   );
 }

@@ -152,15 +152,30 @@ describe("Recherche aboutie", () => {
 });
 
 describe("sans résultat", () => {
-  it("message FR-15 (Q1 = B), aucune liste, aucun bouton « Poser la question à l'Assistant »", async () => {
+  it("phrase complète de FR-15 et « Poser la question à l'Assistant » (Requête pré-remplie), aucune liste", async () => {
     fetchMock().mockImplementation(async () => json({ results: [] }));
     setQuery("recette de la tarte aux pommes");
     render(<SearchView />);
     await flush();
-    expect(status().textContent).toBe(t.noResults);
-    expect(t.noResults).not.toMatch(/Assistant/);
+    expect(status().textContent).toBe(
+      "Aucun Document ne correspond suffisamment à votre recherche. Essayez d'autres mots ou posez la question à l'Assistant.",
+    );
     expect(screen.queryByRole("list", { name: t.resultsLabel })).toBeNull();
-    expect(screen.queryByText(/Poser la question/)).toBeNull();
+    const ask = screen.getByRole("link", { name: t.askAssistant });
+    const href = new URL(ask.getAttribute("href")!, "http://x");
+    expect(href.pathname).toBe("/assistant");
+    expect(href.searchParams.get("question")).toBe("recette de la tarte aux pommes");
+    // Le bouton n'existe que dans l'état sans résultat.
+    expect(fetchMock()).toHaveBeenCalledTimes(1);
+  });
+
+  it("avec résultats : aucun bouton vers l'Assistant", async () => {
+    fetchMock().mockImplementation(async () => json({ results: [result(ID_A, "Doc")] }));
+    setQuery("organisation des congés");
+    render(<SearchView />);
+    await flush();
+    expect(cards()).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: t.askAssistant })).toBeNull();
   });
 });
 

@@ -2,7 +2,8 @@
 title: 'Story 5.2b : Page Assistant : poser une question et voir les Sources'
 type: 'feature'
 created: '2026-11-16'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_commit: 'ce8919fe7ed60c428b3bd52259e2d3bd65a4d06c'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -26,7 +27,7 @@ context:
 - **Refus provisoire (décision de l'utilisateur du 2026-11-16)** : `kind = refusal_info_absente` → texte du refus seul, dans un bloc visuellement distinct d'une réponse (autre fond ou bordure, icône d'information), **sans zone Sources**, sans les boutons de la 5.3.
 - **Un seul échange à l'écran (décision de l'utilisateur du 2026-11-16, avant la 5.8)** : chaque question crée sa Conversation ; une nouvelle question remplace l'échange précédent à l'écran (rien n'est perdu en base, l'Historique arrive en 5.6). Aucun empilement qui laisserait croire à un suivi.
 - **Champ** : Entrée envoie, Maj+Entrée va à la ligne (Entrée ignorée pendant une composition IME) ; compteur « n / 2 000 » visible ; « Envoyer » `aria-disabled` dès le premier clic jusqu'à la fin ; question vide ou faite d'espaces : pas d'appel, message `texts.assistant.questionEmpty` ; plus de 2 000 caractères : pas d'appel, `questionTooLong`.
-- **Erreurs** : alerte `ErrorAlert` à la place de la réponse, question conservée dans le fil. Texte = `error.message` du corps AD-19 (catalogue). « Réessayer » seulement si `retryable`. `QUOTA_EXCEEDED` et `AI_DAILY_CAP_REACHED` : pas de « Réessayer », heure en UTC (décision du 16/11). 401 : `router.refresh()` (session expirée). Délai client 75 s (relais 70 s) puis `AI_TIMEOUT` local.
+- **Erreurs** : alerte `ErrorAlert` à la place de la réponse, question conservée dans le fil. Texte = `error.message` du corps AD-19 (catalogue). « Réessayer » seulement si `retryable`. `QUOTA_EXCEEDED` et `AI_DAILY_CAP_REACHED` : pas de « Réessayer », heure en UTC (décision du 16/11). 401 : `router.refresh()` (session expirée). Délai client 85 s puis `AI_TIMEOUT` local. *Correction du 2026-11-16, décision de l'utilisateur après la revue (constat 1.1) : 75 s à l'origine ; le relais ne démarre qu'après `requireUser`, `getSession` et un éventuel démarrage à froid, 5 s de marge ne suffisaient pas. Chaîne des délais : `chat` 60 s < relais 70 s < navigateur 85 s < `maxDuration` 120 s.*
 - **« Réessayer » (décision de l'utilisateur du 2026-11-16)** : envoie la **même question avec un nouveau `clientRequestId`**. Raison : la question échouée est déjà enregistrée avec l'ancien identifiant (index unique `messages_owner_request_question_key`) ; le renvoyer donnerait toujours `409 REQUEST_IN_PROGRESS` jusqu'à la 5.9. Conséquences : une **nouvelle Conversation** est créée à chaque essai, la Conversation échouée reste en base avec son échec (visible dans l'Historique en 5.6, regroupée par la 5.9) ; le quota réserve une **nouvelle unité** (l'unité de l'essai échoué a été rendue ou consommée selon la règle de libération). À l'écran : l'alerte disparaît, la bulle de question n'est **pas** dupliquée, l'état neutre reprend à la place de l'alerte, puis la réponse ou une nouvelle alerte. Un `409 REQUEST_IN_PROGRESS` (double envoi) affiche son texte sans « Réessayer ».
 - **Report g (5.2a-2)** : textes propres pour la saisie invalide : `questionEmpty` (« Écrivez votre question avant de l'envoyer. ») côté navigateur et route ; `VALIDATION_FAILED` de la route et de `chat` (vide, `clientRequestId` invalide, corps illisible, 405) → `texts.assistant.invalidRequest` (« Votre question n'a pas pu être envoyée. Vérifiez-la puis réessayez. »), jamais « Le service d'IA ne répond pas ». Textes ajoutés à EXPERIENCE.md, ainsi que `inProgress`.
 - **Accessibilité** : réponse annoncée une seule fois, quand elle est confirmée (région `role="status"` toujours montée) ; erreur : focus sur l'alerte ; après une réponse ou un refus, le focus reste dans le champ ; à l'ouverture par un bouton, focus dans le champ (`PageTitle focusTargetId`).
@@ -49,7 +50,7 @@ context:
 | Vide | espaces seuls | aucun appel, `questionEmpty` | — |
 | Trop longue | 2 001 caractères | aucun appel, compteur et `questionTooLong` | — |
 | Session expirée | 401 | rafraîchissement, page de connexion | — |
-| Délai client | pas de réponse en 75 s | alerte `AI_TIMEOUT` + « Réessayer » | abandon de la requête |
+| Délai client | pas de réponse en 85 s | alerte `AI_TIMEOUT` + « Réessayer » | abandon de la requête |
 | Recherche sans résultat | Requête r | phrase FR-15 complète + bouton ; champ pré-rempli, non envoyé | — |
 | Seconde question | réponse affichée, nouvelle question envoyée | l'échange précédent disparaît de l'écran ; seul le nouvel échange est affiché | — |
 
@@ -72,18 +73,45 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/lib/texts.ts`, EXPERIENCE.md -- textes listés au Code Map, phrase FR-15 complète.
-- [ ] `src/app/(app)/assistant/page.tsx`, `src/components/assistant/*` -- page, champ, fil, refus provisoire, alertes, « Réessayer ».
-- [ ] `src/server/chat/relay.ts`, `src/app/api/chat/route.ts` -- report g.
-- [ ] `action-band.tsx`, `document-actions.tsx`, `search-view.tsx` -- boutons.
-- [ ] `playwright.config.ts` + `tests/e2e/global-setup.ts` -- remise à zéro automatique des compteurs locaux.
-- [ ] Tests unitaires (vue : états, clavier, Réessayer et `clientRequestId`, report g) et e2e (`tests/e2e/assistant.spec.ts` : nominal avec génération simulée, refus, panne et Réessayer, quota simulé, clavier, interception réseau, trois entrées), deux projets (ordinateur, mobile-375).
-- [ ] `_bmad-output/implementation-artifacts/deferred-work.md` -- reports g et h marqués traités par la 5.2b.
+- [x] `src/lib/texts.ts`, EXPERIENCE.md -- textes listés au Code Map, phrase FR-15 complète.
+- [x] `src/app/(app)/assistant/page.tsx`, `src/components/assistant/*` -- page, champ, fil, refus provisoire, alertes, « Réessayer ».
+- [x] `src/server/chat/relay.ts`, `src/app/api/chat/route.ts` -- report g.
+- [x] `action-band.tsx`, `document-actions.tsx`, `search-view.tsx` -- boutons.
+- [x] `playwright.config.ts` + `tests/e2e/global-setup.ts` -- remise à zéro automatique des compteurs locaux.
+- [x] Tests unitaires (vue : états, clavier, Réessayer et `clientRequestId`, report g) et e2e (`tests/e2e/assistant.spec.ts` : nominal avec génération simulée, refus, panne et Réessayer, quota simulé, clavier, interception réseau, trois entrées), deux projets (ordinateur, mobile-375).
+- [x] `_bmad-output/implementation-artifacts/deferred-work.md` -- reports g et h marqués traités par la 5.2b.
 
 **Acceptance Criteria:**
 - Given un parcours e2e complet, when toutes les requêtes du navigateur sont collectées, then aucune ne vise `/functions/v1/` ni `api.openai.com`.
 - Given deux lancements e2e successifs le même jour, when la suite démarre, then les compteurs locaux sont à zéro sans action manuelle.
 - Given la production après push, when l'utilisateur suit la vérification ci-dessous, then chaque observation attendue est constatée.
+
+## Implementation Notes
+
+**Pièges connus du poste (Windows) :** lancer Vitest depuis PowerShell (Git Bash casse la casse C:/c:) ; écrire code et scripts avec l'outil d'écriture de fichiers, jamais par heredoc Git Bash ; `MSYS_NO_PATHCONV=1` pour `docker exec` depuis Git Bash ; ne jamais lire `supabase/functions/.env` ; le conteneur `supabase_edge_runtime_projet-ia` peut s'arrêter (`docker start`) ; `supabase db query` multi-ligne : passer par `-f fichier` ; `supabase db query` renvoie une enveloppe JSON en mode agent (analyseur `scripts/cli-rows.ts`). E2e : specs Playwright en CommonJS (pas d'`import.meta`) ; cliquer après l'hydratation ; actions React 19 encore en attente entre deux tests ; jamais de délai de test augmenté ; `tsc` casse si `.next-e2e` vient d'une autre branche (le supprimer). Valeurs de clés factices des tests toujours composées (check:secrets). Aucun commit, déploiement ni push.
+
+## Review Triage Log
+
+Relecteur séparé unique (décision de l'utilisateur), périmètre : relais `/api/chat`, frontière réseau, accessibilité du fil, `globalSetup`.
+
+| # | Constat | Verdict | Route |
+|---|---------|---------|-------|
+| 1.1 | Délai navigateur 75 s pour un relais de 70 s qui démarre après `requireUser`, `getSession` et un éventuel démarrage à froid : abandon possible alors que `chat` a répondu (quota consommé, « Réessayer » refacture) | low : rare (réponse > 65 s) ; la valeur de 75 s est dans le bloc figé | décision de l'utilisateur : 85 s (spec et test corrigés) |
+| 1.2 | Champ vidé à l'envoi : question perdue sur une erreur sans « Réessayer » (`invalidRequest`, 409, quota) | medium | patch |
+| 1.3 | Codes hors `FAILURE_CODES` (NOT_FOUND, PROCESSING_*) : titre seul | false : `chat` ne renvoie aucun de ces codes | rejeté |
+| 2.1 | Test des entrées Tableau de bord / Document sans contrôle de la frontière | medium (critère « parcours complet » non tenu) | patch |
+| 2.2 | Tests quota/plafond et axe sans collecte ; clavier sans `expectBoundary` | low | patch |
+| 2.3 | Recherche, nominal, hors base, panne : frontière contrôlée | correct | — |
+| 2.4 | Requête tardive après l'assertion | low : aucun préchargement vers une fonction possible côté client | rejeté |
+| 3.1 | Région `role="status"` en `display:none` quand vide (`empty:hidden`) : réponse et refus souvent non annoncés | high (NFR-7) | patch |
+| 3.2 | Même défaut pour le message de saisie `aria-live` | medium | patch |
+| 3.3 | État d'attente non annoncé (`aria-busy` hors région live) | medium | patch (texte d'attente dans la région) |
+| 3.4 | Alerte annoncée deux fois (`role="alert"` + focus) | low : motif commun de l'application (Recherche, Bibliothèque) | defer |
+| 3.5 | Focus sur `body` pendant « Réessayer » | medium | patch |
+| 3.6 | Focus d'arrivée sur le titre sous Suspense | false : le test e2e des entrées vérifie le focus dans le champ sur le build de production et passe | rejeté |
+| 3.7 | Compteur (`length`) et contrôle (`trim`) différents | low, correction directe | patch |
+| G.1 | Vérification de la remise à zéro qui passe à vide (`[]`, clé absente) | medium | patch |
+| G.2 | Garde sur l'URL et non sur la base visée par `db query` | false : aucun chemin n'ajoute `--remote` ; la CLI vise la base locale par défaut | rejeté |
 
 ## Design Notes
 
