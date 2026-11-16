@@ -1633,3 +1633,28 @@ Trois écarts relevés par l'utilisateur :
 **Constat en chemin.** Le test e2e « 375 px : bande empilée… » du Tableau de bord ne créait que 2 Documents pour en attendre 5 : il dépendait des autres fichiers et échouait lancé seul. Rendu autonome en `d55190a`.
 
 **Statut.** Story 5.2b `done`. Prochaine story de l'Epic 5 : 5.3 (refus honnêtes et marqueurs).
+
+## Plan des 20 stories P0 restantes (2026-11-16)
+
+**Contexte.** Le 16/11 au soir, 5.2a-2 et 5.2b sont terminées le même jour (environ 2 stories par jour ouvré). L'utilisateur demande un plan « essentiel » pour les 20 stories P0 qui restent jusqu'au rendu.
+
+**Décisions de l'utilisateur.**
+- Hors périmètre (`out-of-scope` dans `sprint-status.yaml`, note datée dans `epics.md`) : les FINITION 1.5, 2.9, 3.6, 5.12, 7.4, l'Epic 8 (P1) et l'Epic 9 (P2). Aucune exigence fonctionnelle P0 retirée.
+- 5.10 et 5.11 fusionnées ; Résumé sans découpage par morceaux ; mesure de la 5.8 à 2 scénarios ; 7.7 en synthèse ; 7.9 en document court ; séquence 10 glissée au 24–26/11.
+
+**Calendrier.**
+- 17/11 : 5.3, 5.4.
+- 18/11 : 5.5, point de contrôle le soir.
+- 19/11 : 5.6, 5.7.
+- 20/11 : 5.8, 5.9, point de contrôle le soir.
+- 21–22/11 : 7.1a.
+- 23/11 : 5.10 + 5.11, 6.1.
+- 24/11 : 6.2, 7.1b.
+- 25/11 : 7.2, 7.3.
+- 26/11 : 7.7, 7.8, 7.9.
+- 27/11 : 7.6, 7.5.
+- 28–29/11 : réserve.
+
+Coût OpenAI estimé pour l'ensemble : moins de 1 $ (crédit restant environ 9,8 $).
+
+**Décisions pour la 5.3.** Marqueur en première ligne, tolérance limitée aux espaces, à la casse et aux astérisques de mise en gras. Appel court gardé quand aucun Passage ne dépasse le seuil : FR-18 (P0) exige le message « hors cadre » pour une question de culture générale, qui ne retrouve presque jamais de Passage ; l'unité est consommée (appel facturé). AD-14 et la phrase de FR-18 sur les pannes seront alignés dans la spec. Bloc de refus avec les boutons d'UX-DR11. Test réel limité à 12 questions (q1, p1, information absente, hors cadre), sans la relance. Relecteur séparé.

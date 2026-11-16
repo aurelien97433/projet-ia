@@ -365,6 +365,34 @@ FINITION (1.5, 2.9, 3.6, 5.12, 7.4) : seulement si un jour se libère ; leur cou
 | 18/11 au soir | 5.4 non terminée | FINITION non réalisées ; 7.1a à 10 Documents ; 3 cas par famille ; rapports courts pour 7.7 à 7.9 | environ une demi-journée |
 | 20/11 au soir | 6.2 non terminée | 23/11 utilisé pour finir E5 et E6 ; séquence 10 réduite à une demi-journée (plan et bilan) ; 2.7 réduite à une seule mesure si elle n'est pas faite | jusqu'à un jour |
 
+**Note du 2026-11-16 — plan des 20 stories P0 restantes (décision de l'utilisateur, « esprit essentiel »).**
+
+Hors périmètre du rendu (`out-of-scope` dans `sprint-status.yaml`) : les FINITION 1.5, 2.9, 3.6, 5.12, 7.4 ; l'Epic 8 (8.1, 8.2, 8.3, P1) et l'Epic 9 (9.1, 9.2, P2). Raison : tenir les 20 stories P0 restantes au rythme d'environ 2 par jour ouvré jusqu'au rendu. Aucune exigence P0 de fonctionnalité (FR) n'est retirée ; UJ-2 et CH-1 à CH-19 restent couverts.
+
+Changements validés :
+1. 5.10 et 5.11 fusionnées (réservation et libération déjà livrées en 5.2a-2, alertes en 5.2b ; reste `GET /api/quota`, bloc de quota, heure locale, états restants).
+2. Résumé (6.1) sans découpage par morceaux : une Note fait au plus 100 Ko (environ 25 000 tokens), lue en un appel.
+3. Mesure de la 5.8 réduite à 2 scénarios (FR-19, UJ-3).
+4. 7.7 en synthèse des tests existants.
+5. 7.9 en document court (`ai_limits`, alertes OpenAI, pause de l'Assistant par le plafond à 0).
+6. Séquence 10 (7.1b, 7.7, 7.3) glissée au 24–26/11, l'Epic 6 passant au 23–24/11.
+
+| Date | Stories |
+|---|---|
+| Mar. 17/11 | 5.3, 5.4 |
+| Mer. 18/11 | 5.5 ; point de contrôle le soir |
+| Jeu. 19/11 | 5.6, 5.7 |
+| Ven. 20/11 | 5.8, 5.9 ; point de contrôle le soir |
+| 21–22/11 | 7.1a (rédaction avec l'IA, relecture par l'utilisateur) |
+| Lun. 23/11 | 5.10 + 5.11, 6.1 |
+| Mar. 24/11 | 6.2, 7.1b |
+| Mer. 25/11 | 7.2, 7.3 |
+| Jeu. 26/11 | 7.7, 7.8, 7.9 |
+| Ven. 27/11 | 7.6, 7.5 |
+| 28–29/11 | réserve |
+
+Coût OpenAI estimé pour l'ensemble : moins de 1 $. Relecteurs séparés sur 5.3 (demande de l'utilisateur) et sur les stories sensibles restantes (5.4, 5.9, 5.10, 6.1, 7.3).
+
 ## Epic 1 : Accéder à NexaMind AI en toute sécurité
 
 Un Visiteur crée un Compte et se connecte ; un Collaborateur navigue dans une application protégée, en français, à l'identité de NexaMind AI, déployée dès le départ. Les fondations communes sont posées ici.
