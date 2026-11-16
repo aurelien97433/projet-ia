@@ -2,7 +2,7 @@
 title: 'Story 5.2b : Page Assistant : poser une question et voir les Sources'
 type: 'feature'
 created: '2026-11-16'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'ce8919fe7ed60c428b3bd52259e2d3bd65a4d06c'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -94,6 +94,8 @@ context:
 - A. « Poser une question » en bouton plein comme « Ajouter un Document ». Décision de l'utilisateur : « Ajouter un Document » reste le seul bouton plein ; « Poser une question » en style secondaire (contour). Corrigé (`action-band.tsx`, test `dashboard.test.tsx`).
 - B. Repères bruts « [P2] » et « 1. » pour un point unique : rendu des repères prévu par la 5.4 (renvois ¹ ²) ; numérotation d'un point unique reportée aux consignes de la 5.4 (`deferred-work.md`).
 - C. « Document de test : .md piège » et « Document de test : piège à 375 px » sur le Tableau de bord : Documents du mini Jeu (story 2.8, UX-DR31), préchargés le 2026-11-06, dans les 9 attendus ; aucun test n'a écrit en production (lecture seule).
+
+A revérifié en production par l'utilisateur sur `d55190a` (ordinateur et 375 px) : « Ajouter un Document » seul bouton plein, « Poser une question » en contour. B et C : réponses acceptées (rendu des repères et numérotation en 5.4 ; Documents de test conservés jusqu'à 7.1a/7.1b, note ajoutée à la 7.1a dans `epics.md`).
 
 En corrigeant A, le test e2e « 375 px : bande empilée… » du Tableau de bord échouait lancé seul (5 éléments attendus, 2 Documents créés par le test) : il dépendait des Documents des autres fichiers. Rendu autonome (il crée ses 5 Documents).
 

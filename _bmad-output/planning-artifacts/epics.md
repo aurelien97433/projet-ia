@@ -1728,6 +1728,8 @@ afin que les mesures finales ne dépendent pas d'une rédaction faite dans la de
 **Quand** je l'ouvre
 **Alors** il contient aussi des cas **ambigus, sensibles, hostiles** (injection, Document piège) et **dégradés** (service d'IA indisponible, Document *en erreur* ou expiré), au moins 3 par famille, avec le résultat attendu
 
+**Note (2026-11-16, décision de l'utilisateur, vérification en production de la 5.2b) :** les Documents de test « Document de test : .md piège » et « Document de test : piège à 375 px » du mini Jeu (2.8, UX-DR31) sont conservés en production jusqu'au Jeu complet ; ils apparaissent aujourd'hui parmi les 5 derniers Documents du Tableau de bord, faute d'autres Documents. La 7.1a (puis la 7.1b au préchargement) décide de leur sort pour la démo : les garder (plus bas dans la liste, derrière les Documents récents) ou les retirer, en sachant que les mesures de la Recherche (seuil 0,40, 4.2) ont été faites avec eux.
+
 **Tâches techniques :** rédaction (IA + relecture) ; fichiers de test ; entrée au journal de Vibe Coding.
 **Dépendances :** 2.8 (format du mini Jeu).
 **Références :** CH-17, CH-19 · NFR-10 · SM-1, SM-2, SM-4, SM-5 · UX-DR30, UX-DR31 · **Priorité :** P0

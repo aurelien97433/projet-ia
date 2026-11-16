@@ -1588,3 +1588,48 @@ Correction avant clôture (`c5a6387`), décision de l'utilisateur :
 **Statut.** Story 5.2a-2 `done` ; ligne `5-2a` du sprint `done`. Prochaine story de l'Epic 5 : 5.2b (page Assistant).
 
 **Push et clôture faits à la main.** Le contrôle automatique des commandes shell de Claude n'a plus répondu en fin de session (aucun verdict, panne de l'outil). L'utilisateur a donc lancé lui-même dans PowerShell le push de `c5a6387`, le commit de clôture `17c1176` (6 fichiers, `check:secrets` vert) et son push. Alignement vérifié ensuite par Claude : `HEAD` = `origin/main` = `17c1176`, arbre propre.
+
+## Story 5.2b — Page Assistant : poser une question et voir les Sources (2026-11-16)
+
+**Décisions de l'utilisateur sur la spec.**
+- Refus provisoire : texte du refus seul, dans un bloc distinct d'une réponse, sans zone Sources ni boutons de la 5.3.
+- « Réessayer » envoie la même question avec un **nouveau** `clientRequestId` : l'ancien identifiant, déjà enregistré (index unique de la 5.1), donnerait toujours `409` jusqu'à la 5.9. Chaque essai crée donc une Conversation et réserve une unité.
+- Un seul échange à l'écran avant la 5.8 : une nouvelle question remplace la précédente (rien n'est perdu en base).
+- Remise à zéro automatique des compteurs de quota dans la préparation des tests e2e, refusée hors de la pile locale.
+- Revue par un relecteur séparé, centré sur le relais, la frontière réseau et l'accessibilité du fil.
+- Spec d'environ 3 200 tokens gardée en une story.
+
+**Réalisation.**
+- Page `/assistant` (`assistant-view.tsx`) : n'appelle que `POST /api/chat` ; réponse d'un bloc en texte brut, puces de Source non cliquables, refus provisoire, alertes avec « Réessayer » seulement si l'erreur est réessayable (jamais pour le quota, le plafond ou un double envoi).
+- Boutons « Poser une question » (Tableau de bord, Document prêt) et « Poser la question à l'Assistant » (Recherche sans résultat, phrase FR-15 complète, Requête pré-remplie, jamais envoyée d'office).
+- Report g de la 5.2a-2 : textes propres pour une question vide et une requête refusée, au lieu de « Le service d'IA ne répond pas… ».
+- `tests/e2e/global-setup.ts` : remise à zéro de `ai_reservations`, `ai_usage`, `ai_usage_global` à chaque lancement.
+
+**Revue.** Un relecteur séparé, 17 constats (journal de tri dans la spec). Corrigés :
+- région d'annonce masquée tant qu'elle était vide : réponse et refus souvent non annoncés ; même défaut pour le message de saisie ; état d'attente non annoncé ;
+- focus perdu pendant « Réessayer » ;
+- question perdue sur une erreur sans « Réessayer » ;
+- compteur et contrôle de longueur différents ;
+- frontière réseau non contrôlée dans quatre tests e2e ;
+- vérification de la remise à zéro des compteurs qui pouvait réussir à vide.
+
+Reporté à la 5.11 : alerte probablement lue deux fois (`role="alert"` et focus), motif commun à toute l'application. Rejetés : 4 constats contredits par le code ou un test.
+
+Décision de l'utilisateur après la revue : délai du navigateur porté de 75 à 85 s. Chaîne des délais testée : `chat` 60 s < relais 70 s < navigateur 85 s < `maxDuration` 120 s.
+
+**Résultats** (vérification complète d'un seul tenant) : `npm test` 1 557 réussis ; e2e 337 réussis, 0 échec, 19 ignorés (tests réservés à un projet) ; `lint`, `tsc`, `build:ci` et `check:secrets` verts. Au premier passage, avant la revue, 9 tests hors Assistant avaient échoué sur une mise en veille du réseau (`ERR_NETWORK_IO_SUSPENDED`).
+
+**Commits et déploiement.** `2e2baf8` (story), poussé ; aucun `deploy:supabase` (ni base ni fonction modifiées).
+
+**Vérification en production** (utilisateur, sur `2e2baf8`) : les 5 points conformes.
+- q1 : « 5 jours ouvrés », puce « Procédure de facturation » ; un seul `POST /api/chat` en 200 (7,21 s, démarrage à froid) ; `x-vercel-id` `cpt1::fra1::…` ; aucune requête vers `supabase.co/functions` ni `openai.com`. Le report h de la 5.2a-2 (route jamais exercée en production) est donc levé.
+- Refus distinct sans Source ; saisie vide et trop longue sans appel ; Recherche sans résultat vers l'Assistant sans envoi ; boutons d'entrée avec focus dans le champ.
+
+Trois écarts relevés par l'utilisateur :
+- A. « Poser une question » en bouton plein comme « Ajouter un Document ». Décision : « Ajouter un Document » reste le seul bouton plein. Corrigé en `d55190a` (contour, test), revérifié en production sur ordinateur et à 375 px.
+- B. Repères bruts « [P2] » et « 1. » pour un point unique : rendu des repères prévu par la 5.4 ; numérotation d'un point unique ajoutée aux points de la 5.4 (`deferred-work.md`).
+- C. Deux « Documents de test » sur le Tableau de bord : ce sont ceux du mini Jeu (2.8, UX-DR31), dans les 9 attendus, préchargés le 06/11 ; aucun test n'a écrit en production. Conservés jusqu'au Jeu complet (note dans la 7.1a).
+
+**Constat en chemin.** Le test e2e « 375 px : bande empilée… » du Tableau de bord ne créait que 2 Documents pour en attendre 5 : il dépendait des autres fichiers et échouait lancé seul. Rendu autonome en `d55190a`.
+
+**Statut.** Story 5.2b `done`. Prochaine story de l'Epic 5 : 5.3 (refus honnêtes et marqueurs).
