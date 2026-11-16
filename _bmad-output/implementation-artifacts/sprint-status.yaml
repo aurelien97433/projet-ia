@@ -74,7 +74,7 @@ development_status:
   epic-5: in-progress
   5-0-essai-léger-du-flux-sur-vercel: done  # P0 · dépend de : 1.4 (session), 1.1 (déploiement)
   5-1-stocker-les-conversations-de-façon-strictement-privée: done  # P0 · dépend de : 2.2
-  5-2a-fonction-chat-réponse-sourcée-côté-serveur: review  # P0 · dépend de : 4.1a, 5.1
+  5-2a-fonction-chat-réponse-sourcée-côté-serveur: done # P0 · dépend de : 4.1a, 5.1
   5-2b-page-assistant-poser-une-question-et-voir-les-sources: backlog  # P0 · dépend de : 5.2a
   5-3-refus-honnêtes-et-marqueurs: backlog  # P0 · dépend de : 5.2b
   5-4-validation-des-citations: backlog  # P0 · dépend de : 5.3
