@@ -1586,3 +1586,5 @@ Correction avant clôture (`c5a6387`), décision de l'utilisateur :
 - Une requête SQL sur plusieurs lignes passée en argument depuis PowerShell est coupée : `supabase db query -f fichier`.
 
 **Statut.** Story 5.2a-2 `done` ; ligne `5-2a` du sprint `done`. Prochaine story de l'Epic 5 : 5.2b (page Assistant).
+
+**Push et clôture faits à la main.** Le contrôle automatique des commandes shell de Claude n'a plus répondu en fin de session (aucun verdict, panne de l'outil). L'utilisateur a donc lancé lui-même dans PowerShell le push de `c5a6387`, le commit de clôture `17c1176` (6 fichiers, `check:secrets` vert) et son push. Alignement vérifié ensuite par Claude : `HEAD` = `origin/main` = `17c1176`, arbre propre.

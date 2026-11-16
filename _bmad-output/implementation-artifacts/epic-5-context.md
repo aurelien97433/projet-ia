@@ -25,10 +25,11 @@ Un Collaborateur pose une question à l'Assistant et obtient, en français et pr
 
 ## Requirements & Constraints
 
-- **Réponse.** En français, à partir des Passages seulement, sans fait inventé, contradictions signalées ; affichage progressif ; Sources cliquables vers le Passage utilisé. Une réponse sans citation vérifiable est un échec réessayable, sans quota.
+- **Réponse.** En français, à partir des Passages seulement, sans fait inventé, contradictions signalées ; affichage progressif ; Sources cliquables vers le Passage utilisé. Une réponse sans citation vérifiable est un échec réessayable qui consomme l'unité de quota (règle de libération du 2026-11-13, alignée le 2026-11-16 : l'unité n'est rendue que si aucun appel facturable n'a abouti).
 - **Refus.** Information absente ou hors cadre : refus explicite, en bloc, distinct d'une panne.
 - **Conversations.** Enregistrées automatiquement, titrées, triées, rouvrables et poursuivables ; strictement privées, y compris par URL directe. Questions de suivi comprises dans la Conversation.
-- **Délais.** `chat` : 20 s jusqu'au premier octet, 90 s au total ; au-delà, panne avec « Réessayer », question conservée. Premier affichage en moins de 5 s en médiane sur Vercel (5.5).
+- **Délais.** Réponse d'un bloc (5.2a-2 à 5.4) : échéance de `chat` 60 s (génération 40 s au plus), relais Next.js 70 s, `maxDuration` 120 s. Flux (5.5) : 20 s jusqu'au premier octet, 90 s au total. Au-delà : panne avec « Réessayer », question conservée. Premier affichage en moins de 5 s en médiane sur Vercel (5.5).
+- **Garde-fou (5.2a-2).** 60 questions par Compte et par jour UTC, 300 pour le projet (`ai_limits`) ; `QUOTA_EXCEEDED` (429) et `AI_DAILY_CAP_REACHED` (503) avec `resetAt`, heure affichée en UTC jusqu'à la 5.10.
 - **Document supprimé.** Une Source dont le Document est supprimé reste affichée, « {titre} — Document supprimé », non cliquable (points complémentaires dans `deferred-work.md`, story 3.4).
 - **Terminé.** Critères et tests verts, textes du catalogue UX, déploiement réussi, journal. Si la base ou une fonction change : `npm run deploy:supabase` avant le push.
 
