@@ -41,8 +41,12 @@ describe("PROCESS_DOCUMENT_SECRET", () => {
 });
 
 describe("appel aux Edge Functions", () => {
-  // process-document (2.3) et semantic-search (4.1a) : modules réservés au serveur.
-  const callers = ["src/server/documents/trigger-processing.ts", "src/server/search/semantic-search.ts"];
+  // process-document (2.3), semantic-search (4.1a) et chat (5.2a-2) : modules réservés au serveur.
+  const callers = [
+    "src/server/chat/relay.ts",
+    "src/server/documents/trigger-processing.ts",
+    "src/server/search/semantic-search.ts",
+  ];
 
   it("uniquement depuis src/server, jamais depuis un composant client", () => {
     expect(containing("src", "functions/v1/").sort()).toEqual(callers);
@@ -50,7 +54,7 @@ describe("appel aux Edge Functions", () => {
     const clients = filesUnder(path.join(root, "src")).filter(
       (file) => /\.tsx?$/.test(file) && readFileSync(file, "utf8").startsWith('"use client"'),
     );
-    const importers = clients.filter((file) => /trigger-processing|server\/search/.test(readFileSync(file, "utf8")));
+    const importers = clients.filter((file) => /trigger-processing|server\/search|server\/chat/.test(readFileSync(file, "utf8")));
     expect(importers).toEqual([]);
   });
 
@@ -64,6 +68,12 @@ describe("vectorisation simulée", () => {
     expect(containing("supabase/functions", "EMBEDDINGS_FAKE")).toEqual(["supabase/functions/_shared/fake-embeddings.ts"]);
     expect(containing("src", "EMBEDDINGS_FAKE")).toEqual([]);
     expect(readFileSync(path.join(root, ".env.example"), "utf8")).not.toContain("EMBEDDINGS_FAKE");
+  });
+
+  it("génération simulée (5.2a-2) : seulement dans son module et la pile locale", () => {
+    expect(containing("supabase/functions", "GENERATION_FAKE")).toEqual(["supabase/functions/_shared/fake-generation.ts"]);
+    expect(containing("src", "GENERATION_FAKE")).toEqual([]);
+    expect(readFileSync(path.join(root, ".env.example"), "utf8")).not.toContain("GENERATION_FAKE");
   });
 });
 
@@ -85,6 +95,17 @@ describe("supabase/config.toml", () => {
     const functions = listFunctions(path.join(root, "supabase", "functions"));
     expect(functions).toContain("semantic-search");
     expect(functions).not.toContain("ai-health");
+  });
+
+  it("chat (5.2a-2) exige un jeton valide dès la passerelle, et fait partie du déploiement", async () => {
+    expect(config.replace(/\r\n/g, "\n")).toMatch(/^\[functions\.chat\]\nverify_jwt = true$/m);
+    const { listFunctions } = await import("../../scripts/deploy-supabase");
+    expect(listFunctions(path.join(root, "supabase", "functions"))).toContain("chat");
+  });
+
+  it("chat n'utilise jamais service_role", () => {
+    const source = readFileSync(path.join(root, "supabase", "functions", "chat", "index.ts"), "utf8");
+    expect(source).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY|serviceRoleKey|sb_secret/);
   });
 
   it("measure-embed (story 4.2) : présente en local, jamais déployée, clé service_role comparée dans la fonction", async () => {

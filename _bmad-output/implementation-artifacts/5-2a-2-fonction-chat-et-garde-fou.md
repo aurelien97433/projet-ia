@@ -2,7 +2,7 @@
 title: 'Story 5.2a-2 : Fonction chat, enregistrement et garde-fou du crédit (seconde moitié de la 5.2a)'
 type: 'feature'
 created: '2026-11-13'
-status: 'ready-for-dev'
+status: 'in-review'
 baseline_commit: '3515d80dbf12c3e428fff74de0c478fe5d649781'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -55,7 +55,7 @@ context:
 - **Tests** :
   - unitaires : `chat` avec fournisseur, base et Auth simulés (ordre des étapes, aucun appel à OpenAI sans réservation, échéance, une seule nouvelle tentative, aucun Passage) ; **règle de libération** : unité rendue pour `23505`, panne avant génération, erreur réseau ou `5xx` sans réponse, plafond du fournisseur ; **unité consommée** pour `AI_CITATIONS_INVALID` (réponse reçue sans citation valide : le compteur ne redescend pas), `AI_OUTPUT_INVALID` (tronquée, filtrée, refus du modèle) et `AI_TIMEOUT` après envoi ; route ;
   - intégration (Supabase local, vectorisation simulée, génération simulée) : réservation atomique (requêtes concurrentes au-delà de la limite : jamais plus que la limite), quota personnel, **plafond global abaissé par `ai_limits` dans le test**, libération jamais sous 0, **une question qui produit une réponse sans citation consomme l'unité (compteur du Compte et compteur global à +1 après l'échec)**, `anon` et B sans accès aux compteurs ni aux limites, enregistrement atomique, course `23503` → `null` ;
-  - **réel, en production, après déploiement** (`npm run test:chat:live`, lancé par l'utilisateur, Compte de mesure, modèle de `test:search:live`) : « comment je relance un client qui n'a pas payé ? » → fait attendu de `questions-mini.json` et Source « Procédure de facturation », **3 essais sur 3** ; question qui retrouve le Document piège, 3 essais : jamais « 99 jours » ni « PERROQUET » ; relevé du compteur du jour. Coût ≈ 0,04 $.
+  - **réel, en production, après déploiement** (`npm run test:chat:live`, lancé par l'utilisateur, Compte de mesure, modèle de `test:search:live`) : q1 de `questions-mini.json`, « Sous quel délai une facture doit-elle être émise après la livraison ? » → « 5 jours ouvrés » et Source « Procédure de facturation », **3 essais sur 3** ; question qui retrouve le Document piège, 3 essais : jamais « 99 jours » ni « PERROQUET » ; observation non bloquante de c1 (« comment je relance un client qui n'a pas payé ? », 3 essais consignés, aucun délai inventé ; contradiction exigée par la 5.4) ; compteur du jour cohérent. Coût ≈ 0,06 $ (9 questions). *Correction du 2026-11-16, décision de l'utilisateur : la version d'origine attendait la Source « Procédure de facturation » pour la question de relance, référence erronée (ce Document ne parle pas de relance).*
 - **Garde-fou avant la production** : `deploy:supabase` seulement quand les tests d'intégration du garde-fou sont verts ; vérification en lecture seule après déploiement que `ai_limits` contient 60 et 300.
 
 **Never:** diffusion (5.5) ; écran (5.2b) ; marqueur `REPONSE`/`REFUS_*` et appel court (5.3) ; retrait des citations invalides (5.4) ; questions de suivi dans une Conversation existante (5.8) ; rejeu complet et « Réessayer » (5.9) ; `GET /api/quota` et affichage du quota (5.10) ; `service_role` dans `chat` ou Next.js ; limites lues depuis l'appelant ; commit, déploiement ou push sans accord.
@@ -94,16 +94,16 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `supabase/migrations/…_chat.sql` -- `ai_limits`, `ai_usage`, `ai_usage_global`, `reserve_ai_call`, `release_ai_call`, `save_assistant_answer`, `record_assistant_failure` ; privilèges.
-- [ ] `supabase/functions/_shared/ai.ts`, `config.ts`, `errors.ts`, `src/lib/errors.ts`, `src/lib/texts.ts` -- option de nouvelles tentatives, délais de `chat`, `AI_DAILY_CAP_REACHED` et ses textes.
-- [ ] `supabase/functions/chat/index.ts`, `supabase/config.toml` -- fonction.
-- [ ] `src/server/chat/relay.ts`, `src/app/api/chat/route.ts` -- relais.
-- [ ] Tests unitaires, d'intégration et `scripts/test-chat-live.ts` (`npm run test:chat:live`).
-- [ ] `docs/environnements.md` -- limites et procédure ; `deferred-work.md` mis à jour.
+- [x] `supabase/migrations/…_chat.sql` -- `ai_limits`, `ai_usage`, `ai_usage_global`, `reserve_ai_call`, `release_ai_call`, `save_assistant_answer`, `record_assistant_failure` ; privilèges.
+- [x] `supabase/functions/_shared/ai.ts`, `config.ts`, `errors.ts`, `src/lib/errors.ts`, `src/lib/texts.ts` -- option de nouvelles tentatives, délais de `chat`, `AI_DAILY_CAP_REACHED` et ses textes.
+- [x] `supabase/functions/chat/index.ts`, `supabase/config.toml` -- fonction.
+- [x] `src/server/chat/relay.ts`, `src/app/api/chat/route.ts` -- relais.
+- [x] Tests unitaires, d'intégration et `scripts/test-chat-live.ts` (`npm run test:chat:live`).
+- [x] `docs/environnements.md` -- limites et procédure ; `deferred-work.md` mis à jour.
 
 **Acceptance Criteria:**
 - Given les tests d'intégration du garde-fou, when ils tournent, then jamais plus d'appels que la limite, même en concurrence, et aucun appel à OpenAI sans réservation acceptée.
-- Given le déploiement, when l'utilisateur lance `npm run test:chat:live`, then 3 essais sur 3 pour la question de relance et pour le Document piège, compteur du jour cohérent ; `test:search:live` et une Note restent verts.
+- Given le déploiement, when l'utilisateur lance `npm run test:chat:live`, then 3 essais sur 3 pour la question q1 (5 jours ouvrés, « Procédure de facturation ») et pour le Document piège, observation c1 consignée, compteur du jour cohérent ; `test:search:live` et une Note restent verts.
 
 ## Design Notes
 
@@ -111,9 +111,60 @@ Ordre de livraison proposé : migration et tests du garde-fou d'abord (sans Open
 
 ## Implementation Notes
 
+**Décisions de l'utilisateur du 2026-11-16 (relecture de la spec), à appliquer :**
+1. Message du plafond global (`AI_DAILY_CAP_REACHED`) validé tel quel ; l'ajouter à EXPERIENCE.md (`_bmad-output/planning-artifacts/ux-designs/ux-projet-ia-2026-11-03/EXPERIENCE.md`, tableau des messages, à côté de « Quota atteint : Assistant », l. 232).
+2. 300 appels par jour pour le projet : validé.
+3. Table `ai_limits` validée ; la procédure SQL de modification va dans `docs/environnements.md`.
+4. `AI_TIMEOUT` après envoi compté comme consommé : validé. **Aucun texte affiché ni de référence ne doit plus dire « sans quota consommé » / « aucun quota consommé » pour un délai dépassé** (EXPERIENCE.md l. 282 « Attente IA », l. 369 « Erreur » ; architecture l. 202 « Délais »). Formulation : l'unité n'est rendue que si aucun appel facturable n'a abouti (panne sans réponse) ; délai après envoi, sortie inexploitable et réponse non vérifiable consomment l'unité.
+5. Alignement validé : architecture (`_bmad-output/planning-artifacts/architecture/architecture-projet-ia-2026-11-03/architecture-nexamind-ai.md`) AD-11 (l. 166 « aucun quota n'est consommé »), tableau des quotas d'AD-14 (l. 225), l. 202, diagramme l. 349 si concerné ; EXPERIENCE.md l. 258 (réponse non vérifiable « sans quota consommé »), 282, 369 ; `epics.md` FR-17 (l. 67) et AR-12 (l. 116), plus une **note datée du 2026-11-16** dans `epics.md` expliquant le changement et sa raison : une question construite pour produire une réponse sans citation contournerait le quota tout en dépensant le crédit. Ajouter aussi `AI_DAILY_CAP_REACHED` à la liste des codes de l'architecture (l. 514).
+
+**Pièges connus du poste (Windows) :** lancer Vitest depuis PowerShell (Git Bash casse la casse C:/c:) ; écrire scripts et code avec l'outil d'écriture de fichiers, jamais par heredoc Git Bash (apostrophes et « \ » perdus) ; `MSYS_NO_PATHCONV=1` pour `docker exec` depuis Git Bash ; ne jamais lire ni passer `supabase/functions/.env` ; toute requête SQL distante non interactive en `--read-only` ; `supabase db query` renvoie une enveloppe JSON différente en mode agent (analyseur partagé `scripts/cli-rows.ts`) ; le conteneur `supabase_edge_runtime_projet-ia` peut s'arrêter (`docker start`) ; redémarrer Supabase local après un changement de `config.toml` ; valeurs de clés factices des tests toujours composées (check:secrets) ; chaque fonction SQL reçoit un `GRANT EXECUTE` explicite (EXECUTE retiré globalement à PUBLIC). Aucun commit, déploiement ni push.
+
+**Réalisation (2026-11-16) :**
+- Migration `20261116090000_chat.sql` : `ai_limits` (60, 300), `ai_usage`, `ai_usage_global`, `ai_reservations`, `reserve_ai_call()`, `release_ai_call(p_reservation_id)`, `start_conversation` (Conversation et question ensemble : un `23505` ne laisse aucune Conversation vide), `save_assistant_answer` (réponse ou refus, Sources, `last_message_at`, `23503` sur `message_sources_document_id_fkey` → `document_id` nul), `record_assistant_failure`. Tables sans accès API sauf `ai_usage` (lecture propriétaire) ; `GRANT EXECUTE` à `authenticated` seul.
+- **Écart à arbitrer : `release_ai_call` prend l'identifiant de réservation** renvoyé par `reserve_ai_call` (rendu une seule fois, par son Compte, sur son jour). Sans argument, un Collaborateur pourrait l'appeler par l'API après chaque question et effacer son compteur. Noté dans `deferred-work.md` (5.10, `summarize`).
+- `chat` : `_shared/chat.ts` (fonctions pures), `chat/index.ts` ; génération simulée locale `_shared/fake-generation.ts` (`GENERATION_FAKE`, même garde-fou que `EMBEDDINGS_FAKE`). `AiError.outcome` (`no_response`, `response_received`, `timeout`) posé par `callProvider` ; `RetryPolicy` par opération (`GENERATION_RETRY` : 1 nouvelle tentative, jamais sur erreur réseau). Travail confié à `EdgeRuntime.waitUntil` pour finir même si le relais se déconnecte.
+- Réponse : `{ conversationId, message: { kind, content, sources: [{ documentId, title, passageNumbers }] } }` ; `kind` (`answer` ou `refusal_info_absente`) ajouté pour distinguer un refus d'une réponse.
+- Route `app/api/chat` : `maxDuration = 120`, sans export `runtime` (interdit avec Cache Components ; Node.js par défaut). Relais 70 s, abandon du navigateur propagé. Messages `QUOTA_EXCEEDED`/`AI_DAILY_CAP_REACHED` : le fuseau du navigateur étant inconnu côté serveur, `{moment}` est écrit en UTC (« demain à 0 h 00 (UTC) ») ; `formatResetMoment` servira à l'interface (5.10).
+- Texte `REQUEST_IN_PROGRESS` (« Cette question est déjà en cours de traitement. ») absent d'EXPERIENCE.md, à valider.
+- **Écart à arbitrer : `test:chat:live`, question de relance.** « Procédure de facturation » ne parle pas de relance et `questions-mini.json` n'a pas de fait pour cette question. Le script exige un fait de la contradiction c1 (15 ou 21 jours) et une Source parmi « FAQ comptabilité » et « Note de réunion : finance de mars », et relève le nombre d'essais citant « Procédure de facturation ».
+- Documents de référence alignés (AD-11, AD-14, AD-16, tableau des quotas, diagramme, liste des codes ; EXPERIENCE.md l. 232, 258, 282, 369 ; `epics.md` FR-17, AR-12 et note datée du 2026-11-16).
+- Non fait (hors accord) : `deploy:supabase`, `test:search:live`, `test:chat:live`, vérification distante de `ai_limits`, commit.
+
+**Arbitrages de l'utilisateur après la revue (2026-11-16) :** `release_ai_call(p_reservation_id)` gardé ; risque « réservations directes qui épuisent le plafond global » documenté sans code (AD-14, `docs/environnements.md`) ; `{moment}` en UTC gardé jusqu'à la 5.10 (EXPERIENCE.md amendé) ; `test:chat:live` : q1 bloquante, piège bloquant, c1 en observation non bloquante (règle : 15 jours seulement avec la FAQ comptabilité citée, 21 jours seulement avec la Note de réunion finance citée, autre durée en jours « à vérifier » si absente des Documents cités).
+
 ## Spec Change Log
 
+- 2026-11-16 — Déclencheur : constat du sous-agent d'implémentation, confirmé par lecture de `demo/documents/procedure-facturation.md`. Modifié (bloc figé, à la demande explicite de l'utilisateur) : test réel et critère d'acceptation, question de relance remplacée par q1 ; c1 en observation non bloquante. État évité : un critère 3 sur 3 qui ne pouvait pas réussir (Source attendue sans la réponse). À garder : piège 3 sur 3, compteur du jour.
+
 ## Review Triage Log
+
+| # | Relecteur | Constat | Verdict | Route |
+|---|-----------|---------|---------|-------|
+| 1 | verification-gap | `POST` ne prouve pas la transmission de `request.signal` au relais | medium (pré-vérifié) | patch, fait |
+| 2 | verification-gap | `EdgeRuntime.waitUntil` jamais exercé | medium (pré-vérifié) | patch, fait |
+| 3 | blind + edge | `reserve_ai_call()` appelable directement : plafond global épuisable sans coût | medium : réel ; le crédit reste protégé, le même blocage existe via chat pour ~1,80 $ | décision utilisateur : documenté (AD-14, environnements.md) |
+| 4 | blind + edge + gap | délai commun pendant l'attente après un 5xx : unité consommée | low : réel mais rare (échéance de 60 s dans une attente de 0,5 s) | defer |
+| 5 | edge | AiError sans `outcome` avant envoi : unité consommée | low : réel, correction directe | patch, fait |
+| 6 | edge | erreur réseau après envoi classée `no_response` (rendue) | false : conforme à la règle de la spec (« erreur réseau … rendue ») | rejeté |
+| 7 | blind + edge | sauvegarde validée puis délai : réponse et échec dans la Conversation | medium : réel, fenêtre étroite | defer (5.9) |
+| 8 | edge | délai après commit de `start_conversation` : question orpheline, 409 ensuite | medium : réel, rare | defer (5.9) |
+| 9 | edge | délai après commit de `reserve_ai_call` : unité perdue | low | defer |
+| 10 | edge | jeton expiré en cours de demande : ni libération ni échec enregistré | low : jeton d'1 h, demande de 60 s au plus | rejeté |
+| 11 | edge | Document retraité entre recherche et relecture : version incohérente | medium : réel avec Note modifiée (P1) | defer (5.7) |
+| 12 | edge | `sources` non tableau → TypeError dans test-chat-live | low, correction directe | patch, fait |
+| 13 | edge | jour UTC recalculé entre les deux lectures du compteur | low, correction directe | patch, fait |
+| 14 | blind + edge | compteur du jour jamais comparé (AC « cohérent ») | medium | patch, fait |
+| 15 | blind | AD-16 nouvelles tentatives et délais non alignés | medium (référence fausse pour 5.5) | patch, fait |
+| 16 | blind | AD-14/AR-15 : `AI_DAILY_QUOTA` et `release_ai_call()` sans argument | medium | patch, fait |
+| 17 | blind | textes de la fonction non comparés au catalogue | low, test direct | patch, fait |
+| 18 | blind | `VALIDATION_FAILED` et 405 renvoient « Le service d'IA ne répond pas » | low : aucun écran avant 5.2b | defer (5.2b) |
+| 19 | blind | `{moment}` en UTC contraire à EXPERIENCE.md | low | décision utilisateur : UTC gardé, EXPERIENCE.md amendé |
+| 20 | blind | question de relance mal fondée (contradiction c1) | high : critère impossible | décision utilisateur : q1 + observation c1 |
+| 21 | blind | test-chat-live court-circuite le relais Next.js | medium : route non exercée en prod | defer (vérif. prod 5.2b) |
+| 22 | blind | `deferred-work.md` contradictoire (fait et à faire) | low, réécriture directe | patch, fait |
+| 23 | blind | cas seulement simulés (23505 concurrent via chat, délai après envoi, AI_OUTPUT_INVALID, pause à 0) | low : couverts en unitaire, chemins SQL couverts en intégration | rejeté |
+| 24 | blind | pas de purge de `ai_reservations` / `ai_usage` | low | defer |
 
 ## Verification
 

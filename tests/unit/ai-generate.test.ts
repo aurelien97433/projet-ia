@@ -4,6 +4,7 @@ import {
   AI_MAX_RETRIES,
   DEFAULT_GENERATION_MODEL,
   GENERATION_MAX_COMPLETION_TOKENS,
+  GENERATION_MAX_RETRIES,
   GENERATION_SAMPLING,
   GENERATION_TIMEOUT_MS,
 } from "../../supabase/functions/_shared/config.ts";
@@ -122,12 +123,53 @@ describe("generateAnswer", () => {
     expect(deps.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it(`503 répétés : ${AI_MAX_RETRIES} nouvelles tentatives, puis AI_UNAVAILABLE réessayable`, async () => {
+  it(`503 répétés : une seule nouvelle tentative (${GENERATION_MAX_RETRIES}, story 5.2a-2), puis AI_UNAVAILABLE sans réponse reçue`, async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const deps = fakeDeps(...Array.from({ length: AI_MAX_RETRIES + 1 }, () => providerError(503, null, "server_error")));
     const error = await aiError(generateAnswer(MESSAGES, { deps }));
-    expect(error).toMatchObject({ code: "AI_UNAVAILABLE", retryable: true });
-    expect(deps.fetch).toHaveBeenCalledTimes(AI_MAX_RETRIES + 1);
+    expect(error).toMatchObject({ code: "AI_UNAVAILABLE", retryable: true, outcome: "no_response" });
+    expect(GENERATION_MAX_RETRIES).toBe(1);
+    expect(deps.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("429 (hors plafond) puis succès : une nouvelle tentative, réponse rendue", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = fakeDeps(providerError(429, "rate_limit_exceeded", "requests"), completion("Réponse [P1]."));
+    expect((await generateAnswer(MESSAGES, { deps })).text).toBe("Réponse [P1].");
+    expect(deps.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("erreur réseau : aucune nouvelle tentative (requête peut-être reçue et facturée), AI_UNAVAILABLE sans réponse", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = fakeDeps(new TypeError("fetch failed"), completion("Réponse [P1]."));
+    const error = await aiError(generateAnswer(MESSAGES, { deps }));
+    expect(error).toMatchObject({ code: "AI_UNAVAILABLE", outcome: "no_response" });
+    expect(deps.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("délai dépassé après envoi : AI_TIMEOUT, issue « timeout », aucune nouvelle tentative", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      (_url, init) =>
+        new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("interrompu", "AbortError")))),
+    );
+    const deps = { apiKey: FAKE_KEY as AiDeps["apiKey"], sleep: vi.fn(async () => {}), fetch };
+    const error = await aiError(generateAnswer(MESSAGES, { deps, timeoutMs: 20 }));
+    expect(error).toMatchObject({ code: "AI_TIMEOUT", outcome: "timeout" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("issue de l'appel : réponse inexploitable « response_received », refus et plafond « no_response »", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    expect((await aiError(generateAnswer(MESSAGES, { deps: fakeDeps(completion("x", "length")) }))).outcome).toBe("response_received");
+    expect((await aiError(generateAnswer(MESSAGES, { deps: fakeDeps(new Response("{coupé", { status: 200 })) }))).outcome).toBe(
+      "response_received",
+    );
+    expect((await aiError(generateAnswer(MESSAGES, { deps: fakeDeps(providerError(400, "invalid_value")) }))).outcome).toBe("no_response");
+    expect(
+      (await aiError(generateAnswer(MESSAGES, { deps: fakeDeps(providerError(429, "insufficient_quota", "insufficient_quota")) }))).outcome,
+    ).toBe("no_response");
   });
 
   it("503 puis succès : la réponse est rendue", async () => {

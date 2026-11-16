@@ -43,7 +43,8 @@ const fakeFetch: typeof fetch = (_input, init) => {
   return Promise.resolve(Response.json({ data }));
 };
 
-function isLocalStack(): boolean {
+// Vrai seulement si SUPABASE_URL vise l'hôte interne de la pile locale (partagé avec fake-generation.ts).
+export function isLocalStack(): boolean {
   try {
     return new URL(readEnv("SUPABASE_URL") ?? "").hostname === LOCAL_SUPABASE_HOST;
   } catch {

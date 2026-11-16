@@ -64,7 +64,7 @@ Numérotées à partir de l'énoncé (`input-challenge.md`).
 | FR-14 | Recherche sémantique : Documents pertinents classés, Passage mis en évidence, un Document une fois, aucun texte IA (SM-4) | P0 |
 | FR-15 | Signaler l'absence de résultat pertinent | P0 |
 | FR-16 | Réponse en français à partir des Passages, affichage progressif, aucun fait inventé, contradictions signalées (SM-1) | P0 |
-| FR-17 | Sources cliquables vers le Passage utilisé ; réponse sans citation vérifiable = échec réessayable sans quota ; Note modifiée (P1) | P0 |
+| FR-17 | Sources cliquables vers le Passage utilisé ; réponse sans citation vérifiable = échec réessayable, unité de quota consommée (décision du 2026-11-16) ; Note modifiée (P1) | P0 |
 | FR-18 | Refus explicite si l'information est absente (SM-2) ; message hors cadre ; refus en bloc, distinct d'une panne | P0 |
 | FR-19 | Questions de suivi comprises dans une même Conversation | P0 |
 | FR-20 | Historique : Conversations enregistrées automatiquement, titrées, triées, rouvrables et poursuivables | P0 |
@@ -113,10 +113,10 @@ Numérotées à partir de l'énoncé (`input-challenge.md`).
 | AR-9 | Texte canonique (NFC, `\n`), positions en unités de code JS, affichage en texte brut, `<mark>` ; décodage UTF-8 strict, repli Windows-1252, sinon `no_text` | AD-8 |
 | AR-10 | `match_passages` unique (`security invoker`), seuil commun 0,40 à calibrer ; Recherche 5 Documents, Assistant 8 Passages (3 par Document) | AD-9 |
 | AR-11 | Marqueur `REPONSE`/`REFUS_INFO_ABSENTE`/`REFUS_HORS_CADRE` lu en tampon (40 caractères) avant tout envoi ; appel court si aucun Passage | AD-10 |
-| AR-12 | Citations `[P{n}]` masquées pendant le flux, validées à la fin ; aucune valide → `AI_CITATIONS_INVALID`, rien enregistré, pas de quota | AD-11 |
+| AR-12 | Citations `[P{n}]` masquées pendant le flux, validées à la fin ; aucune valide → `AI_CITATIONS_INVALID`, aucune réponse enregistrée (échec `failure`), unité de quota consommée (décision du 2026-11-16) | AD-11 |
 | AR-13 | Reformulation des questions de suivi (3 derniers échanges), `standalone_question` enregistrée | AD-12 |
 | AR-14 | Passages et titres neutralisés dans les consignes ; sorties affichées en texte | AD-13 |
-| AR-15 | Quota atomique `reserve_ai_call`/`release_ai_call`, 60/jour UTC, `GET /api/quota`, tableau de décompte par issue | AD-14, AD-16 |
+| AR-15 | Quota atomique `reserve_ai_call`/`release_ai_call(p_reservation_id)` (table `ai_reservations`, libération une seule fois), 60/jour UTC par Compte et plafond global de 300/jour UTC (table `ai_limits`, story 5.2a-2), `GET /api/quota`, tableau de décompte par issue | AD-14, AD-16 |
 | AR-16 | Plafond OpenAI 10 $ (alerte 5 $, sans recharge) ; `AI_BUDGET_EXHAUSTED` distinct du quota | AD-15 |
 | AR-17 | Délais (Recherche 10 s, Assistant 20/90 s, Résumé 120 s) ; `maxDuration` 120/150 ; flux SSE sans tampon, essai léger en 5.0 et plan B d'AD-16 ; `client_request_id` contrôlé avant `reserve_ai_call` ; unicité partielle `role = user` ; `REQUEST_IN_PROGRESS` | AD-16 |
 | AR-18 | Conversation créée au premier envoi accepté ; réponse ou échec enregistré même si le navigateur se déconnecte | AD-17 |
@@ -1181,6 +1181,8 @@ afin d'ajuster le seuil avant de construire l'Assistant dessus.
 
 Un Collaborateur pose une question et obtient une réponse sourcée ou un refus honnête, poursuit la Conversation, la retrouve dans son Historique, dans la limite de son quota. Stories courtes, dans l'ordre demandé.
 
+**Note (2026-11-16, décision de l'utilisateur, story 5.2a-2) : règle de libération du quota.** `release_ai_call(p_reservation_id)` (identifiant renvoyé par `reserve_ai_call`, rendu une seule fois par le Compte qui l'a réservé) ne rend l'unité **que si aucun appel facturable à OpenAI n'a abouti** : rendue pour une panne avant la génération, une question sans Passage (refus sans appel), une génération sans réponse reçue (réseau, `5xx`) ou le plafond du fournisseur ; **consommée** pour une génération reçue puis rejetée (`AI_CITATIONS_INVALID`, `AI_OUTPUT_INVALID`, dont sortie tronquée, filtrée ou refus du modèle) et pour un délai dépassé après l'envoi de la génération (`AI_TIMEOUT`). Raison : sinon, une question construite pour produire une réponse sans citation contournerait le quota tout en dépensant le crédit. Cette règle remplace « sans quota » de FR-17, AR-12, AD-11, AD-14, AD-16 et d'EXPERIENCE.md (textes alignés le même jour). Le garde-fou ajoute aussi un plafond global du projet par jour UTC (300, table `ai_limits`) et le code `AI_DAILY_CAP_REACHED` ; les critères des stories 5.10 et 5.11 qui disent « sans quota consommé » pour une panne s'appliquent à cette règle.
+
 ### Story 5.0 : Essai léger du flux sur Vercel
 
 En tant que porteur du produit,
@@ -1246,8 +1248,10 @@ afin d'obtenir une réponse fondée sur les Documents de NexaWorks.
 **Critères d'acceptation :**
 
 **Étant donné** le mini Jeu
-**Quand** un test d'intégration envoie « comment je relance un client qui n'a pas payé ? » au Route Handler avec le jeton d'un Compte de mesure
-**Alors** une Conversation est créée avec ce titre, la question et la réponse sont enregistrées ; la réponse contient le fait attendu de `questions-mini.json` et au moins une Source « Procédure de facturation » (3 essais sur 3)
+**Quand** un test d'intégration envoie la question q1 de `questions-mini.json`, « Sous quel délai une facture doit-elle être émise après la livraison ? », au Route Handler avec le jeton d'un Compte de mesure
+**Alors** une Conversation est créée avec ce titre, la question et la réponse sont enregistrées ; la réponse contient « 5 jours ouvrés » et au moins une Source « Procédure de facturation » (3 essais sur 3)
+
+**Note (2026-11-16, décision de l'utilisateur) :** la référence « relance d'un client → Procédure de facturation » des critères 5.2a et 5.2b était erronée : ce Document ne parle pas de relance. La relance relève de la contradiction c1 de `questions-mini.json` (FAQ comptabilité : 15 jours ; Note de réunion : finance de mars : 21 jours), traitée par la story 5.4. Les critères utilisent désormais q1 ; la question « comment je relance un client qui n'a pas payé ? » devient une observation non bloquante de `npm run test:chat:live`.
 
 **Étant donné** la génération
 **Quand** les consignes sont construites
@@ -1274,8 +1278,8 @@ afin d'obtenir une information interne sans déranger un collègue.
 **Critères d'acceptation :**
 
 **Étant donné** l'Assistant vide (« Que voulez-vous savoir ? »)
-**Quand** je demande « comment je relance un client qui n'a pas payé ? »
-**Alors** la question s'affiche, puis la réponse (affichage complet à ce stade), suivie d'au moins une puce de Source portant le titre « Procédure de facturation » (puces non encore cliquables)
+**Quand** je demande « Sous quel délai une facture doit-elle être émise après la livraison ? » (q1 de `questions-mini.json`, décision du 2026-11-16 : voir la note de la story 5.2a)
+**Alors** la question s'affiche, puis la réponse (affichage complet à ce stade), contenant « 5 jours ouvrés », suivie d'au moins une puce de Source portant le titre « Procédure de facturation » (puces non encore cliquables)
 
 **Étant donné** la page Assistant
 **Quand** le navigateur envoie la question
@@ -1473,9 +1477,11 @@ afin de converser naturellement avec l'Assistant.
 
 **Critères d'acceptation :**
 
-**Étant donné** la question « Quelle est la procédure de relance client ? » déjà répondue
-**Quand** je demande « Et après combien de jours ? » (3 essais)
-**Alors** chaque réponse cite « Procédure de facturation » comme Source et contient le délai attendu de `questions-mini.json`, et la question autonome enregistrée dans `standalone_question` mentionne la relance
+**Étant donné** la question « Qui valide une facture ? » déjà répondue (scénario f1 de `questions-mini.json`)
+**Quand** je demande « Et au-delà de 10 000 euros ? » (3 essais)
+**Alors** chaque réponse cite « Procédure de facturation » comme Source et contient « direction financière », et la question autonome enregistrée dans `standalone_question` mentionne la validation d'une facture au-delà de 10 000 euros
+
+**Note (2026-11-16, décision de l'utilisateur) :** ce critère portait sur « Quelle est la procédure de relance client ? » puis « Et après combien de jours ? » avec la Source « Procédure de facturation » : référence erronée, ce Document ne parle pas de relance (la relance relève de la contradiction c1, story 5.4). Il est remplacé par le scénario de suivi f1, déjà prévu dans `questions-mini.json`.
 
 **Étant donné** l'échange UJ-3 « comment poser mes congés ? » puis « et si je pose moins de 3 jours ? »
 **Quand** je pose la seconde question (3 essais)

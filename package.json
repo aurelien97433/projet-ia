@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "test:ai": "vitest run --config vitest.live.config.mts",
     "test:search:live": "tsx scripts/test-search-live.ts",
+    "test:chat:live": "tsx scripts/test-chat-live.ts",
     "measure:search": "tsx scripts/measure-search.ts",
     "load:1mo": "tsx scripts/load-test-1mo.ts",
     "check:env": "tsx scripts/check-env.ts",

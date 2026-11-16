@@ -8,6 +8,8 @@ export const ERROR_CODES = [
   "FILE_TYPE_UNSUPPORTED",
   "FILE_TOO_LARGE",
   "QUOTA_EXCEEDED",
+  // Plafond global du projet atteint pour la journée (story 5.2a-2, distinct du quota personnel).
+  "AI_DAILY_CAP_REACHED",
   "REQUEST_IN_PROGRESS",
   "AI_UNAVAILABLE",
   "AI_TIMEOUT",
@@ -21,6 +23,13 @@ export const ERROR_CODES = [
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
+// Issue d'un appel au fournisseur, pour la règle de libération du quota (story 5.2a-2) :
+// - « no_response » : aucune réponse exploitable reçue (réseau, 5xx, 429, refus 4xx, plafond) : rien
+//   n'a été facturé ;
+// - « response_received » : réponse 200 reçue (donc facturée), mais inexploitable ;
+// - « timeout » : délai dépassé après envoi : le fournisseur peut l'avoir produite et facturée.
+export type ProviderOutcome = "no_response" | "response_received" | "timeout";
+
 // Échec d'un appel à l'IA, traduit en code de la liste. Le message reste technique et ne quitte
 // jamais le serveur : la réponse au navigateur porte le texte du catalogue (AD-19).
 export class AiError extends Error {
@@ -33,14 +42,23 @@ export class AiError extends Error {
     readonly providerCode?: string,
     // Paramètre refusé par le fournisseur (ex. temperature), nom de champ seulement.
     readonly providerParam?: string,
+    // Issue de l'appel (voir ProviderOutcome) ; absente si l'erreur ne vient pas d'un appel.
+    readonly outcome?: ProviderOutcome,
   ) {
     super(message);
     this.name = "AiError";
   }
 }
 
-export function errorResponse(code: ErrorCode, message: string, retryable: boolean, status: number): Response {
-  return new Response(JSON.stringify({ error: { code, message, retryable } }), {
+export function errorResponse(
+  code: ErrorCode,
+  message: string,
+  retryable: boolean,
+  status: number,
+  resetAt?: string,
+): Response {
+  const error = resetAt ? { code, message, retryable, resetAt } : { code, message, retryable };
+  return new Response(JSON.stringify({ error }), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });

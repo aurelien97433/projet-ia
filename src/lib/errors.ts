@@ -9,6 +9,8 @@ export const ERROR_CODES = [
   "FILE_TYPE_UNSUPPORTED",
   "FILE_TOO_LARGE",
   "QUOTA_EXCEEDED",
+  // Plafond global du projet atteint pour la journée (story 5.2a-2, distinct du quota personnel).
+  "AI_DAILY_CAP_REACHED",
   "REQUEST_IN_PROGRESS",
   "AI_UNAVAILABLE",
   "AI_TIMEOUT",

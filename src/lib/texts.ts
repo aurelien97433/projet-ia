@@ -230,6 +230,24 @@ export const texts = {
     // bouton « Poser la question à l'Assistant » sont rétablis ensemble par la story 5.2b.
     noResults: "Aucun Document ne correspond suffisamment à votre recherche. Essayez d'autres mots.",
   },
+  // Assistant (story 5.2a-2, EXPERIENCE.md, « Textes clés de l'interface »).
+  assistant: {
+    // « Information absente » : texte enregistré par chat (supabase/functions/chat, test d'égalité).
+    refusalInfoAbsente:
+      "Je n'ai pas trouvé cette information dans la Base commune de NexaWorks. Je préfère ne pas répondre plutôt que d'inventer.",
+    failedTitle: "La réponse n'a pas pu être générée.",
+    failed: "Le service d'IA ne répond pas pour le moment. Votre question est conservée.",
+    unverifiable: "Je n'ai pas pu vérifier cette réponse à partir des Documents. Veuillez réessayer.",
+    budgetExhausted: "Le service d'IA est momentanément indisponible. Réessayez plus tard.",
+    questionTooLong: "Votre question dépasse 2 000 caractères. Raccourcissez-la pour l'envoyer.",
+    quotaExceeded: (moment: string) =>
+      `Vous avez atteint votre limite quotidienne de questions et de Résumés. Elle sera rétablie ${moment}. La Recherche reste disponible.`,
+    // Plafond global du projet : texte validé le 2026-11-16 (story 5.2a-2), ajouté à EXPERIENCE.md.
+    dailyCapReached: (moment: string) =>
+      `L'Assistant a atteint sa limite d'utilisation pour aujourd'hui. Il sera de nouveau disponible ${moment}. La Recherche reste disponible.`,
+    // Absent d'EXPERIENCE.md : rejeu d'une question déjà reçue (story 5.2a-2 ; rejeu complet en 5.9).
+    inProgress: "Cette question est déjà en cours de traitement.",
+  },
   dashboard: {
     recentDocuments: "Derniers Documents",
     seeLibrary: "Voir la Bibliothèque",

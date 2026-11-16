@@ -163,7 +163,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 - **Exigences (Binds) :** FR-16, FR-18, NFR-3, NFR-4, X12.
 
 ### AD-11 — Réponse finalisée seulement après validation des citations `[ADOPTED]`
-- **Règle (Rule) :** le modèle cite sous la forme `[P{n}]`, où *n* est le numéro d'un Passage transmis. À la fin, `chat` valide chaque citation. Si au moins une est valide : les citations invalides sont retirées et journalisées, les Sources sont regroupées par Document et numérotées dans l'ordre de première citation, puis la réponse est enregistrée. Si aucune n'est valide : `AI_CITATIONS_INVALID`, le texte est retiré de l'écran, rien n'est enregistré comme réponse et aucun quota n'est consommé. Pendant la diffusion, `chat` **masque les marqueurs `[P{n}]`** : il les retire du texte envoyé, en gardant en tampon un `[P` coupé entre deux morceaux. L'interface affiche la réponse comme provisoire jusqu'à l'événement final `done`, qui porte le texte validé, la position des renvois et les Sources ; ce texte remplace alors le texte provisoire. Pas de nouvelle génération automatique.
+- **Règle (Rule) :** le modèle cite sous la forme `[P{n}]`, où *n* est le numéro d'un Passage transmis. À la fin, `chat` valide chaque citation. Si au moins une est valide : les citations invalides sont retirées et journalisées, les Sources sont regroupées par Document et numérotées dans l'ordre de première citation, puis la réponse est enregistrée. Si aucune n'est valide : `AI_CITATIONS_INVALID`, le texte est retiré de l'écran, rien n'est enregistré comme réponse (un échec `kind = failure` l'est) ; la génération ayant été reçue et facturée, l'unité de quota est consommée (décision du 2026-11-16, story 5.2a-2 : sinon une question construite pour produire une réponse sans citation contournerait le quota tout en dépensant le crédit). Pendant la diffusion, `chat` **masque les marqueurs `[P{n}]`** : il les retire du texte envoyé, en gardant en tampon un `[P` coupé entre deux morceaux. L'interface affiche la réponse comme provisoire jusqu'à l'événement final `done`, qui porte le texte validé, la position des renvois et les Sources ; ce texte remplace alors le texte provisoire. Pas de nouvelle génération automatique.
 - **Raison — ce qu'on évite (Prevents) :** aucune réponse sans preuve (FR-17, SM-1, zéro fait inventé).
 - **Écarté :** remplacer la réponse par un refus ; régénérer automatiquement.
 - **Risque restant :** ce cas compte comme un échec pour SM-1.
@@ -184,10 +184,10 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 - **Exigences (Binds) :** NFR-10.
 
 ### AD-14 — Quota quotidien atomique `[ADOPTED]`
-- **Règle (Rule) :** 60 appels par Collaborateur et par jour UTC (`AI_DAILY_QUOTA`, configurable). Une question à l'Assistant ou un Résumé généré compte pour 1. Ne comptent pas : la reformulation, la vectorisation, la Recherche, un Résumé déjà stocké et une panne. Mécanique : `reserve_ai_call()` (`security definer`, incrément atomique si la limite n'est pas atteinte) est appelé avant tout appel au fournisseur. En cas d'échec, `release_ai_call()` rend l'unité. Si le quota est atteint : `QUOTA_EXCEEDED` avec `reset_at` (prochain 00:00 UTC), et aucun appel au fournisseur. `GET /api/quota` donne l'état au chargement de l'Assistant et de la page Document. L'interface affiche `reset_at` dans le fuseau du navigateur.
+- **Règle (Rule) :** 60 appels par Collaborateur et par jour UTC (`ai_daily_quota` dans la table `ai_limits`, modifiable par SQL sans redéploiement, story 5.2a-2). Une question à l'Assistant ou un Résumé généré compte pour 1. Ne comptent pas : la reformulation, la vectorisation, la Recherche, un Résumé déjà stocké et une panne. Mécanique : `reserve_ai_call()` (`security definer`, incrément atomique si la limite n'est pas atteinte) est appelé avant tout appel au fournisseur. `reserve_ai_call()` enregistre la réservation dans `ai_reservations` et renvoie son identifiant ; en cas d'échec, `release_ai_call(p_reservation_id)` rend l'unité (une seule fois, par le Compte qui l'a réservée, sur le jour de la réservation : sinon un Collaborateur pourrait effacer son compteur par l'API) **seulement si aucun appel facturable n'a abouti** (décision du 2026-11-16, story 5.2a-2 : une réponse reçue puis rejetée ou un délai dépassé après l'envoi de la génération consomment l'unité). La réservation couvre aussi un plafond global du projet par jour UTC (`ai_global_daily_cap`, 300) ; les deux limites sont dans la table `ai_limits`, modifiable par SQL sans redéploiement ; plafond global atteint : `AI_DAILY_CAP_REACHED` (503). Si le quota est atteint : `QUOTA_EXCEEDED` avec `reset_at` (prochain 00:00 UTC), et aucun appel au fournisseur. `GET /api/quota` donne l'état au chargement de l'Assistant et de la page Document. L'interface affiche `reset_at` dans le fuseau du navigateur.
 - **Raison — ce qu'on évite (Prevents) :** NFR-8, et un seul compteur pour toutes les fonctions.
 - **Écarté :** compteur côté navigateur ; décompte après coup.
-- **Risque restant :** l'inscription est ouverte, donc chaque nouveau Compte reçoit 60 appels. Le plafond fournisseur (AD-15) borne le total.
+- **Risque restant :** l'inscription est ouverte, donc chaque nouveau Compte reçoit 60 appels ; le plafond global du projet (300 par jour UTC, story 5.2a-2) et le plafond fournisseur (AD-15) bornent le total. En contrepartie, `reserve_ai_call()` est appelable directement par l'API avec le jeton d'un Collaborateur : 5 Comptes jetables × 60 réservations épuisent le plafond global **sans coût OpenAI** et bloquent l'Assistant pour tous jusqu'à 00:00 UTC (le même blocage est possible via `chat` pour environ 1,80 $ ; c'est le principe d'un plafond avec une inscription ouverte). Le crédit reste protégé, seule la disponibilité est en jeu. Repérage et remise à niveau du compteur sur décision : `docs/environnements.md`.
 - **Exigences (Binds) :** NFR-8.
 
 ### AD-15 — Plafond fournisseur de 10 $ `[ADOPTED]`
@@ -199,8 +199,8 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 
 ### AD-16 — Délais maximaux et idempotence `[ASSUMPTION]`
 - **Règle (Rule) :**
-  - **Délais.** `semantic-search` 10 s ; reformulation 10 s ; `chat` 20 s jusqu'au premier octet et 90 s au total ; `summarize` 120 s. Au-delà : `AI_TIMEOUT`, panne avec « Réessayer », sans quota consommé.
-  - **Nouvelles tentatives.** Embeddings et appels non diffusés : 2 nouvelles tentatives sur les erreurs `429` et `5xx`. Aucune une fois la diffusion commencée.
+  - **Délais.** `semantic-search` 10 s ; reformulation 10 s ; `chat` diffusé (story 5.5) 20 s jusqu'au premier octet et 90 s au total ; `chat` non diffusé (story 5.2a-2) : échéance globale de 60 s, chaque étape recevant le temps restant, génération 40 s au plus, relais Next.js 70 s, `maxDuration` 120 s ; `summarize` 120 s. Au-delà : `AI_TIMEOUT`, panne avec « Réessayer ». L'unité de quota n'est rendue que si aucun appel facturable n'a abouti ; un délai dépassé après l'envoi de la génération la consomme (décision du 2026-11-16).
+  - **Nouvelles tentatives.** Embeddings et autres appels non diffusés : 2 nouvelles tentatives sur les erreurs `429` (hors plafond) et `5xx` et sur erreur réseau. Génération (story 5.2a-2) : **une seule** nouvelle tentative, et seulement sur `429` (hors plafond) ou `5xx` reçus ; jamais après une erreur réseau ni un délai dépassé après envoi (requête peut-être facturée). Aucune une fois la diffusion commencée.
   - **Route Handlers Next.js.** `app/api/chat` déclare `export const maxDuration = 120` et `app/api/summarize` `maxDuration = 150` (le plafond de Vercel Hobby est de 300 s). Le flux de `chat` est relayé sans mise en mémoire tampon (`Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`).
   - **Idempotence.** Chaque création (Document, question, Résumé, relance) porte un `client_request_id` (uuid généré par le client). L'unicité est (`owner_id`, `client_request_id`) sur `messages` **pour `role = user` seulement** (index partiel), et (`author_id`, `client_request_id`) sur `documents`. Un bouton passe à l'état occupé (`aria-disabled`) dès le premier clic.
   - **Ordre dans `chat`.**
@@ -222,7 +222,9 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 |---|---|
 | Réponse validée (`REPONSE`, au moins une citation valide) | 1 |
 | Refus `REFUS_INFO_ABSENTE` ou `REFUS_HORS_CADRE`, y compris par l'appel court sans Passage | 1 |
-| `AI_CITATIONS_INVALID`, `AI_OUTPUT_INVALID`, `AI_TIMEOUT`, `AI_UNAVAILABLE`, `AI_BUDGET_EXHAUSTED` | 0 (unité rendue par `release_ai_call`) |
+| `AI_CITATIONS_INVALID`, `AI_OUTPUT_INVALID` (sortie tronquée, filtrée, refus du modèle), `AI_TIMEOUT` après envoi de la génération : réponse reçue ou peut-être facturée (décision du 2026-11-16, story 5.2a-2) | 1 |
+| `AI_UNAVAILABLE` sans réponse reçue (réseau, 5xx), `AI_BUDGET_EXHAUSTED`, panne avant la génération, aucun Passage (refus sans appel, 5.2a-2) | 0 (unité rendue par `release_ai_call`) |
+| `AI_DAILY_CAP_REACHED` (plafond global du projet, `ai_limits`, story 5.2a-2) | 0 (aucune réservation) |
 | `QUOTA_EXCEEDED`, `VALIDATION_FAILED`, `REQUEST_IN_PROGRESS`, réponse rejouée (même `client_request_id`) | 0 (aucune réservation) |
 | Réessai après échec | 1 si le réessai aboutit (réponse ou refus), sinon 0 |
 | Résumé généré et enregistré | 1 |
@@ -371,7 +373,7 @@ sequenceDiagram
       CH->>DB: enregistrer le refus
       CH-->>B: refus standard en bloc
     end
-    Note over CH,DB: échec : release_ai_call, message kind=failure
+    Note over CH,DB: échec : message kind=failure ; release_ai_call seulement si aucun appel facturable n'a abouti
   end
   end
 ```
@@ -447,6 +449,9 @@ erDiagram
 | `messages` | `id`, `conversation_id`, `owner_id`, `role` (`user`/`assistant`), `kind` (`question`/`answer`/`refusal_info_absente`/`refusal_hors_cadre`/`failure`), `content`, `standalone_question`, `error_code`, `client_request_id`, `created_at` | `owner_id` est dupliqué pour une RLS simple. |
 | `message_sources` | `id`, `message_id`, `owner_id`, `ordinal`, `document_id` (passe à null si le Document est supprimé), `document_title` (copie), `text_version`, `passages` (jsonb : `passage_id`, `start`, `end`) | Source non cliquable si `document_id` est null (FR-12) ; « Document modifié » si `text_version` diffère (P1). |
 | `ai_usage` | `user_id`, `day_utc`, `count` | Clé primaire (`user_id`, `day_utc`). |
+| `ai_usage_global` | `day_utc`, `count` | Compteur du projet par jour UTC (story 5.2a-2). Aucun accès direct. |
+| `ai_limits` | `key` (`ai_daily_quota`, `ai_global_daily_cap`), `value` | Limites du garde-fou (60, 300), modifiables par SQL. Aucun accès direct. |
+| `ai_reservations` | `id`, `user_id`, `day_utc`, `created_at`, `released_at` | Réservation acceptée, rendue au plus une fois. Aucun accès direct. |
 
 Unicité : (`author_id`, `client_request_id`) sur `documents` ; (`owner_id`, `client_request_id`) sur `messages`, **pour `role = user` seulement** (index partiel, AD-16).
 
@@ -474,7 +479,7 @@ Fonctions SQL `security definer` (vérifient `auth.uid()` ou sont réservées à
 | `retry_processing(document_id, client_request_id)` | Next.js | Auteur seul ; Statut effectif `error` avec `error_kind = temporary`, y compris un traitement expiré après 3 min (AD-5, AD-6) ; nouvelle tentative et nouvel horodatage |
 | `complete_processing(…)`, `fail_processing(…)` | `process-document` | `service_role` ; tentative courante (AD-5) |
 | `abandon_processing(document_id, attempt_id)` | Next.js (jeton de l'Auteur), quand `process-document` ne répond pas en 5 s | Auteur seul ; tentative courante et Statut *en cours* ; passe *en erreur* temporaire (AD-5) |
-| `reserve_ai_call()`, `release_ai_call()` | `chat`, `summarize` | `auth.uid()` ; atomique (AD-14) |
+| `reserve_ai_call()`, `release_ai_call(p_reservation_id)` | `chat`, `summarize` | `security definer`, `auth.uid()` ; atomique, quota du Compte et plafond global ; libération une seule fois par réservation (AD-14) |
 | `store_summary(document_id, text_version, points)` | `summarize` | Document *prêt*, version courante (AD-18) |
 | `match_passages(…)` | `semantic-search`, `chat` | `security invoker` : RLS appliquée |
 
@@ -511,7 +516,7 @@ vercel.json                             # région des fonctions alignée sur Sup
 | Identifiants et dates | `uuid` partout ; dates `timestamptz` en UTC ; affichage dans le fuseau du navigateur, en français. |
 | Mutations | Server Actions pour les formulaires (créer, supprimer, relancer) ; Route Handlers pour le flux de `chat`, l'interrogation du Statut, le quota et l'upload. Jamais d'écriture depuis un composant client vers Supabase. |
 | Validation | Un schéma `zod` par entrée dans `src/lib/schemas` (titre 1–200 caractères, Catégorie de la liste, Note non vide et de 100 000 octets au plus (100 Ko, décision du 2026-11-12), mesurés en UTF-8 après normalisation, comme les fichiers ; `next.config.ts` fixe `serverActions.bodySizeLimit = '2mb'` pour que la limite soit appliquée par le schéma, avec le message du catalogue, et non par la limite de 1 Mo des Server Actions, question de 1 à 2 000 caractères, Requête de 1 à 500 caractères `[ASSUMPTION]`), validé côté serveur. Les Edge Functions revalident leur entrée. |
-| Erreurs | Forme AD-19. Codes : `VALIDATION_FAILED`, `UNAUTHENTICATED`, `NOT_FOUND` (aussi pour un accès refusé, FR-22), `FORBIDDEN`, `FILE_TYPE_UNSUPPORTED`, `FILE_TOO_LARGE`, `QUOTA_EXCEEDED`, `REQUEST_IN_PROGRESS`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_BUDGET_EXHAUSTED`, `AI_OUTPUT_INVALID`, `AI_CITATIONS_INVALID`, `PROCESSING_NO_TEXT`, `PROCESSING_TEMPORARY`, `INTERNAL`. |
+| Erreurs | Forme AD-19. Codes : `VALIDATION_FAILED`, `UNAUTHENTICATED`, `NOT_FOUND` (aussi pour un accès refusé, FR-22), `FORBIDDEN`, `FILE_TYPE_UNSUPPORTED`, `FILE_TOO_LARGE`, `QUOTA_EXCEEDED`, `AI_DAILY_CAP_REACHED`, `REQUEST_IN_PROGRESS`, `AI_UNAVAILABLE`, `AI_TIMEOUT`, `AI_BUDGET_EXHAUSTED`, `AI_OUTPUT_INVALID`, `AI_CITATIONS_INVALID`, `PROCESSING_NO_TEXT`, `PROCESSING_TEMPORARY`, `INTERNAL`. |
 | Journalisation | `console` structuré (JSON : `event`, `code`, `user_id`, `document_id`/`conversation_id`, durée), jamais de secret, de jeton ni de texte de Document. Événements : plafond atteint, citations invalides, marqueur invalide, expiration de traitement. |
 | Typographie | Une fonction `formatFr` insère les espaces insécables avant `: ; ? !` et dans les nombres (`2 000`), pour tous les textes du catalogue. |
 
@@ -523,7 +528,7 @@ vercel.json                             # région des fonctions alignée sur Sup
 | `PROCESS_DOCUMENT_SECRET` | Vercel, secrets Supabase et `.env.seed` du script de préchargement | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement | Non |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase (fournie à l'exécution) ; `.env.seed` du script de préchargement | Non |
-| `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
+| `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase (limites du quota : table `ai_limits`, story 5.2a-2) | Non |
 | `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*` | `.env.seed` du script de préchargement et des scripts de mesure | Non |
 
 **Tests**

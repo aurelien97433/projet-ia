@@ -134,11 +134,75 @@ Aucun test automatique n'appelle OpenAI. La pile locale active `EMBEDDINGS_FAKE 
 
 La simulation exige aussi que `SUPABASE_URL` vise l'hôte interne `kong` de la pile locale. Ailleurs, elle est rejetée : la vectorisation réelle s'applique et `embeddings_fake_rejected` apparaît dans les journaux. Ce réglage ne doit jamais être posé dans les secrets du projet distant.
 
-Seuls appels réels : `npm run test:ai` (un mot, avec la fonction locale `ai-health`), `npm run measure:search` (10 Requêtes courtes en un appel, avec la fonction locale `measure-embed`, qui ignore la simulation), `npm run test:search:live` (Recherches sur le projet distant) `npm run load:1mo -- --remote` (deux fichiers juste sous la limite de 100 Ko, supprimés à la fin) et les Documents créés en production.
+Seuls appels réels : `npm run test:ai` (un mot, avec la fonction locale `ai-health`), `npm run measure:search` (10 Requêtes courtes en un appel, avec la fonction locale `measure-embed`, qui ignore la simulation), `npm run test:search:live` (Recherches sur le projet distant), `npm run test:chat:live` (9 questions à l'Assistant sur le projet distant, environ 0,06 $), `npm run load:1mo -- --remote` (deux fichiers juste sous la limite de 100 Ko, supprimés à la fin) et les Documents créés en production.
 
 **`supabase secrets set` et `config.toml`.** Lancée à la racine du projet, cette commande annonce aussi les secrets de `[edge_runtime.secrets]` : `EMBEDDINGS_FAKE` partirait sur le projet distant. Elle y serait rejetée, mais chaque traitement écrirait une erreur dans les journaux. Toujours passer par un dossier temporaire, comme `setup-seed-env.ps1`, et ne jamais confirmer avec `--yes` un nombre de secrets inattendu.
 
+**Génération simulée (story 5.2a-2).** Même principe pour la fonction `chat` : `GENERATION_FAKE = "1"` dans `[edge_runtime.secrets]` fait passer la génération par `_shared/fake-generation.ts` (réponse simulée citant `[P1]`, sans citation si la question contient `[simulation:sans-citation]`), journalisée `generation_fake_active`. Rejetée hors de l'hôte `kong` (`generation_fake_rejected`) ; jamais dans les secrets du projet distant (même précaution que ci-dessous pour `supabase secrets set`).
+
 **Après un changement de `config.toml`** : redémarrer Supabase local (`npx supabase stop`, puis `npx supabase start`). Sans ce redémarrage, la pile locale n'aurait pas le réglage et la vectorisation serait réelle.
+
+## Garde-fou du crédit d'IA (`ai_limits`, story 5.2a-2)
+
+Avant tout appel à OpenAI, la fonction `chat` réserve une unité avec `reserve_ai_call()` : quota par Compte et par jour UTC, et plafond global du projet par jour UTC, réservés ensemble et de façon atomique. Les limites sont dans la table `ai_limits`, sans accès par l'API (ni `anon`, ni `authenticated`, ni `service_role`) ; elles ne sont jamais fournies par l'appelant.
+
+| Clé | Valeur initiale | Effet |
+|---|---|---|
+| `ai_daily_quota` | 60 | Questions par Compte et par jour UTC (AD-14). Au-delà : `QUOTA_EXCEEDED` (429). |
+| `ai_global_daily_cap` | 300 | Questions par jour UTC pour tout le projet (environ 1,80 $ au coût estimé de 0,006 $ par question). Au-delà : `AI_DAILY_CAP_REACHED` (503). |
+
+Le compteur repart à 0 au prochain 00:00 UTC (`reset_at`). Une unité n'est rendue que si aucun appel facturable n'a abouti (panne avant la génération, aucun Passage, génération sans réponse reçue, plafond du fournisseur) ; une réponse reçue puis rejetée (sans citation valide, inexploitable) ou un délai dépassé après envoi la consomment.
+
+**Changer une limite** (sans redéploiement, effet immédiat), dans l'éditeur SQL de Supabase :
+
+```sql
+update public.ai_limits set value = 500 where key = 'ai_global_daily_cap';
+```
+
+**Lire les limites et la consommation du jour** (lecture seule, aussi par la CLI avec `--read-only`) :
+
+```sql
+select key, value from public.ai_limits order by key;
+select day_utc, count from public.ai_usage_global order by day_utc desc limit 7;
+```
+
+Après le premier déploiement de la story 5.2a-2, vérifier en lecture seule que `ai_limits` contient bien 60 et 300.
+
+**Mettre en pause l'Assistant** (urgence de coût) : `update public.ai_limits set value = 0 where key = 'ai_global_daily_cap';` — chaque question reçoit alors `AI_DAILY_CAP_REACHED`, sans appel au fournisseur ; la Recherche reste disponible.
+
+### Risque restant : plafond global épuisé par des Comptes jetables
+
+`reserve_ai_call()` est appelable directement par l'API avec le jeton de n'importe quel Collaborateur, et l'inscription est ouverte. Cinq Comptes jetables à 60 réservations chacun épuisent le plafond global de 300 **sans aucun coût OpenAI**, et l'Assistant est alors bloqué pour tous jusqu'à 00:00 UTC. Le même blocage est possible en passant par `chat`, pour environ 1,80 $ : c'est le principe d'un plafond avec une inscription ouverte. Le crédit reste protégé ; seule la disponibilité est en jeu.
+
+**Repérer les Comptes du jour** (lecture seule ; aussi par la CLI avec `--read-only`) :
+
+```sql
+-- Consommation du jour, par Compte, de la plus forte à la plus faible.
+select u.user_id, p.display_name, u.count
+from public.ai_usage u
+left join public.profiles p on p.id = u.user_id
+where u.day_utc = (now() at time zone 'utc')::date
+order by u.count desc
+limit 50;
+
+-- Réservations du jour non rendues, par Compte.
+select user_id, count(*) as non_rendues
+from public.ai_reservations
+where day_utc = (now() at time zone 'utc')::date and released_at is null
+group by user_id
+order by non_rendues desc
+limit 50;
+```
+
+**Remettre le compteur global du jour à une valeur donnée** — à exécuter **seulement sur décision de l'utilisateur**, dans l'éditeur SQL de Supabase (remplacer `120` par la valeur décidée) :
+
+```sql
+update public.ai_usage_global
+set count = 120
+where day_utc = (now() at time zone 'utc')::date;
+```
+
+Les compteurs des Comptes (`ai_usage`) ne sont pas modifiés : un Compte jetable reste à sa limite personnelle jusqu'à 00:00 UTC. Si le blocage se répète, relever temporairement `ai_global_daily_cap` reste possible, au prix d'un coût maximal plus élevé.
 
 ## Préchargement du mini Jeu (`seed:demo`)
 
@@ -215,8 +279,8 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
 | `PROCESS_DOCUMENT_SECRET` | Vercel (Production seulement), secrets Supabase (`supabase/functions/.env` en local, ignoré par git), `.env.seed` | Non |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secrets Supabase, `.env.seed` | Non |
 | `OPENAI_API_KEY` | Secrets Supabase uniquement (`supabase/functions/.env` en local, ignoré par git) | Non |
-| `AI_DAILY_QUOTA`, `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
-| `EMBEDDINGS_FAKE` (pas un secret) | `supabase/config.toml`, pile locale uniquement, jamais sur le projet distant | Non |
+| `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
+| `EMBEDDINGS_FAKE`, `GENERATION_FAKE` (pas des secrets) | `supabase/config.toml`, pile locale uniquement, jamais sur le projet distant | Non |
 | `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*`, `SEED_SUPABASE_URL` | `.env.seed` (préchargement et mesures), jamais lu par Next.js | Non |
 
 ## Contrôle des secrets

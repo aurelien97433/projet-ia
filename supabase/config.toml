@@ -396,6 +396,8 @@ deno_version = 2
 # Sans effet ailleurs : la fonction la rejette si SUPABASE_URL n'est pas l'hôte local. Ce n'est pas un secret.
 [edge_runtime.secrets]
 EMBEDDINGS_FAKE = "1"
+# Génération simulée de chat (story 5.2a-2, _shared/fake-generation.ts) : même garde-fou, pile locale seulement.
+GENERATION_FAKE = "1"
 
 [analytics]
 # Désactivé : le conteneur Logflare ne devient pas sain sous Windows, et les journaux locaux ne servent pas au projet.
@@ -444,4 +446,9 @@ verify_jwt = false
 # Recherche sémantique (story 4.1a) : appelée par Next.js avec le jeton du Collaborateur, vérifié par
 # la passerelle puis par la fonction ; la base est interrogée avec ce jeton (RLS appliquée).
 [functions.semantic-search]
+verify_jwt = true
+
+# Assistant (story 5.2a-2) : appelée par Next.js avec le jeton du Collaborateur, vérifié par la
+# passerelle puis par la fonction ; quota réservé avant tout appel à OpenAI, base interrogée avec ce jeton.
+[functions.chat]
 verify_jwt = true

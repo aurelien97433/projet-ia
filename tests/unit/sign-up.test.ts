@@ -122,6 +122,7 @@ describe("appError", () => {
       "FILE_TYPE_UNSUPPORTED",
       "FILE_TOO_LARGE",
       "QUOTA_EXCEEDED",
+      "AI_DAILY_CAP_REACHED",
       "REQUEST_IN_PROGRESS",
       "AI_UNAVAILABLE",
       "AI_TIMEOUT",

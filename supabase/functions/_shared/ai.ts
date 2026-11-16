@@ -4,6 +4,7 @@
 import {
   AI_MAX_RETRIES,
   AI_RETRY_BASE_DELAY_MS,
+  GENERATION_MAX_RETRIES,
   EMBEDDING_BATCH_SIZE,
   EMBEDDING_DIMENSION,
   EMBEDDING_MODEL,
@@ -49,7 +50,17 @@ type RequestSpec = {
   timeoutMs: number;
   // Statut traité comme une réponse attendue (ex. 404 pour un modèle inaccessible).
   acceptStatus?: number;
+  // Nouvelles tentatives propres à l'opération ; par défaut AI_MAX_RETRIES, y compris sur erreur réseau.
+  retry?: RetryPolicy;
 };
+
+// maxRetries : nouvelles tentatives sur 429 (hors plafond) et 5xx reçus. onNetworkError : réessayer
+// aussi après une erreur réseau (requête peut-être reçue et facturée par le fournisseur).
+export type RetryPolicy = { maxRetries: number; onNetworkError: boolean };
+
+const DEFAULT_RETRY: RetryPolicy = { maxRetries: AI_MAX_RETRIES, onNetworkError: true };
+// Génération (story 5.2a-2) : une seule nouvelle tentative, jamais après une erreur réseau.
+export const GENERATION_RETRY: RetryPolicy = { maxRetries: GENERATION_MAX_RETRIES, onNetworkError: false };
 
 // Nom de paramètre renvoyé par le fournisseur (ex. « temperature ») : gardé seulement s'il a la forme
 // d'un nom de champ court, pour ne jamais recopier de texte libre.
@@ -67,13 +78,16 @@ async function providerError(response: Response): Promise<{ code?: string; type?
   }
 }
 
-// Appel au fournisseur : délai par tentative, 2 nouvelles tentatives sur 429 (hors plafond), 5xx
-// et erreur réseau ; tout autre refus est définitif. Renvoie le corps JSON, ou null pour acceptStatus.
+// Appel au fournisseur : délai par tentative, nouvelles tentatives selon spec.retry (par défaut 2,
+// sur 429 hors plafond, 5xx et erreur réseau) ; tout autre refus est définitif. Renvoie le corps
+// JSON, ou null pour acceptStatus. Chaque AiError porte l'issue de l'appel (outcome) : aucune
+// réponse, réponse reçue (facturée) ou délai dépassé après envoi.
 async function callProvider(spec: RequestSpec, deps: AiDeps): Promise<unknown> {
   if (!deps.apiKey) {
     logEvent("ai_key_missing", { operation: spec.operation });
-    throw new AiError("AI_UNAVAILABLE", false, "OPENAI_API_KEY absente");
+    throw new AiError("AI_UNAVAILABLE", false, "OPENAI_API_KEY absente", undefined, undefined, "no_response");
   }
+  const retry = spec.retry ?? DEFAULT_RETRY;
 
   for (let attempt = 0; ; attempt += 1) {
     const started = Date.now();
@@ -96,7 +110,7 @@ async function callProvider(spec: RequestSpec, deps: AiDeps): Promise<unknown> {
           return await response.json();
         } catch {
           logEvent("ai_output_invalid", { operation: spec.operation, reason: "json" });
-          throw new AiError("AI_OUTPUT_INVALID", false, "réponse illisible");
+          throw new AiError("AI_OUTPUT_INVALID", false, "réponse illisible", undefined, undefined, "response_received");
         }
       }
       if (response.status === spec.acceptStatus) return null;
@@ -105,27 +119,27 @@ async function callProvider(spec: RequestSpec, deps: AiDeps): Promise<unknown> {
       const details = { operation: spec.operation, status: response.status, code: code ?? type, param, attempt };
       if (response.status === 429 && (BUDGET_ERROR_CODES.has(code ?? "") || BUDGET_ERROR_CODES.has(type ?? ""))) {
         logEvent("ai_budget_exhausted", details);
-        throw new AiError("AI_BUDGET_EXHAUSTED", false, "plafond du fournisseur atteint", code ?? type);
+        throw new AiError("AI_BUDGET_EXHAUSTED", false, "plafond du fournisseur atteint", code ?? type, undefined, "no_response");
       }
       if (response.status !== 429 && response.status < 500) {
         logEvent("ai_provider_rejected", details);
-        throw new AiError("AI_UNAVAILABLE", false, `refus du fournisseur (${response.status})`, code ?? type, param);
+        throw new AiError("AI_UNAVAILABLE", false, `refus du fournisseur (${response.status})`, code ?? type, param, "no_response");
       }
       retryReason = `status_${response.status}`;
     } catch (error) {
       if (error instanceof AiError) throw error;
       if (controller.signal.aborted) {
         logEvent("ai_timeout", { operation: spec.operation, attempt, duration_ms: Date.now() - started });
-        throw new AiError("AI_TIMEOUT", true, "délai dépassé");
+        throw new AiError("AI_TIMEOUT", true, "délai dépassé", undefined, undefined, "timeout");
       }
       retryReason = "network";
     } finally {
       clearTimeout(timer);
     }
 
-    if (attempt >= AI_MAX_RETRIES) {
+    if (attempt >= retry.maxRetries || (retryReason === "network" && !retry.onNetworkError)) {
       logEvent("ai_unavailable", { operation: spec.operation, reason: retryReason, attempts: attempt + 1 });
-      throw new AiError("AI_UNAVAILABLE", true, "fournisseur indisponible");
+      throw new AiError("AI_UNAVAILABLE", true, "fournisseur indisponible", undefined, undefined, "no_response");
     }
     await deps.sleep(AI_RETRY_BASE_DELAY_MS * 2 ** attempt);
   }
@@ -191,7 +205,8 @@ export type GenerationResult = {
 };
 
 // Génération d'une réponse, non diffusée (story 5.2a-1 ; la diffusion arrive en 5.5) : Chat
-// Completions, raisonnement désactivé, échantillonnage de GENERATION_SAMPLING, sortie bornée. Une
+// Completions, raisonnement désactivé, échantillonnage de GENERATION_SAMPLING, sortie bornée, une
+// seule nouvelle tentative (GENERATION_RETRY, story 5.2a-2 : jamais après une erreur réseau). Une
 // réponse vide, tronquée ou filtrée (finish_reason autre que « stop ») est invalide : aucun fait
 // partiel n'est rendu. Ni les consignes ni la réponse ne sont journalisées.
 export async function generateAnswer(messages: ChatMessage[], options: AiOptions = {}): Promise<GenerationResult> {
@@ -210,6 +225,7 @@ export async function generateAnswer(messages: ChatMessage[], options: AiOptions
         ...GENERATION_SAMPLING,
       },
       timeoutMs: options.timeoutMs ?? GENERATION_TIMEOUT_MS,
+      retry: GENERATION_RETRY,
     },
     deps,
   );
@@ -233,7 +249,14 @@ export async function generateAnswer(messages: ChatMessage[], options: AiOptions
     // Sortie tronquée ou filtrée : avec un échantillonnage fixe, la même demande redonnerait le même
     // résultat ; elle n'est donc pas réessayable.
     const deterministic = finishReason === "length" || finishReason === "content_filter";
-    throw new AiError("AI_OUTPUT_INVALID", !deterministic, `réponse inexploitable (${finishReason})`);
+    throw new AiError(
+      "AI_OUTPUT_INVALID",
+      !deterministic,
+      `réponse inexploitable (${finishReason})`,
+      undefined,
+      undefined,
+      "response_received",
+    );
   }
   const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
   return {

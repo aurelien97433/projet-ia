@@ -11,8 +11,9 @@ import { embeddingDeps } from "./fake-embeddings.ts";
 // réelle et RAG_MIN_SIMILARITY (0,40 par défaut, ou le secret Supabase).
 export type SearchVectorization = { deps: Partial<AiDeps> | undefined; simulated: boolean; minSimilarity: number };
 
-export function searchVectorization(): SearchVectorization {
-  const deps = embeddingDeps("semantic-search");
+// label : nom de l'appelant dans les journaux de la simulation (semantic-search ou chat).
+export function searchVectorization(label = "semantic-search"): SearchVectorization {
+  const deps = embeddingDeps(label);
   const simulated = deps !== undefined;
   return { deps, simulated, minSimilarity: ragMinSimilarity(simulated) };
 }
@@ -48,7 +49,7 @@ export type SearchResult = {
 
 export type SearchResponse = { results: SearchResult[] };
 
-function isMatchRow(value: unknown): value is MatchRow {
+export function isMatchRow(value: unknown): value is MatchRow {
   const row = value as Record<string, unknown> | null;
   return (
     typeof row === "object" &&

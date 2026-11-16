@@ -34,6 +34,20 @@ export const CHAT_MAX_PASSAGES = 8;
 export const CHAT_MAX_QUESTION_LENGTH = 2_000;
 export const PASSAGE_TITLE_MAX_LENGTH = 200;
 
+// Fonction chat (story 5.2a-2). Échéance globale de 60 s : chaque étape reçoit le temps restant, la
+// génération au plus 40 s. Au-delà de l'échéance, l'échec et la libération éventuelle sont encore
+// enregistrés, avec leur propre délai. Relais Next.js : 70 s ; maxDuration de la route : 120 s.
+export const CHAT_TIMEOUT_MS = 60_000;
+export const CHAT_GENERATION_MAX_TIMEOUT_MS = 40_000;
+export const CHAT_CLEANUP_TIMEOUT_MS = 5_000;
+// Recherche de l'Assistant (AD-9) : 8 Passages au plus (CHAT_MAX_PASSAGES), 3 par Document.
+export const CHAT_PASSAGES_PER_DOCUMENT = 3;
+// Titre d'une Conversation : la question, 120 caractères au plus (story 5.1).
+export const CHAT_TITLE_MAX_LENGTH = 120;
+// Génération : une seule nouvelle tentative, et seulement sur 429 (hors plafond) ou 5xx reçus ; jamais
+// sur une erreur réseau ou un délai dépassé après envoi, qui pourraient avoir été facturés.
+export const GENERATION_MAX_RETRIES = 1;
+
 // Nouvelles tentatives sur 429 (hors plafond) et 5xx, appels non diffusés uniquement (AD-16).
 export const AI_MAX_RETRIES = 2;
 export const AI_RETRY_BASE_DELAY_MS = 500;
