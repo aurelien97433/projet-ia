@@ -80,6 +80,13 @@ context:
 
 Ordre : mesure c1 (l'utilisateur la lance avant tout le reste du code), puis citations et `chat`, puis écran, puis test réel. Estimation : une journée. Coût réel : < 0,01 $ (mesure) + ≈ 0,09 $ (15 questions). Risques : classement de la Note finance (0,399 pour une question voisine le 16/11) ; contradiction non signalée par le modèle malgré les deux Passages (mesuré par le test réel ; aucune 2ᵉ formulation des consignes en production sans retour à l'utilisateur).
 
+## Implementation Notes
+
+**Correction des consignes après le premier test réel (2026-11-17, décision de l'utilisateur).** `test:chat:live` sur `3e2826b` : 14 sur 15, c1 #1 et #2 ne citent que la FAQ comptabilité (« 21 jours » ignoré, valeur unique dès la réponse directe), #3 cite les deux ; c1 #1 et #2 répètent aussi la réponse en liste numérotée. Formulations exactes validées par l'utilisateur, dans `CHAT_SYSTEM_PROMPT` :
+- remplace « Si deux Passages se contredisent… » : « Avant de répondre, comparez les Passages entre eux. Si plusieurs Passages donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X selon [P1], Y selon [P3]. » » ;
+- précise la règle de numérotation : « Commencez par la réponse directe. Ne répétez jamais la réponse sous forme de liste. Une liste numérotée n'est permise que pour une procédure d'au moins deux étapes distinctes, chacune apportant une action nouvelle. »
+Un seul nouveau test réel ; si c1 échoue encore : retour à l'utilisateur avec les textes, sans autre formulation.
+
 ## Verification
 
 **Commands:**
