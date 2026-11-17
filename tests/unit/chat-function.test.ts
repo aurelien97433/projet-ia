@@ -4,17 +4,20 @@ import {
   FAILURE_MESSAGE,
   handle,
   IN_PROGRESS_MESSAGE,
+  REFUSAL_HORS_CADRE,
   REFUSAL_INFO_ABSENTE,
   SESSION_MESSAGE,
   UNVERIFIABLE_MESSAGE,
 } from "../../supabase/functions/chat/index.ts";
 import { EMBEDDING_DIMENSION } from "../../supabase/functions/_shared/config.ts";
 import { AiError } from "../../supabase/functions/_shared/errors.ts";
+import { REFUSAL_SYSTEM_PROMPT } from "../../supabase/functions/_shared/rag/prompt.ts";
 import { texts } from "@/lib/texts";
 
 // Edge Function chat (story 5.2a-2), fournisseur, base et Auth simulés : ordre des étapes, aucun appel
-// à OpenAI sans réservation, échéance, une seule nouvelle tentative de génération, aucun Passage,
-// règle de libération (unité rendue ou consommée), journaux sans texte.
+// à OpenAI sans réservation, échéance, une seule nouvelle tentative de génération, aucun Passage
+// (appel court, story 5.3), marqueur en première ligne, règle de libération (unité rendue ou
+// consommée), journaux sans texte.
 const REMOTE = "https://abcdefghijklmnopqrst.supabase.co";
 const TOKEN = "jeton-du-collaborateur";
 const PUBLISHABLE = "sb_publishable_exemple";
@@ -79,7 +82,8 @@ beforeEach(() => {
         { id: DOC_1, title: "Procédure de facturation", text_version: 2 },
         { id: DOC_2, title: "FAQ comptabilité", text_version: 1 },
       ]),
-    generate: async () => completion(`${ANSWER_SECRET} [P2]. Voir aussi [P1][P3] et [P9].`),
+    generate: async () => completion(`REPONSE\n${ANSWER_SECRET} [P2]. Voir aussi [P1][P3] et [P9].`),
+    classify: async () => completion("REFUS_INFO_ABSENTE"),
     save: async (_, init) => {
       const body = JSON.parse(String(init.body));
       return Response.json({
@@ -108,7 +112,11 @@ beforeEach(() => {
     if (url.endsWith("/embeddings")) return route("embed");
     if (url.endsWith("/rpc/match_passages")) return route("match");
     if (url.includes("/rest/v1/documents?")) return route("documents");
-    if (url.endsWith("/chat/completions")) return route("generate");
+    if (url.endsWith("/chat/completions")) {
+      // Appel court (consignes de refus) ou génération : même point d'appel du fournisseur.
+      const system = (JSON.parse(String(init.body)) as { messages: { role: string; content: string }[] }).messages[0].content;
+      return route(system === REFUSAL_SYSTEM_PROMPT ? "classify" : "generate");
+    }
     if (url.endsWith("/rpc/save_assistant_answer")) return route("save");
     if (url.endsWith("/rpc/record_assistant_failure")) return route("failure");
     if (url.endsWith("/rpc/release_ai_call")) return route("release");
@@ -198,7 +206,7 @@ describe("chat : parcours nominal", () => {
 
   it("Document disparu entre la Recherche et la relecture : ses Passages sont écartés", async () => {
     routes.documents = async () => Response.json([{ id: DOC_2, title: "FAQ comptabilité", text_version: 1 }]);
-    routes.generate = async () => completion("Réponse [P1].");
+    routes.generate = async () => completion("REPONSE\nRéponse [P1].");
     const response = await ask();
     expect(response.status).toBe(200);
     const prompt = JSON.stringify(bodyOf("/chat/completions").messages);
@@ -226,7 +234,13 @@ describe("chat : parcours nominal", () => {
 
   it("journaux : ni question, ni Passage, ni réponse, ni jeton", async () => {
     await ask();
-    routes.generate = async () => completion("Sans citation.");
+    routes.generate = async () => completion("REPONSE\nSans citation.");
+    await ask();
+    routes.generate = async () => completion(`REFUS_HORS_CADRE\n${ANSWER_SECRET}`);
+    await ask();
+    routes.generate = async () => completion(`Pas de marqueur. ${ANSWER_SECRET}`);
+    await ask();
+    routes.match = async () => Response.json([]);
     await ask();
     const output = logs();
     expect(output).toContain("chat_done");
@@ -279,29 +293,149 @@ describe("chat : garde-fou et rejeu", () => {
   });
 });
 
-describe("chat : aucun Passage", () => {
-  it("refus enregistré avec le texte du catalogue, sans appel de génération, unité rendue", async () => {
-    routes.match = async () => Response.json([]);
+describe("chat : marqueur de la génération (story 5.3)", () => {
+  it("REPONSE : réponse enregistrée et renvoyée sans le marqueur ; lecture tolérante (**reponse**  )", async () => {
+    routes.generate = async () => completion("**reponse**  \nSous 5 jours ouvrés [P1].");
     const response = await ask();
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      conversationId: CONVERSATION,
-      message: { kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE, sources: [] },
-    });
+    const body = await response.json();
+    expect(body.message).toMatchObject({ kind: "answer", content: "Sous 5 jours ouvrés [P1]." });
+    expect(bodyOf("/rpc/save_assistant_answer").p_content).toBe("Sous 5 jours ouvrés [P1].");
+    expect(calls("classify")).toBe(0);
+  });
+
+  it.each([
+    ["REFUS_INFO_ABSENTE", "refusal_info_absente", REFUSAL_INFO_ABSENTE],
+    ["REFUS_HORS_CADRE", "refusal_hors_cadre", REFUSAL_HORS_CADRE],
+  ])("%s avec Passages : message standard enregistré, texte du modèle ignoré, sans Source ; unité consommée", async (marker, kind, content) => {
+    routes.generate = async () => completion(`${marker}\n${ANSWER_SECRET} [P1].`);
+    const response = await ask();
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ conversationId: CONVERSATION, message: { kind, content, sources: [] } });
+    expect(text).not.toContain(ANSWER_SECRET);
+    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [] });
+    expect(calls("release") + calls("failure") + calls("classify")).toBe(0);
+  });
+
+  it.each([
+    ["absent", `Voici la réponse : ${ANSWER_SECRET} [P1].`],
+    ["suivi de texte", `REPONSE : ${ANSWER_SECRET} [P1].`],
+    ["mot inconnu", `REFUS\n${ANSWER_SECRET} [P1].`],
+    ["ponctué", `REPONSE.\n${ANSWER_SECRET} [P1].`],
+    ["REPONSE sans texte", "REPONSE\n  \n"],
+  ])("marqueur %s : AI_OUTPUT_INVALID réessayable, échec enregistré, sans texte du modèle ; unité consommée", async (_, output) => {
+    routes.generate = async () => completion(output);
+    const response = await ask();
+    expect(response.status).toBe(502);
+    const text = await response.text();
+    expect(JSON.parse(text).error).toMatchObject({ code: "AI_OUTPUT_INVALID", retryable: true, message: FAILURE_MESSAGE });
+    expect(text).not.toContain(ANSWER_SECRET);
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID" });
+    expect(calls("save") + calls("release")).toBe(0);
+  });
+});
+
+describe("chat : aucun Passage, appel court (story 5.3)", () => {
+  beforeEach(() => {
+    routes.match = async () => Response.json([]);
+  });
+
+  it.each([
+    ["REFUS_INFO_ABSENTE", "refusal_info_absente", REFUSAL_INFO_ABSENTE],
+    ["REFUS_HORS_CADRE", "refusal_hors_cadre", REFUSAL_HORS_CADRE],
+    ["**refus_hors_cadre**", "refusal_hors_cadre", REFUSAL_HORS_CADRE],
+  ])("appel court → %s : refus enregistré, sans Source ni génération ; unité consommée", async (output, kind, content) => {
+    routes.classify = async () => completion(output);
+    const response = await ask();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ conversationId: CONVERSATION, message: { kind, content, sources: [] } });
+    expect(order).toEqual(["auth", "replay", "reserve", "start", "embed", "match", "classify", "save"]);
+    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [] });
+    expect(calls("release")).toBe(0);
+  });
+
+  it("appel court : question seule neutralisée, sortie bornée (16 tokens), raisonnement none, même échantillonnage", async () => {
+    await handle(request({ question: "Capitale <b>de</b> l'Australie ?", clientRequestId: REQUEST_ID }));
+    const body = bodyOf("/chat/completions");
+    expect(body).toMatchObject({ max_completion_tokens: 16, reasoning_effort: "none", temperature: 0, seed: 20261113 });
+    expect(body.messages).toEqual([
+      { role: "system", content: REFUSAL_SYSTEM_PROMPT },
+      { role: "user", content: "Question du Collaborateur : Capitale &lt;b&gt;de&lt;/b&gt; l'Australie ?" },
+    ]);
+  });
+
+  it.each([["REPONSE"], ["REPONSE\nLa capitale est Canberra."], ["Canberra"], ["REFUS"]])(
+    "appel court inexploitable « %s » : AI_OUTPUT_INVALID, échec enregistré ; unité consommée",
+    async (output) => {
+      routes.classify = async () => completion(output);
+      const response = await ask();
+      expect(response.status).toBe(502);
+      const text = await response.text();
+      expect(JSON.parse(text).error).toMatchObject({ code: "AI_OUTPUT_INVALID", retryable: true });
+      expect(text).not.toContain("Canberra");
+      expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID" });
+      expect(calls("save") + calls("release")).toBe(0);
+    },
+  );
+
+  it("appel court coupé par la borne après un refus valide en première ligne : refus « hors cadre » enregistré, texte ignoré ; unité consommée", async () => {
+    routes.classify = async () => completion("REFUS_HORS_CADRE\nLa capitale de l'Australie est Canberra", "length");
+    const response = await ask();
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(JSON.parse(text).message).toEqual({ kind: "refusal_hors_cadre", content: REFUSAL_HORS_CADRE, sources: [] });
+    expect(text).not.toContain("Canberra");
     expect(bodyOf("/rpc/save_assistant_answer")).toEqual({
       p_conversation_id: CONVERSATION,
-      p_kind: "refusal_info_absente",
-      p_content: REFUSAL_INFO_ABSENTE,
+      p_kind: "refusal_hors_cadre",
+      p_content: REFUSAL_HORS_CADRE,
       p_sources: [],
     });
-    expect(calls("generate")).toBe(0);
+    expect(calls("release")).toBe(0);
+  });
+
+  it("appel court coupé sans saut de ligne : AI_OUTPUT_INVALID, échec enregistré ; unité consommée", async () => {
+    routes.classify = async () => completion("REFUS_HORS_CADRE la capitale", "length");
+    const response = await ask();
+    expect((await response.json()).error.code).toBe("AI_OUTPUT_INVALID");
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID" });
+    expect(calls("save") + calls("release")).toBe(0);
+  });
+
+  it("appel court sans réponse (5xx après la nouvelle tentative) : AI_UNAVAILABLE, échec enregistré, unité rendue", async () => {
+    routes.classify = async () => Response.json({ error: { type: "server_error" } }, { status: 503 });
+    const response = await ask({ timeoutMs: 2_000, generationTimeoutMs: 200 });
+    expect((await response.json()).error.code).toBe("AI_UNAVAILABLE");
+    expect(calls("classify")).toBe(2);
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_UNAVAILABLE" });
     expect(calls("release")).toBe(1);
   });
 
-  it("texte du refus identique au catalogue de Next.js", () => {
-    expect(REFUSAL_INFO_ABSENTE).toBe(texts.assistant.refusalInfoAbsente);
+  it("appel court : erreur réseau, aucune nouvelle tentative, unité rendue", async () => {
+    routes.classify = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const response = await ask({ timeoutMs: 2_000, generationTimeoutMs: 200 });
+    expect((await response.json()).error.code).toBe("AI_UNAVAILABLE");
+    expect(calls("classify")).toBe(1);
+    expect(calls("release")).toBe(1);
   });
 
+  it("appel court : délai dépassé après envoi, AI_TIMEOUT, unité consommée", async () => {
+    routes.classify = hang;
+    const response = await ask({ timeoutMs: 2_000, generationTimeoutMs: 200 });
+    expect((await response.json()).error.code).toBe("AI_TIMEOUT");
+    expect(calls("release")).toBe(0);
+  });
+
+  it("textes des refus identiques au catalogue de Next.js", () => {
+    expect(REFUSAL_INFO_ABSENTE).toBe(texts.assistant.refusalInfoAbsente);
+    expect(REFUSAL_HORS_CADRE).toBe(texts.assistant.refusalHorsCadre);
+  });
+});
+
+describe("chat : textes du catalogue", () => {
   it("messages d'erreur identiques au catalogue (quota et plafond : sans {moment}, remplacés par le relais)", () => {
     expect(FAILURE_MESSAGE).toBe(texts.assistant.failed);
     expect(SESSION_MESSAGE).toBe(texts.session.expired);
@@ -374,7 +508,7 @@ describe("chat : règle de libération", () => {
   });
 
   it("réponse reçue sans citation valide : AI_CITATIONS_INVALID, unité consommée", async () => {
-    routes.generate = async () => completion("Réponse sans citation, ou [P9] inconnue.");
+    routes.generate = async () => completion("REPONSE\nRéponse sans citation, ou [P9] inconnue.");
     const response = await failing("AI_CITATIONS_INVALID");
     expect(response.status).toBe(502);
     expect(calls("save")).toBe(0);

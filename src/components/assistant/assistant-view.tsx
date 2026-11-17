@@ -1,10 +1,13 @@
 "use client";
 
 import { Info } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { z } from "zod";
 import { ErrorAlert } from "@/components/forms/error-alert";
+import { ADD_HREF } from "@/components/shell/nav-items";
 import { Button } from "@/components/ui/button";
 import { ERROR_CODES, type ErrorCode } from "@/lib/errors";
 import {
@@ -14,6 +17,7 @@ import {
   chatResponseSchema,
   questionIssue,
 } from "@/lib/schemas/chat";
+import { searchHref, SEARCH_PATH } from "@/lib/search-links";
 import { texts } from "@/lib/texts";
 import { ASSISTANT_FIELD_ID } from "./constants";
 
@@ -25,11 +29,12 @@ const t = texts.assistant;
 export const CHAT_CLIENT_TIMEOUT_MS = 85_000;
 
 type ChatSource = ChatResponse["message"]["sources"][number];
+type RefusalVariant = "info_absente" | "hors_cadre";
 type ChatError = { code: ErrorCode; message: string; retryable: boolean };
 type Reply =
   | { kind: "pending" }
   | { kind: "answer"; content: string; sources: ChatSource[] }
-  | { kind: "refusal"; content: string }
+  | { kind: "refusal"; variant: RefusalVariant }
   | { kind: "error"; error: ChatError };
 // Un seul échange à l'écran (décision du 2026-11-16) : une nouvelle question remplace le précédent.
 type Exchange = { id: number; question: string; reply: Reply };
@@ -56,17 +61,24 @@ const NO_RETRY_CODES: readonly ErrorCode[] = ["QUOTA_EXCEEDED", "AI_DAILY_CAP_RE
 const unavailable = (): Reply => ({ kind: "error", error: { code: "AI_UNAVAILABLE", message: t.failed, retryable: true } });
 const timedOut = (): Reply => ({ kind: "error", error: { code: "AI_TIMEOUT", message: t.failed, retryable: true } });
 
+// Refus : texte du catalogue selon la variante (identique au message standard enregistré par chat).
 function toReply(data: ChatResponse): Reply {
-  return data.message.kind === "refusal_info_absente"
-    ? { kind: "refusal", content: data.message.content }
-    : { kind: "answer", content: data.message.content, sources: data.message.sources };
+  switch (data.message.kind) {
+    case "refusal_info_absente":
+      return { kind: "refusal", variant: "info_absente" };
+    case "refusal_hors_cadre":
+      return { kind: "refusal", variant: "hors_cadre" };
+    default:
+      return { kind: "answer", content: data.message.content, sources: data.message.sources };
+  }
 }
 
 const canRetry = (error: ChatError) => error.retryable && !NO_RETRY_CODES.includes(error.code);
 
 // Page Assistant (E4, story 5.2b). Le navigateur n'appelle que POST /api/chat (jamais une Edge
 // Function ni le fournisseur d'IA). Chaque question crée sa Conversation et remplace l'échange affiché.
-// La réponse, d'un bloc, est affichée en texte brut, citations [P{n}] comprises (retirées en 5.4).
+// La réponse, d'un bloc, est affichée en texte brut, citations [P{n}] comprises (retirées en 5.4) ; un
+// refus, dans le bloc de refus (story 5.3).
 export function AssistantView() {
   const router = useRouter();
   const raw = useSearchParams().get("question");
@@ -189,6 +201,18 @@ export function AssistantView() {
     void ask(exchange.question, exchange.id);
   }
 
+  // « Reformuler la question » : la question revient dans le champ, focus et curseur à la fin.
+  function reformulate(question: string) {
+    flushSync(() => {
+      setValue(question);
+      setEmptyRefused(false);
+    });
+    const field = fieldRef.current;
+    if (!field) return;
+    field.focus();
+    field.setSelectionRange(field.value.length, field.value.length);
+  }
+
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey) return;
     // Composition en cours (IME, touches mortes) : Entrée valide la composition, rien n'est envoyé.
@@ -219,17 +243,32 @@ export function AssistantView() {
           </li>
           <li className="flex min-w-0 flex-col gap-2">
             <p className="text-sm font-semibold text-primary">{t.assistantLabel}</p>
-            {/* Région toujours rendue (jamais masquée, même vide) : l'état neutre y est annoncé, puis
-                remplacé par la réponse ou le refus, annoncés une seule fois, une fois confirmés. */}
-            <div role="status" className="min-w-0">
-              {exchange.reply.kind === "pending" ? (
-                <p data-pending className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none" />
-                  {t.pending}
-                </p>
+            {/* Cadre toujours rendu : pour un refus, il porte la bordure et le fond du bloc de refus
+                (texte et suites forment un seul bloc à l'écran). Région d'annonce toujours rendue (jamais
+                masquée, même vide) : l'état neutre y est annoncé, puis remplacé par la réponse ou le texte du
+                refus, annoncés une seule fois. Les suites du refus restent hors de la région (décision du
+                2026-11-17) : leurs libellés ne sont jamais annoncés avec le refus. */}
+            <div
+              data-refusal={exchange.reply.kind === "refusal" ? exchange.reply.variant : undefined}
+              className={exchange.reply.kind === "refusal" ? REFUSAL_FRAME : "min-w-0"}
+            >
+              <div role="status" className="min-w-0">
+                {exchange.reply.kind === "pending" ? (
+                  <p data-pending className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none" />
+                    {t.pending}
+                  </p>
+                ) : null}
+                {exchange.reply.kind === "answer" ? <Answer content={exchange.reply.content} sources={exchange.reply.sources} /> : null}
+                {exchange.reply.kind === "refusal" ? <RefusalText variant={exchange.reply.variant} /> : null}
+              </div>
+              {exchange.reply.kind === "refusal" ? (
+                <RefusalActions
+                  variant={exchange.reply.variant}
+                  question={exchange.question}
+                  onReformulate={() => reformulate(exchange.question)}
+                />
               ) : null}
-              {exchange.reply.kind === "answer" ? <Answer content={exchange.reply.content} sources={exchange.reply.sources} /> : null}
-              {exchange.reply.kind === "refusal" ? <Refusal content={exchange.reply.content} /> : null}
             </div>
             {exchange.reply.kind === "error" ? (
               <FailureAlert ref={alertRef} error={exchange.reply.error} onRetry={retry} />
@@ -319,12 +358,39 @@ function Answer({ content, sources }: { content: string; sources: ChatSource[] }
   );
 }
 
-// Refus provisoire (information absente) : bloc distinct d'une réponse, sans Source ni bouton (5.3).
-function Refusal({ content }: { content: string }) {
+// Bloc de refus (UX-DR11, story 5.3) : un seul cadre (fond, bordure), distinct d'une réponse et d'une
+// panne (jamais rouge), sans Source. Le texte (icône et phrase) est dans la région d'annonce, les suites
+// juste après, hors de la région. Information absente : trois suites ; hors cadre : « Reformuler » seul.
+const REFUSAL_FRAME = "flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-surface p-4 text-[15px] text-foreground";
+
+function RefusalText({ variant }: { variant: RefusalVariant }) {
   return (
-    <div data-refusal className="flex min-w-0 items-start gap-3 rounded-lg border border-border bg-surface p-4 text-[15px] text-foreground">
+    <div data-refusal-text className="flex min-w-0 items-start gap-3">
       <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-      <p className="min-w-0 [overflow-wrap:anywhere]">{content}</p>
+      <p className="min-w-0 [overflow-wrap:anywhere]">{variant === "info_absente" ? t.refusalInfoAbsente : t.refusalHorsCadre}</p>
+    </div>
+  );
+}
+
+type RefusalActionsProps = { variant: RefusalVariant; question: string; onReformulate: () => void };
+
+// Boutons secondaires (contour), alignés sous le texte (après l'icône).
+function RefusalActions({ variant, question, onReformulate }: RefusalActionsProps) {
+  return (
+    <div data-refusal-actions className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:pl-8">
+      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onReformulate}>
+        {t.reformulate}
+      </Button>
+      {variant === "info_absente" ? (
+        <>
+          <Button asChild variant="outline" className="w-full sm:w-auto">
+            <Link href={searchHref(question) ?? SEARCH_PATH}>{t.searchDocuments}</Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full sm:w-auto">
+            <Link href={ADD_HREF}>{t.addDocument}</Link>
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 }

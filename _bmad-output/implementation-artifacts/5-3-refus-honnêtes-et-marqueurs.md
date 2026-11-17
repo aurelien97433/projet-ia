@@ -2,9 +2,10 @@
 title: 'Story 5.3 : Refus honnêtes et marqueurs'
 type: 'feature'
 created: '2026-11-16'
-status: 'ready-for-dev'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
+baseline_commit: '9686ecf08cf0b690545c5de5e0ef00237fb2922f'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-5-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/5-2b-page-assistant.md'
@@ -77,13 +78,13 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `_shared/rag/marker.ts` + tests unitaires (3 valeurs, tolérance, absent, invalides, vide, 40 caractères).
-- [ ] `_shared/rag/prompt.ts`, `_shared/ai.ts`, `_shared/config.ts`, `_shared/fake-generation.ts` -- marqueur dans les consignes, appel court, simulation.
-- [ ] `supabase/functions/chat/index.ts` -- lecture du marqueur, refus enregistrés, appel court, quota.
-- [ ] `src/lib/schemas/chat.ts`, `src/lib/texts.ts`, `src/components/assistant/assistant-view.tsx` -- `RefusalBlock`.
-- [ ] Tests unitaires, d'intégration (refus consomme l'unité, appel court simulé) et e2e (deux variantes, boutons, focus, axe, frontière réseau).
-- [ ] `scripts/test-chat-live.ts`, `demo/questions-mini.json`, tests du script.
-- [ ] Architecture (AD-10, AD-14), PRD (FR-18), note datée dans `epics.md`.
+- [x] `_shared/rag/marker.ts` + tests unitaires (3 valeurs, tolérance, absent, invalides, vide, 40 caractères).
+- [x] `_shared/rag/prompt.ts`, `_shared/ai.ts`, `_shared/config.ts`, `_shared/fake-generation.ts` -- marqueur dans les consignes, appel court, simulation.
+- [x] `supabase/functions/chat/index.ts` -- lecture du marqueur, refus enregistrés, appel court, quota.
+- [x] `src/lib/schemas/chat.ts`, `src/lib/texts.ts`, `src/components/assistant/assistant-view.tsx` -- `RefusalBlock`.
+- [x] Tests unitaires, d'intégration (refus consomme l'unité, appel court simulé) et e2e (deux variantes, boutons, focus, axe, frontière réseau).
+- [x] `scripts/test-chat-live.ts`, `demo/questions-mini.json`, tests du script.
+- [x] Architecture (AD-10, AD-14), PRD (FR-18), note datée dans `epics.md`.
 
 **Acceptance Criteria:**
 - Given une sortie simulée avec chacun des marqueurs, when `chat` la traite, then l'issue, le `kind` enregistré et le compteur suivent le tableau ci-dessus.
@@ -93,6 +94,10 @@ context:
 ## Design Notes
 
 Ordre : marqueur et consignes, puis `chat`, puis écran, puis documents. Estimation : une journée. Coût réel : ≈ 0,07 $ (12 questions). Risque principal : marqueur mal formé par le modèle (mesuré par le test réel ; aucune 2ᵉ formulation des consignes en production sans retour à l'utilisateur).
+
+**Interprétations validées par l'utilisateur (2026-11-17) :**
+- Appel court : un `REFUS_*` valide sur la première ligne suffit ; les lignes suivantes sont ignorées (jamais affichées ni enregistrées). Une sortie coupée par la borne de 16 tokens (`finish_reason` = `length`) est acceptée si la première ligne est complète (saut de ligne présent) ; sinon `AI_OUTPUT_INVALID`. « `REPONSE` ou autre sortie → `AI_OUTPUT_INVALID` » vise la première ligne.
+- Bloc de refus : seul le texte du refus est dans la région `role="status"` ; les boutons sont hors de la région annoncée (même cadre visuel).
 
 ## Verification
 
@@ -104,3 +109,21 @@ Ordre : marqueur et consignes, puis `chat`, puis écran, puis documents. Estimat
 - « Quel est le budget marketing de NexaWorks pour 2027 ? » → bloc « information absente », 3 boutons, aucune Source ; « Reformuler » remet la question dans le champ ; « Rechercher » ouvre la Recherche avec la question.
 - « Quelle est la capitale de l'Australie ? » → bloc « hors cadre », « Reformuler » seulement.
 - q1 → réponse inchangée, sans marqueur visible.
+
+## Review Triage Log
+
+Revue du 2026-11-17 : un relecteur séparé (Edge Case Hunter, centré sur le marqueur, le quota des refus et l'accessibilité), par décision de l'utilisateur ; couches Blind Hunter et Verification Gap non lancées.
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | `marker.ts` : ligne vide, BOM ou bloc de code avant le marqueur → `AI_OUTPUT_INVALID` | false | Comportement voulu : tolérance minimale décidée par l'utilisateur le 2026-11-16 (« rien d'autre ») ; l'élargir est exclu par la spec (Never). | rejeté |
+| 2 | `marker.ts` : espace insécable ou `RÉPONSE` accentué → invalide | false | Même décision de tolérance minimale ; `RÉPONSE` refusé volontairement (test unitaire). | rejeté |
+| 3 | `ai.ts` / `chat` : appel court coupé à 16 tokens (`finish_reason` = `length`) rejeté avant la lecture du marqueur | medium | `complete()` rejette tout `finish_reason` autre que `stop` ; un refus valide suivi de texte devient une panne facturée, contraire à l'interprétation validée le 2026-11-17. | patch : corrigé (2026-11-17) |
+| 4 | `assistant-view.tsx` : boutons du bloc de refus dans la région `role="status"` | medium | Les libellés des boutons sont annoncés avec le refus ; décision de l'utilisateur du 2026-11-17 : seul le texte dans la région. | patch : corrigé (2026-11-17) |
+| 5 | « Reformuler » écrase un brouillon tapé après le refus | low | Réel mais rare (clic explicite pour retrouver la question) ; le correctif ajoute une branche. | rejeté |
+| 6 | `tooLong` après « Reformuler » | false | Le relecteur l'a trouvé traité : la valeur remplacée recalcule `tooLong`. | rejeté |
+| 7 | « Rechercher » tronque une question de plus de 500 caractères (`searchHref`) | low | Limite existante de la Recherche (`SEARCH_QUERY_MAX_LENGTH`) ; questions refusées aussi longues rares ; le correctif ajoute un message ou une branche. | rejeté |
+| 8 | Échec de `save_assistant_answer` après un refus facturé | false | Unité consommée, échec enregistré : conforme à la règle de libération. | rejeté |
+| 9 | Texte du refus affiché depuis le catalogue, pas depuis la réponse serveur | false | Test d'égalité des constantes `chat` / `texts.ts` (`chat-function.test.ts`, « textes des refus identiques au catalogue »). | rejeté |
+| 10 | Matrice « Rechercher → `/recherche?q={question}` » non tenue pour une question longue | low | Même cause que 7. | rejeté |
+| 11 | Matrice « appel court → `REFUS_*` » non tenue si la sortie est coupée | medium | Même cause que 3. | patch (avec 3) : corrigé |

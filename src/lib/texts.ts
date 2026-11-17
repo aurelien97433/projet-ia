@@ -242,6 +242,12 @@ export const texts = {
     // « Information absente » : texte enregistré par chat (supabase/functions/chat, test d'égalité).
     refusalInfoAbsente:
       "Je n'ai pas trouvé cette information dans la Base commune de NexaWorks. Je préfère ne pas répondre plutôt que d'inventer.",
+    // « Hors cadre » (story 5.3) : texte enregistré par chat (test d'égalité).
+    refusalHorsCadre: "Je réponds uniquement à partir des Documents de NexaWorks.",
+    // Suites du bloc de refus (UX-DR11, EXPERIENCE.md, « Bloc de refus ») ; hors cadre : « Reformuler » seul.
+    reformulate: "Reformuler la question",
+    searchDocuments: "Rechercher dans les Documents",
+    addDocument: "Ajouter un Document",
     failedTitle: "La réponse n'a pas pu être générée.",
     failed: "Le service d'IA ne répond pas pour le moment. Votre question est conservée.",
     unverifiable: "Je n'ai pas pu vérifier cette réponse à partir des Documents. Veuillez réessayer.",

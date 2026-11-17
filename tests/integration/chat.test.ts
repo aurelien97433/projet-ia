@@ -1,7 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type Account, type SeedConfig, seedMini } from "../../scripts/seed-demo";
-import { FAKE_NO_CITATION_MARKER } from "../../supabase/functions/_shared/fake-generation.ts";
+import { REFUSAL_HORS_CADRE, REFUSAL_INFO_ABSENTE } from "../../supabase/functions/chat/index.ts";
+import {
+  FAKE_HORS_CADRE_MARKER,
+  FAKE_IGNORED_TEXT,
+  FAKE_INFO_ABSENTE_MARKER,
+  FAKE_INVALID_MARKER,
+  FAKE_NO_CITATION_MARKER,
+} from "../../supabase/functions/_shared/fake-generation.ts";
 import { localProcessSecret, localSqlRows, localSupabase, uniqueEmail } from "../support/local-supabase";
 
 // Garde-fou du crédit d'IA et fonction chat (story 5.2a-2) sur Supabase local, avec la vectorisation et
@@ -332,13 +339,62 @@ describe("fonction chat (vectorisation et génération simulées)", () => {
     expect(failure).toEqual({ kind: "failure", content: null, error_code: "AI_CITATIONS_INVALID" });
   });
 
-  it("question hors base : refus enregistré, sans Source, unité rendue", async () => {
+  // Story 5.3 : tout refus consomme l'unité, appel court compris (décision du 2026-11-16).
+  async function lastAnswer(conversationId: string) {
+    const { data } = await measure.client
+      .from("messages")
+      .select("id, kind, content, error_code")
+      .eq("conversation_id", conversationId)
+      .neq("kind", "question")
+      .single();
+    const { data: sources } = await measure.client.from("message_sources").select("id").eq("message_id", data!.id);
+    return { kind: data!.kind, content: data!.content, error_code: data!.error_code, sources: sources!.length };
+  }
+
+  it("question hors base : appel court simulé → refus « information absente » enregistré, sans Source ; unité consommée", async () => {
     const before = { user: (await userCount(measure)), global: globalCount() };
     const { status, body } = await chat(measure, "xyzzy plugh quux frobnicate");
     expect(status).toBe(200);
-    expect(body.message).toMatchObject({ kind: "refusal_info_absente", sources: [] });
-    expect((await userCount(measure))).toBe(before.user);
-    expect(globalCount()).toBe(before.global);
+    expect(body.message).toEqual({ kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE, sources: [] });
+    expect(await lastAnswer(body.conversationId)).toEqual({ kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE, error_code: null, sources: 0 });
+    expect((await userCount(measure))).toBe(before.user + 1);
+    expect(globalCount()).toBe(before.global + 1);
+  });
+
+  it("question hors base avec le repère hors cadre : appel court simulé → refus « hors cadre » ; unité consommée", async () => {
+    const before = await userCount(measure);
+    const { status, body } = await chat(measure, `xyzzy plugh quux ${FAKE_HORS_CADRE_MARKER}`);
+    expect(status).toBe(200);
+    expect(body.message).toEqual({ kind: "refusal_hors_cadre", content: REFUSAL_HORS_CADRE, sources: [] });
+    expect(await lastAnswer(body.conversationId)).toEqual({ kind: "refusal_hors_cadre", content: REFUSAL_HORS_CADRE, error_code: null, sources: 0 });
+    expect(await userCount(measure)).toBe(before + 1);
+  });
+
+  it("refus « information absente » avec Passages : message standard, texte du modèle ignoré ; unité consommée", async () => {
+    const before = await userCount(measure);
+    const { status, body } = await chat(measure, `Combien de jours de congés payés par an ? ${FAKE_INFO_ABSENTE_MARKER}`);
+    expect(status).toBe(200);
+    expect(body.message).toEqual({ kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE, sources: [] });
+    expect(JSON.stringify(body)).not.toContain(FAKE_IGNORED_TEXT);
+    expect((await lastAnswer(body.conversationId)).content).toBe(REFUSAL_INFO_ABSENTE);
+    expect(await userCount(measure)).toBe(before + 1);
+  });
+
+  it("marqueur invalide (génération puis appel court) : AI_OUTPUT_INVALID, échec enregistré ; unité consommée", async () => {
+    for (const question of [`Combien de jours de congés payés par an ? ${FAKE_INVALID_MARKER}`, `xyzzy plugh ${FAKE_INVALID_MARKER}`]) {
+      const before = await userCount(measure);
+      const { status, body } = await chat(measure, question);
+      expect(status).toBe(502);
+      expect(body.error).toMatchObject({ code: "AI_OUTPUT_INVALID", retryable: true });
+      expect(await userCount(measure)).toBe(before + 1);
+    }
+  });
+
+  it("réponse : enregistrée sans le marqueur", async () => {
+    const { body } = await chat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?");
+    expect(body.message.kind).toBe("answer");
+    expect(body.message.content).not.toMatch(/REPONSE/);
+    expect((await lastAnswer(body.conversationId)).content).toBe(body.message.content);
   });
 
   it("quota personnel atteint : 429 QUOTA_EXCEEDED avec resetAt, aucune Conversation", async () => {

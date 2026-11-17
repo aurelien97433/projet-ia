@@ -157,6 +157,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 
 ### AD-10 — Marqueur interne à trois valeurs `[ADOPTED]`
 - **Règle (Rule) :** la sortie du modèle commence par `REPONSE`, `REFUS_INFO_ABSENTE` ou `REFUS_HORS_CADRE`, seul sur la première ligne. La fonction `chat` **met en mémoire tampon** le début de la sortie, jusqu'au premier saut de ligne ou 40 caractères au plus, et n'envoie rien au navigateur avant d'avoir reconnu le marqueur. Elle le retire et ne l'affiche ni ne le stocke. `REPONSE` : diffusion progressive du texte. Refus : le texte du modèle est ignoré et le message standard correspondant est envoyé en un bloc, sans Source. Marqueur absent ou invalide : panne (`AI_OUTPUT_INVALID`). Une contradiction entre Passages reste une `REPONSE`, signalée dans le texte. Si aucun Passage ne dépasse le seuil, un appel court (sortie limitée au marqueur) départage les deux refus.
+  - **Lecture du marqueur (décision de l'utilisateur du 2026-11-16, story 5.3) :** tolérance minimale : espaces autour, casse, astérisques de mise en gras (`*`, `**`) autour du mot ; rien d'autre (texte sur la même ligne, ponctuation, autre mot : invalide). Première ligne de 40 caractères au plus (`MARKER_MAX_LENGTH`, `_shared/rag/marker.ts`, lecteur pur réutilisé par la diffusion en 5.5). `REPONSE` suivi d'un texte vide : `AI_OUTPUT_INVALID`. Appel court : `REPONSE` ou toute autre sortie que l'un des deux refus : `AI_OUTPUT_INVALID`.
 - **Raison — ce qu'on évite (Prevents) :** un refus ne s'écrit jamais progressivement (X12), et FR-18 distingue l'information absente du hors cadre.
 - **Écarté :** marqueur à deux valeurs ; note de contradiction dédiée.
 - **Risque restant :** le premier affichage attend le marqueur, ce qui pèse un peu sur le délai de 5 s (NFR-3).
@@ -221,9 +222,9 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 | Issue | Quota |
 |---|---|
 | Réponse validée (`REPONSE`, au moins une citation valide) | 1 |
-| Refus `REFUS_INFO_ABSENTE` ou `REFUS_HORS_CADRE`, y compris par l'appel court sans Passage | 1 |
-| `AI_CITATIONS_INVALID`, `AI_OUTPUT_INVALID` (sortie tronquée, filtrée, refus du modèle), `AI_TIMEOUT` après envoi de la génération : réponse reçue ou peut-être facturée (décision du 2026-11-16, story 5.2a-2) | 1 |
-| `AI_UNAVAILABLE` sans réponse reçue (réseau, 5xx), `AI_BUDGET_EXHAUSTED`, panne avant la génération, aucun Passage (refus sans appel, 5.2a-2) | 0 (unité rendue par `release_ai_call`) |
+| Refus `REFUS_INFO_ABSENTE` ou `REFUS_HORS_CADRE`, y compris par l'appel court sans Passage (appel facturé ; décision de l'utilisateur du 2026-11-16, story 5.3 : le refus sans appel de la 5.2a-2, unité rendue, disparaît) | 1 |
+| `AI_CITATIONS_INVALID`, `AI_OUTPUT_INVALID` (sortie tronquée, filtrée, refus du modèle, marqueur absent ou invalide, appel court inexploitable), `AI_TIMEOUT` après envoi de la génération ou de l'appel court : réponse reçue ou peut-être facturée (décisions du 2026-11-16, stories 5.2a-2 et 5.3) | 1 |
+| `AI_UNAVAILABLE` sans réponse reçue (réseau, 5xx) de la génération ou de l'appel court, `AI_BUDGET_EXHAUSTED`, panne avant la génération ou l'appel court | 0 (unité rendue par `release_ai_call`) |
 | `AI_DAILY_CAP_REACHED` (plafond global du projet, `ai_limits`, story 5.2a-2) | 0 (aucune réservation) |
 | `QUOTA_EXCEEDED`, `VALIDATION_FAILED`, `REQUEST_IN_PROGRESS`, réponse rejouée (même `client_request_id`) | 0 (aucune réservation) |
 | Réessai après échec | 1 si le réessai aboutit (réponse ou refus), sinon 0 |

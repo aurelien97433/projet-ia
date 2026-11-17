@@ -18,6 +18,9 @@
     { "id": "h2", "question": "Combien de jours de télétravail sont autorisés par semaine ?", "absentTerm": "télétravail" },
     { "id": "h3", "question": "Quelle est la prise en charge de la mutuelle ?", "absentTerm": "mutuelle" }
   ],
+  "outOfScope": [
+    { "id": "o1", "question": "Quelle est la capitale de l'Australie ?", "absentTerm": "Australie" }
+  ],
   "searchQueries": [
     { "id": "r1", "query": "émettre une facture après livraison", "expectedDocument": "procedure-facturation", "expectedTerm": "livraison" },
     { "id": "r2", "query": "remboursement des notes de frais", "expectedDocument": "faq-comptabilite", "expectedTerm": "notes de frais" },

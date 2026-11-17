@@ -287,7 +287,8 @@ Quand la Base commune ne contient pas l'information demandée, l'Assistant le di
 **Critères vérifiables :**
 - Pour une question dont la réponse ne figure dans aucun Document, l'Assistant répond qu'il ne trouve pas l'information dans la Base commune, sans fournir de réponse inventée ni de Source. Taux de réussite évalué sur le Jeu de démonstration via SM-2 (au moins 9 questions sur 10).
 - Pour une question hors du cadre de l'entreprise (culture générale, demande personnelle), l'Assistant indique qu'il répond uniquement à partir des Documents de NexaWorks.
-- Un refus s'affiche d'un seul bloc, jamais rédigé progressivement, et se distingue d'une panne technique : une panne affiche un message d'erreur avec « Réessayer » et ne décompte pas le quota (AD-10).
+- Un refus s'affiche d'un seul bloc, jamais rédigé progressivement, et se distingue d'une panne technique : une panne affiche un message d'erreur avec « Réessayer » ; une panne sans réponse du fournisseur ne décompte pas le quota ; une sortie inexploitable ou un délai dépassé après envoi le décomptent (décision du 2026-11-16) (AD-10, AD-14).
+  *Note du 2026-11-17 (story 5.3) : critère précisé ; il disait « une panne… ne décompte pas le quota ». La règle de libération (AD-14) rend l'unité seulement si aucun appel facturable n'a abouti.*
 
 #### FR-19 : Poser des questions de suivi
 

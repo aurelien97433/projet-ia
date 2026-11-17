@@ -176,20 +176,73 @@ describe("envoi", () => {
     expect(chips[1].getAttribute("data-deleted")).toBe("true");
   });
 
-  it("refus provisoire : texte du refus seul, bloc distinct, sans zone Sources ni bouton ; focus dans le champ", async () => {
+  it("refus « information absente » (story 5.3) : bloc distinct, texte du catalogue, trois suites, sans zone Sources ; focus dans le champ", async () => {
     fetchMock().mockResolvedValue(refusal());
     render(<AssistantView />);
     field().focus();
-    await ask("recette du gâteau au chocolat");
+    await ask("Quel est le budget marketing de NexaWorks pour 2027 ?");
     const status = screen.getByRole("status");
-    const block = status.querySelector("[data-refusal]");
-    expect(block?.textContent).toBe(t.refusalInfoAbsente);
-    expect(block?.querySelector("svg")).not.toBeNull();
+    const block = document.querySelector<HTMLElement>("[data-refusal]")!;
+    expect(block.getAttribute("data-refusal")).toBe("info_absente");
+    // Un seul bloc à l'écran ; seul le texte (icône et phrase) est dans la région d'annonce, les suites
+    // sont hors de la région (décision du 2026-11-17).
+    expect(block.contains(status)).toBe(true);
+    expect(status.textContent).toBe(t.refusalInfoAbsente);
+    expect(status.querySelector("svg")).not.toBeNull();
+    expect(within(status).queryByRole("button")).toBeNull();
+    expect(within(status).queryByRole("link")).toBeNull();
+    expect(status.contains(block.querySelector("[data-refusal-actions]"))).toBe(false);
     expect(status.querySelector("[data-answer]")).toBeNull();
     expect(within(status).queryByRole("list", { name: t.sourcesLabel })).toBeNull();
-    expect(within(status).queryByRole("button")).toBeNull();
+    expect(within(block).getByRole("button", { name: t.reformulate })).toBeTruthy();
+    expect(within(block).getByRole("link", { name: t.searchDocuments }).getAttribute("href")).toBe(
+      `/recherche?${new URLSearchParams({ q: "Quel est le budget marketing de NexaWorks pour 2027 ?" })}`,
+    );
+    expect(within(block).getByRole("link", { name: t.addDocument }).getAttribute("href")).toBe("/ajouter");
+    expect(within(block).getAllByRole("button")).toHaveLength(1);
+    expect(within(block).getAllByRole("link")).toHaveLength(2);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.activeElement).toBe(field());
+  });
+
+  it("refus « hors cadre » (story 5.3) : texte du catalogue et « Reformuler la question » seulement", async () => {
+    fetchMock().mockResolvedValue(
+      json({ conversationId: CONVERSATION, message: { kind: "refusal_hors_cadre", content: t.refusalHorsCadre, sources: [] } }),
+    );
+    render(<AssistantView />);
+    await ask("Quelle est la capitale de l'Australie ?");
+    const block = document.querySelector<HTMLElement>("[data-refusal]")!;
+    expect(block.getAttribute("data-refusal")).toBe("hors_cadre");
+    expect(screen.getByRole("status").textContent).toBe(t.refusalHorsCadre);
+    expect(within(screen.getByRole("status")).queryByRole("button")).toBeNull();
+    expect(t.refusalHorsCadre).toBe("Je réponds uniquement à partir des Documents de NexaWorks.");
+    expect(within(block).getAllByRole("button").map((button) => button.textContent)).toEqual([t.reformulate]);
+    expect(within(block).queryByRole("link")).toBeNull();
+    expect(screen.getByRole("status").querySelector("[data-answer]")).toBeNull();
+  });
+
+  it("« Reformuler la question » : la question revient dans le champ, focus, curseur à la fin ; aucun envoi", async () => {
+    fetchMock().mockResolvedValue(refusal());
+    render(<AssistantView />);
+    await ask("  Quel est le budget marketing ?  ");
+    type("brouillon");
+    const block = document.querySelector<HTMLElement>("[data-refusal]")!;
+    const button = within(block).getByRole("button", { name: t.reformulate });
+    button.focus();
+    fireEvent.click(button);
+    expect(field().value).toBe("Quel est le budget marketing ?");
+    expect(document.activeElement).toBe(field());
+    expect(field().selectionStart).toBe("Quel est le budget marketing ?".length);
+    expect(field().selectionEnd).toBe("Quel est le budget marketing ?".length);
+    expect(fetchMock()).toHaveBeenCalledTimes(1);
+  });
+
+  it("libellés des suites du refus (EXPERIENCE.md, UX-DR11)", () => {
+    expect([t.reformulate, t.searchDocuments, t.addDocument]).toEqual([
+      "Reformuler la question",
+      "Rechercher dans les Documents",
+      "Ajouter un Document",
+    ]);
   });
 
   it("seconde question : l'échange précédent disparaît de l'écran, nouveau clientRequestId", async () => {

@@ -5,12 +5,13 @@
 //
 // Ordre : validation ; rejeu (même clientRequestId, avant toute réservation) ; réservation du quota
 // du Compte et du plafond global (avant tout appel à OpenAI) ; Conversation et question ;
-// vectorisation, match_passages, relecture des Documents ; aucun Passage → refus enregistré sans
-// appel ; consignes et génération ; citations ; enregistrement atomique. Tout échec après la
-// réservation est enregistré (kind = failure). L'unité n'est rendue que si aucun appel facturable
-// n'a abouti (règle de libération du 2026-11-13). Aucun texte de question, de Passage ni de réponse
-// n'est journalisé.
-import { type AiDeps, embed, generateAnswer } from "../_shared/ai.ts";
+// vectorisation, match_passages, relecture des Documents ; aucun Passage → appel court qui départage
+// les deux refus (story 5.3) ; sinon consignes et génération, marqueur en première ligne (AD-10) ;
+// citations ; enregistrement atomique. Un refus enregistre le message standard du catalogue, jamais
+// le texte du modèle. Tout échec après la réservation est enregistré (kind = failure). L'unité n'est
+// rendue que si aucun appel facturable n'a abouti (règle de libération du 2026-11-13, appel court
+// compris : décision du 2026-11-16). Aucun texte de question, de Passage ni de réponse n'est journalisé.
+import { type AiDeps, classifyRefusal, embed, generateAnswer, type GenerationResult } from "../_shared/ai.ts";
 import {
   type GenerationState,
   conversationTitle,
@@ -35,7 +36,8 @@ import {
 import { AiError, type ErrorCode, errorResponse, logEvent, logInfo } from "../_shared/errors.ts";
 import { generationDeps } from "../_shared/fake-generation.ts";
 import { readCitations } from "../_shared/rag/citations.ts";
-import { buildChatMessages } from "../_shared/rag/prompt.ts";
+import { type Marker, readMarker } from "../_shared/rag/marker.ts";
+import { buildChatMessages, buildRefusalMessages, type ChatMessage } from "../_shared/rag/prompt.ts";
 import { isMatchRow, type MatchRow, searchVectorization } from "../_shared/search.ts";
 
 // Textes du catalogue (src/lib/texts.ts) : les Edge Functions n'importent rien de src/. Le relais
@@ -49,9 +51,22 @@ export const BUDGET_MESSAGE = "Le service d'IA est momentanément indisponible. 
 export const QUOTA_MESSAGE = "Vous avez atteint votre limite quotidienne de questions et de Résumés. La Recherche reste disponible.";
 export const CAP_MESSAGE = "L'Assistant a atteint sa limite d'utilisation pour aujourd'hui. La Recherche reste disponible.";
 export const IN_PROGRESS_MESSAGE = "Cette question est déjà en cours de traitement.";
-// EXPERIENCE.md, « Information absente » : texte enregistré comme refus (sans appel à OpenAI).
+// EXPERIENCE.md, « Information absente » et « Hors cadre » : messages standard enregistrés pour un
+// refus (story 5.3), à la place du texte du modèle.
 export const REFUSAL_INFO_ABSENTE =
   "Je n'ai pas trouvé cette information dans la Base commune de NexaWorks. Je préfère ne pas répondre plutôt que d'inventer.";
+export const REFUSAL_HORS_CADRE = "Je réponds uniquement à partir des Documents de NexaWorks.";
+
+type RefusalKind = "refusal_info_absente" | "refusal_hors_cadre";
+const REFUSALS: Record<Exclude<Marker, "REPONSE">, { kind: RefusalKind; content: string }> = {
+  REFUS_INFO_ABSENTE: { kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE },
+  REFUS_HORS_CADRE: { kind: "refusal_hors_cadre", content: REFUSAL_HORS_CADRE },
+};
+
+// Sortie reçue sans marqueur valide (ou marqueur inattendu) : facturée, unité consommée ; réessayable.
+function invalidOutput(reason: string): AiError {
+  return new AiError("AI_OUTPUT_INVALID", true, reason, undefined, undefined, "response_received");
+}
 
 // Échec hors IA, avec le code AD-19 et le statut à renvoyer. La cause va aux journaux seulement ;
 // pgCode : code Postgres renvoyé par l'API (ex. 23505), jamais son message.
@@ -342,55 +357,83 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     const documents = await within(readDocuments(target, [...new Set(rows.map((row) => row.document_id))], signal));
     const passages = retainPassages(rows, documents);
 
-    if (passages.length === 0) {
-      // Aucun Passage : refus enregistré, sans appel à OpenAI ; l'unité est rendue (aucun appel
-      // facturable). L'appel court qui départage les deux refus arrive en 5.3.
+    const fakeGeneration = generationDeps();
+    const generateStarted = Date.now();
+
+    // Appel au modèle (génération ou appel court, même règle de libération) : seul un appel sans
+    // aucune réponse reçue (réseau, 5xx, refus, plafond), hors délai commun dépassé, laisse l'unité
+    // rendable ; délai après envoi et réponse reçue la consomment. Une AiError sans issue a été levée
+    // avant tout envoi (ex. clé absente) ; celle du délai commun (signal abandonné) reste « billed ».
+    const callModel = async (call: typeof generateAnswer, messages: ChatMessage[]): Promise<GenerationResult> => {
+      generation = "billed";
+      try {
+        return await within(
+          call(messages, { deps: withSignal(fakeGeneration, signal), timeoutMs: Math.min(generationMaxMs, remaining()) }),
+        );
+      } catch (error) {
+        if (error instanceof AiError && (error.outcome === "no_response" || error.outcome === undefined) && !signal.aborted) {
+          generation = "no_response";
+        }
+        throw error;
+      }
+    };
+
+    // Refus : message standard du catalogue enregistré, sans Source ; le texte du modèle est ignoré
+    // (jamais affiché ni enregistré). Appel facturé : unité consommée (décision du 2026-11-16).
+    const refuse = async (marker: Exclude<Marker, "REPONSE">, generated: GenerationResult): Promise<Response> => {
+      const { kind, content } = REFUSALS[marker];
       stage = "refusal";
       await within(
-        rpc(
-          target,
-          "save_assistant_answer",
-          { p_conversation_id: conversationId, p_kind: "refusal_info_absente", p_content: REFUSAL_INFO_ABSENTE, p_sources: [] },
-          signal,
-        ),
+        rpc(target, "save_assistant_answer", { p_conversation_id: conversationId, p_kind: kind, p_content: content, p_sources: [] }, signal),
       );
-      const released = await release();
       logInfo("chat_done", {
-        kind: "refusal_info_absente",
-        passages: 0,
+        kind,
+        passages: passages.length,
         simulated: vectorization.simulated,
-        released,
+        generation_simulated: fakeGeneration !== undefined,
+        model: generated.model,
+        input_tokens: generated.usage.inputTokens,
+        output_tokens: generated.usage.outputTokens,
+        generate_ms: Date.now() - generateStarted,
         duration_ms: Date.now() - started,
       });
-      return json({ conversationId, message: { kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE, sources: [] } });
+      return json({ conversationId, message: { kind, content, sources: [] } });
+    };
+
+    if (passages.length === 0) {
+      // Aucun Passage au-dessus du seuil : appel court, sortie bornée au marqueur, qui départage
+      // information absente et hors cadre (FR-18). REPONSE ou toute autre sortie : AI_OUTPUT_INVALID.
+      stage = "classify";
+      const classified = await callModel(classifyRefusal, buildRefusalMessages(input.question));
+      const marking = readMarker(classified.text);
+      if (!marking || marking.marker === "REPONSE") {
+        logEvent("chat_marker_invalid", { stage, marker: marking?.marker });
+        throw invalidOutput("marqueur de l'appel court invalide");
+      }
+      return await refuse(marking.marker, classified);
     }
 
     stage = "generate";
     const messages = buildChatMessages({ question: input.question, passages: passages.map((passage) => passage.chat) });
-    const fakeGeneration = generationDeps();
-    const generateStarted = Date.now();
-    generation = "billed";
-    let generated: Awaited<ReturnType<typeof generateAnswer>>;
-    try {
-      generated = await within(
-        generateAnswer(messages, {
-          deps: withSignal(fakeGeneration, signal),
-          timeoutMs: Math.min(generationMaxMs, remaining()),
-        }),
-      );
-    } catch (error) {
-      // Seule une génération sans aucune réponse reçue (réseau, 5xx, refus, plafond), hors délai
-      // commun dépassé, laisse l'unité rendable ; délai après envoi et réponse reçue la consomment.
-      // Une AiError sans issue a été levée avant tout envoi (ex. clé absente) ; celle du délai commun
-      // (signal abandonné) reste « billed ».
-      if (error instanceof AiError && (error.outcome === "no_response" || error.outcome === undefined) && !signal.aborted) {
-        generation = "no_response";
-      }
-      throw error;
+    const generated = await callModel(generateAnswer, messages);
+
+    // Marqueur en première ligne (AD-10) : absent ou invalide → AI_OUTPUT_INVALID, sans texte du
+    // modèle ; refus → message standard ; REPONSE → le texte qui suit, sans le marqueur.
+    stage = "marker";
+    const marking = readMarker(generated.text);
+    if (!marking) {
+      logEvent("chat_marker_invalid", { stage });
+      throw invalidOutput("marqueur absent ou invalide");
+    }
+    if (marking.marker !== "REPONSE") return await refuse(marking.marker, generated);
+    const answer = marking.rest.trim();
+    if (answer === "") {
+      logEvent("chat_marker_invalid", { stage, marker: marking.marker, empty: true });
+      throw invalidOutput("réponse vide après le marqueur");
     }
 
     stage = "citations";
-    const reading = readCitations(generated.text, passages.map((passage) => passage.chat));
+    const reading = readCitations(answer, passages.map((passage) => passage.chat));
     if (reading.cited.length === 0) {
       // Génération reçue et facturée : unité consommée (retrait des citations invalides : 5.4).
       logEvent("chat_citations_invalid", { unknown: reading.unknown.length });
@@ -407,7 +450,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
         {
           p_conversation_id: conversationId,
           p_kind: "answer",
-          p_content: generated.text,
+          p_content: answer,
           p_sources: sources.map(({ document_id, document_title, text_version, passages }) => ({
             document_id,
             document_title,
@@ -441,7 +484,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       conversationId,
       message: {
         kind: "answer",
-        content: generated.text,
+        content: answer,
         sources: sources.map((source, index) => ({
           // Null si le Document a été supprimé entre la Recherche et l'enregistrement (FR-12).
           documentId: typeof savedSources[index].document_id === "string" ? savedSources[index].document_id : null,

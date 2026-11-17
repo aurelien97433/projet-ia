@@ -4,7 +4,17 @@ import { formatResetMoment } from "@/lib/reset-moment";
 import { CHAT_MAX_QUESTION_LENGTH } from "@/lib/schemas/chat";
 import { texts } from "@/lib/texts";
 import { CHAT_MAX_QUESTION_LENGTH as FUNCTION_MAX_QUESTION_LENGTH } from "../../supabase/functions/_shared/config.ts";
-import { FAKE_NO_CITATION_MARKER, fakeAnswer, generationDeps } from "../../supabase/functions/_shared/fake-generation.ts";
+import {
+  FAKE_HORS_CADRE_MARKER,
+  FAKE_IGNORED_TEXT,
+  FAKE_INFO_ABSENTE_MARKER,
+  FAKE_INVALID_MARKER,
+  FAKE_NO_CITATION_MARKER,
+  fakeAnswer,
+  fakeRefusal,
+  generationDeps,
+} from "../../supabase/functions/_shared/fake-generation.ts";
+import { readMarker } from "../../supabase/functions/_shared/rag/marker.ts";
 
 // POST /api/chat et relais vers chat (story 5.2a-2) : session vérifiée, demande revalidée, jeton de la
 // session transmis, codes AD-19 relayés avec le texte du catalogue et resetAt, réponse relue.
@@ -151,6 +161,14 @@ describe("relayChat", () => {
     expect(result.status).toBe(200);
   });
 
+  it("refus hors cadre (story 5.3) : kind accepté par le schéma et relayé", async () => {
+    const message = { kind: "refusal_hors_cadre", content: texts.assistant.refusalHorsCadre, sources: [] };
+    fetchMock.mockResolvedValue(Response.json({ conversationId: CONVERSATION, message }));
+    const result = await relayChat(request, TOKEN, undefined, TARGET);
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ message });
+  });
+
   it("quota atteint : 429 QUOTA_EXCEEDED, resetAt et texte du catalogue", async () => {
     fetchMock.mockResolvedValue(
       Response.json({ error: { code: "QUOTA_EXCEEDED", message: "x", retryable: false, resetAt: "2026-11-17T00:00:00.000Z" } }, { status: 429 }),
@@ -273,6 +291,20 @@ describe("génération simulée (pile locale)", () => {
     expect(fakeAnswer(one)).toContain("[P1]");
     expect(fakeAnswer(two)).toContain("[P2]");
     expect(fakeAnswer(`${two} ${FAKE_NO_CITATION_MARKER}`)).not.toMatch(/\[P\d\]/);
+  });
+
+  it("story 5.3 : marqueur en première ligne ; repères pour les deux refus et le marqueur invalide", () => {
+    const one = '<passage id="P1" document="A">x</passage>';
+    expect(readMarker(fakeAnswer(one))).toEqual({ marker: "REPONSE", rest: "Réponse simulée à partir des Documents [P1]." });
+    expect(readMarker(fakeAnswer(`${one} ${FAKE_INFO_ABSENTE_MARKER}`))).toEqual({ marker: "REFUS_INFO_ABSENTE", rest: FAKE_IGNORED_TEXT });
+    expect(readMarker(fakeAnswer(`${one} ${FAKE_HORS_CADRE_MARKER}`))?.marker).toBe("REFUS_HORS_CADRE");
+    expect(readMarker(fakeAnswer(`${one} ${FAKE_INVALID_MARKER}`))).toBeNull();
+  });
+
+  it("appel court simulé : hors cadre avec le repère, sinon information absente ; REPONSE avec le repère invalide", () => {
+    expect(fakeRefusal("Question du Collaborateur : budget 2027 ?")).toBe("REFUS_INFO_ABSENTE");
+    expect(fakeRefusal(`Question du Collaborateur : capitale ? ${FAKE_HORS_CADRE_MARKER}`)).toBe("REFUS_HORS_CADRE");
+    expect(fakeRefusal(`Question ${FAKE_INVALID_MARKER}`)).toBe("REPONSE");
   });
 
   it("rejetée hors de la pile locale", () => {

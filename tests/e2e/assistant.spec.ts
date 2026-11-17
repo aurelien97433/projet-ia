@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Page, Request } from "@playwright/test";
 import { EMBEDDING_MODEL, EMBEDDING_VERSION } from "../../supabase/functions/_shared/config.ts";
 import { fakeVector } from "../../supabase/functions/_shared/fake-embeddings.ts";
+import { FAKE_HORS_CADRE_MARKER, FAKE_INVALID_MARKER } from "../../supabase/functions/_shared/fake-generation.ts";
 import { texts } from "../../src/lib/texts";
 import { expect, isDesktop, test, type Account } from "../support/e2e-auth";
 import { localSupabase } from "../support/local-supabase";
@@ -159,12 +160,19 @@ test("hors base : bloc de refus distinct, sans zone Sources ; une seconde questi
   await field(page).fill(question);
   await field(page).press("Enter");
 
-  const refusal = answerStatus(page).locator("[data-refusal]");
-  await expect(refusal).toHaveText(t.refusalInfoAbsente);
-  await expect(refusal.locator("svg")).toHaveCount(1);
+  // Appel court simulé : information absente (story 5.3), bloc d'un seul tenant avec trois suites.
+  // Un seul bloc ; la région d'annonce ne contient que le texte du refus, sans bouton ni lien
+  // (décision du 2026-11-17).
+  const refusal = thread(page).locator('[data-refusal="info_absente"]');
+  await expect(answerStatus(page)).toHaveText(t.refusalInfoAbsente);
+  await expect(answerStatus(page).locator("svg")).toHaveCount(1);
+  await expect(answerStatus(page).getByRole("button")).toHaveCount(0);
+  await expect(answerStatus(page).getByRole("link")).toHaveCount(0);
+  await expect(refusal.locator('[role="status"]')).toHaveCount(1);
   await expect(answerStatus(page).locator("[data-answer]")).toHaveCount(0);
   await expect(page.getByRole("list", { name: t.sourcesLabel })).toHaveCount(0);
-  await expect(answerStatus(page).getByRole("button")).toHaveCount(0);
+  await expect(refusal.getByRole("button")).toHaveText([t.reformulate]);
+  await expect(refusal.getByRole("link")).toHaveText([t.searchDocuments, t.addDocument]);
   await expect(thread(page).getByRole("alert")).toHaveCount(0);
   await expect(field(page)).toBeFocused();
   // Bloc visuellement distinct d'une réponse : bordure et fond propres.
@@ -174,6 +182,8 @@ test("hors base : bloc de refus distinct, sans zone Sources ; une seconde questi
   });
   expect(style.border).not.toBe("0px");
   expect(style.background).not.toBe("rgba(0, 0, 0, 0)");
+  const results = await new AxeBuilder({ page }).exclude("nextjs-portal").analyze();
+  expect(results.violations.map((v) => `${v.id} : ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 
   // Seconde question : seul le nouvel échange est affiché.
   await field(page).fill(seeded.question);
@@ -187,6 +197,77 @@ test("hors base : bloc de refus distinct, sans zone Sources ; une seconde questi
   const ids = chatCalls(requests).map((request) => (request.postDataJSON() as { clientRequestId: string }).clientRequestId);
   expect(ids).toHaveLength(2);
   expect(new Set(ids).size).toBe(2);
+  expectBoundary(requests);
+});
+
+test("refus « information absente » (story 5.3) : « Reformuler » remet la question dans le champ, curseur à la fin ; « Rechercher » ouvre la Recherche avec la question", async ({
+  page,
+}) => {
+  const requests = collectRequests(page);
+  await openAssistant(page);
+  const question = outOfBase();
+  await field(page).fill(question);
+  await field(page).press("Enter");
+  const refusal = thread(page).locator('[data-refusal="info_absente"]');
+  await expect(refusal).toBeVisible();
+  await expect(field(page)).toHaveValue("");
+
+  await refusal.getByRole("button", { name: t.reformulate }).click();
+  await expect(field(page)).toHaveValue(question);
+  await expect(field(page)).toBeFocused();
+  const selection = await field(page).evaluate((element: HTMLTextAreaElement) => [element.selectionStart, element.selectionEnd]);
+  expect(selection).toEqual([question.length, question.length]);
+  // Aucun envoi : le refus reste affiché, une seule requête.
+  await expect(refusal).toBeVisible();
+  expect(chatCalls(requests)).toHaveLength(1);
+
+  await expect(refusal.getByRole("link", { name: t.addDocument })).toHaveAttribute("href", "/ajouter");
+  const href = `/recherche?${new URLSearchParams({ q: question }).toString()}`;
+  await expect(refusal.getByRole("link", { name: t.searchDocuments })).toHaveAttribute("href", href);
+  await waitForHydratedLink(page, href);
+  await refusal.getByRole("link", { name: t.searchDocuments }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/recherche" && url.searchParams.get("q") === question);
+  expectBoundary(requests);
+});
+
+test("refus « hors cadre » (story 5.3, appel court simulé) : texte du catalogue, « Reformuler la question » seulement ; axe sans violation", async ({
+  page,
+}) => {
+  const requests = collectRequests(page);
+  await openAssistant(page);
+  const question = `${outOfBase()} ${FAKE_HORS_CADRE_MARKER}`;
+  await field(page).fill(question);
+  await field(page).press("Enter");
+  const refusal = thread(page).locator('[data-refusal="hors_cadre"]');
+  await expect(answerStatus(page)).toHaveText(t.refusalHorsCadre);
+  await expect(answerStatus(page).getByRole("button")).toHaveCount(0);
+  await expect(refusal.getByRole("button")).toHaveText([t.reformulate]);
+  await expect(refusal.getByRole("link")).toHaveCount(0);
+  await expect(page.getByRole("list", { name: t.sourcesLabel })).toHaveCount(0);
+  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await expect(field(page)).toBeFocused();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBe(0);
+  const results = await new AxeBuilder({ page }).exclude("nextjs-portal").analyze();
+  expect(results.violations.map((v) => `${v.id} : ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+
+  await refusal.getByRole("button", { name: t.reformulate }).click();
+  await expect(field(page)).toHaveValue(question);
+  await expect(field(page)).toBeFocused();
+  expectBoundary(requests);
+});
+
+test("marqueur invalide (génération simulée) : alerte de panne avec « Réessayer », sans texte du modèle", async ({ page, account }) => {
+  const seeded = await seedDocument(account, `${tag()} ${FAKE_INVALID_MARKER}`);
+  const requests = collectRequests(page);
+  await openAssistant(page);
+  await field(page).fill(seeded.question);
+  await field(page).press("Enter");
+  const alert = thread(page).getByRole("alert").filter({ hasText: t.failedTitle });
+  await expect(alert).toContainText(t.failed);
+  await expect(alert.getByRole("button", { name: t.retry })).toBeVisible();
+  await expect(page.getByText(/REPONSE|réponse simulée/)).toHaveCount(0);
+  await expect(page.locator("[data-refusal]")).toHaveCount(0);
   expectBoundary(requests);
 });
 

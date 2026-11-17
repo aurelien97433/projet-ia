@@ -96,6 +96,8 @@ describe("questions-mini.json", () => {
   it("nombre de cas prévu par epics.md", () => {
     expect(questions.questions).toHaveLength(6);
     expect(questions.outOfBase).toHaveLength(3);
+    // Question hors cadre du test réel (story 5.3).
+    expect(questions.outOfScope).toHaveLength(1);
     expect(questions.searchQueries).toHaveLength(6);
     expect(questions.searchOutOfBase).toHaveLength(3);
     expect(questions.contradiction.expectedDocuments).toHaveLength(2);
@@ -106,6 +108,7 @@ describe("questions-mini.json", () => {
     const ids = [
       ...questions.questions,
       ...questions.outOfBase,
+      ...questions.outOfScope,
       ...questions.searchQueries,
       ...questions.searchOutOfBase,
       questions.contradiction,
@@ -129,7 +132,7 @@ describe("questions-mini.json", () => {
     },
   );
 
-  it.each([...questions.outOfBase, ...questions.searchOutOfBase] as { id: string; absentTerm: string }[])(
+  it.each([...questions.outOfBase, ...questions.outOfScope, ...questions.searchOutOfBase] as { id: string; absentTerm: string }[])(
     "$id hors base : « $absentTerm » n'existe dans aucun Document",
     ({ absentTerm }) => {
       expect(allText.toLowerCase()).not.toContain(absentTerm.toLowerCase());

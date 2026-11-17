@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateAnswer, type AiDeps } from "../../supabase/functions/_shared/ai.ts";
+import { classifyRefusal, generateAnswer, type AiDeps } from "../../supabase/functions/_shared/ai.ts";
 import {
   AI_MAX_RETRIES,
   DEFAULT_GENERATION_MODEL,
@@ -7,6 +7,7 @@ import {
   GENERATION_MAX_RETRIES,
   GENERATION_SAMPLING,
   GENERATION_TIMEOUT_MS,
+  REFUSAL_MAX_COMPLETION_TOKENS,
 } from "../../supabase/functions/_shared/config.ts";
 import { AiError } from "../../supabase/functions/_shared/errors.ts";
 import type { ChatMessage } from "../../supabase/functions/_shared/rag/prompt.ts";
@@ -219,5 +220,59 @@ describe("generateAnswer", () => {
     const deps = { ...fakeDeps(), apiKey: undefined };
     expect((await aiError(generateAnswer(MESSAGES, { deps }))).code).toBe("AI_UNAVAILABLE");
     expect(deps.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("classifyRefusal (appel court, story 5.3)", () => {
+  it("même modèle, raisonnement none et échantillonnage que la génération ; sortie bornée à 16 tokens", async () => {
+    const deps = fakeDeps(completion("REFUS_HORS_CADRE"));
+    const result = await classifyRefusal(MESSAGES, { deps });
+    expect(REFUSAL_MAX_COMPLETION_TOKENS).toBe(16);
+    expect(JSON.parse(String(deps.fetch.mock.calls[0][1]?.body))).toEqual({
+      model: DEFAULT_GENERATION_MODEL,
+      messages: MESSAGES,
+      reasoning_effort: "none",
+      max_completion_tokens: REFUSAL_MAX_COMPLETION_TOKENS,
+      ...GENERATION_SAMPLING,
+    });
+    expect(result.text).toBe("REFUS_HORS_CADRE");
+  });
+
+  it("503 répétés : une seule nouvelle tentative, puis AI_UNAVAILABLE sans réponse reçue (unité rendable)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = fakeDeps(providerError(503, null, "server_error"), providerError(503, null, "server_error"), completion("x"));
+    expect(await aiError(classifyRefusal(MESSAGES, { deps }))).toMatchObject({ code: "AI_UNAVAILABLE", outcome: "no_response" });
+    expect(deps.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("erreur réseau : aucune nouvelle tentative ; sortie tronquée : AI_OUTPUT_INVALID « response_received »", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const network = fakeDeps(new TypeError("fetch failed"), completion("REFUS_HORS_CADRE"));
+    expect(await aiError(classifyRefusal(MESSAGES, { deps: network }))).toMatchObject({ code: "AI_UNAVAILABLE", outcome: "no_response" });
+    expect(network.fetch).toHaveBeenCalledTimes(1);
+    const truncated = await aiError(classifyRefusal(MESSAGES, { deps: fakeDeps(completion("REFUS_", "length")) }));
+    expect(truncated).toMatchObject({ code: "AI_OUTPUT_INVALID", outcome: "response_received" });
+    expect(logged()).toContain("classify_refusal");
+  });
+
+  it("sortie coupée par la borne après la première ligne (« length » avec saut de ligne) : acceptée, texte rendu tel quel", async () => {
+    const deps = fakeDeps(completion("REFUS_HORS_CADRE\nLa capitale de l'Australie est", "length"));
+    expect((await classifyRefusal(MESSAGES, { deps })).text).toBe("REFUS_HORS_CADRE\nLa capitale de l'Australie est");
+  });
+
+  it("« length » sans saut de ligne : AI_OUTPUT_INVALID ; generateAnswer refuse toujours « length », même avec un saut de ligne", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await aiError(classifyRefusal(MESSAGES, { deps: fakeDeps(completion("REFUS_HORS_CADRE la capitale", "length")) }))).toMatchObject({
+      code: "AI_OUTPUT_INVALID",
+      outcome: "response_received",
+    });
+    expect(await aiError(generateAnswer(MESSAGES, { deps: fakeDeps(completion("REPONSE\nDébut", "length")) }))).toMatchObject({
+      code: "AI_OUTPUT_INVALID",
+    });
+    expect(await aiError(classifyRefusal(MESSAGES, { deps: fakeDeps(completion("REFUS_HORS_CADRE\nx", "content_filter")) }))).toMatchObject({
+      code: "AI_OUTPUT_INVALID",
+    });
   });
 });

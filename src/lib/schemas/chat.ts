@@ -39,7 +39,7 @@ export function parseChatRequest(body: unknown): ChatRequestParse {
 export const chatResponseSchema = z.object({
   conversationId: z.uuid(),
   message: z.object({
-    kind: z.enum(["answer", "refusal_info_absente"]),
+    kind: z.enum(["answer", "refusal_info_absente", "refusal_hors_cadre"]),
     content: z.string().min(1),
     sources: z
       .array(

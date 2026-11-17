@@ -16,6 +16,7 @@ import {
   GENERATION_TIMEOUT_MS,
   generationModel,
   MODEL_CHECK_TIMEOUT_MS,
+  REFUSAL_MAX_COMPLETION_TOKENS,
   OPENAI_BASE_URL,
   readEnv,
 } from "./config.ts";
@@ -209,19 +210,39 @@ export type GenerationResult = {
 // seule nouvelle tentative (GENERATION_RETRY, story 5.2a-2 : jamais après une erreur réseau). Une
 // réponse vide, tronquée ou filtrée (finish_reason autre que « stop ») est invalide : aucun fait
 // partiel n'est rendu. Ni les consignes ni la réponse ne sont journalisées.
-export async function generateAnswer(messages: ChatMessage[], options: AiOptions = {}): Promise<GenerationResult> {
+export function generateAnswer(messages: ChatMessage[], options: AiOptions = {}): Promise<GenerationResult> {
+  return complete("generate", messages, GENERATION_MAX_COMPLETION_TOKENS, options, false);
+}
+
+// Appel court sans Passage (story 5.3) : mêmes modèle, échantillonnage, raisonnement désactivé,
+// nouvelles tentatives et contrôles que generateAnswer ; sortie bornée à REFUSAL_MAX_COMPLETION_TOKENS.
+// Le marqueur est lu par l'appelant (marker.ts). Seule exception (décision de l'utilisateur du
+// 2026-11-17) : une sortie coupée par la borne (finish_reason « length ») est acceptée si elle contient
+// un saut de ligne, car la première ligne, seule lue, est alors complète ; le reste est ignoré.
+export function classifyRefusal(messages: ChatMessage[], options: AiOptions = {}): Promise<GenerationResult> {
+  return complete("classify_refusal", messages, REFUSAL_MAX_COMPLETION_TOKENS, options, true);
+}
+
+async function complete(
+  operation: string,
+  messages: ChatMessage[],
+  maxCompletionTokens: number,
+  options: AiOptions,
+  // Accepte finish_reason « length » quand la première ligne est complète (appel court seulement).
+  acceptTruncatedAfterFirstLine: boolean,
+): Promise<GenerationResult> {
   const deps = { ...defaultDeps(), ...options.deps };
   const model = generationModel();
   const body = await callProvider(
     {
-      operation: "generate",
+      operation,
       path: "/chat/completions",
       method: "POST",
       body: {
         model,
         messages,
         reasoning_effort: GENERATION_REASONING_EFFORT,
-        max_completion_tokens: GENERATION_MAX_COMPLETION_TOKENS,
+        max_completion_tokens: maxCompletionTokens,
         ...GENERATION_SAMPLING,
       },
       timeoutMs: options.timeoutMs ?? GENERATION_TIMEOUT_MS,
@@ -238,9 +259,10 @@ export async function generateAnswer(messages: ChatMessage[], options: AiOptions
   const choice = Array.isArray(parsed?.choices) ? parsed.choices[0] : undefined;
   const text = typeof choice?.message?.content === "string" ? choice.message.content : "";
   const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : "absent";
-  if (finishReason !== "stop" || text.trim() === "") {
+  const firstLineComplete = acceptTruncatedAfterFirstLine && finishReason === "length" && text.includes("\n");
+  if ((finishReason !== "stop" && !firstLineComplete) || text.trim() === "") {
     logEvent("ai_output_invalid", {
-      operation: "generate",
+      operation,
       finish_reason: finishReason,
       empty: text.trim() === "",
       // Refus de sécurité du modèle : signalé, jamais son texte.

@@ -27,6 +27,9 @@ export const GENERATION_MAX_COMPLETION_TOKENS = 1_500;
 export const GENERATION_SAMPLING: Readonly<{ temperature?: number; seed?: number }> = { temperature: 0, seed: 20261113 };
 // Raisonnement désactivé : valeur par défaut de gpt-5.4-mini, envoyée explicitement.
 export const GENERATION_REASONING_EFFORT = "none";
+// Appel court sans Passage (story 5.3) : sortie limitée au marqueur de refus (REFUS_INFO_ABSENTE,
+// le plus long, tient en quelques tokens).
+export const REFUSAL_MAX_COMPLETION_TOKENS = 16;
 
 // Consignes de l'Assistant (AD-9, AD-13) : 8 Passages au plus ; titre neutralisé, 200 caractères au plus.
 export const CHAT_MAX_PASSAGES = 8;

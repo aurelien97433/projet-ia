@@ -1362,6 +1362,7 @@ afin de ne jamais recevoir de réponse inventée.
 **Alors** la question revient dans le champ (curseur placé), ou la Recherche s'ouvre avec la question comme Requête
 
 **Tâches techniques :** consignes avec marqueur en première ligne ; `_shared/rag/marker.ts` ; appel court ; enregistrement `refusal_*` ; composant `RefusalBlock` (2 variantes) ; tests unitaires et Playwright.
+**Note (2026-11-16, décisions de l'utilisateur, story 5.3) :** (1) lecture du marqueur minimale : espaces autour, casse, astérisques de mise en gras autour du mot, rien d'autre (AD-10) ; (2) l'appel court sans Passage est facturé : **tout refus consomme l'unité**, appel court compris ; le refus sans appel de la 5.2a-2 (unité rendue) disparaît, la règle de libération reste « unité rendue seulement si aucun appel facturable n'a abouti » (AD-14, note de la 5.2a-2 ci-dessus) ; FR-18 précisé : une panne sans réponse du fournisseur ne décompte pas le quota, une sortie inexploitable ou un délai dépassé après envoi le décomptent ; (3) les trois boutons d'UX-DR11 sont gardés ; (4) `npm run test:chat:live` passe à 12 questions (q1, p1, h1, « Quelle est la capitale de l'Australie ? » ajoutée à `questions-mini.json`, 3 essais chacune), sans l'observation de relance.
 **Dépendances :** 5.2b.
 **Références :** CH-9, CH-16 · FR-18 · NFR-4, NFR-5 · SM-2 · AR-11 · AD-10 · UX-DR11, UX-DR12 · **Priorité :** P0
 
