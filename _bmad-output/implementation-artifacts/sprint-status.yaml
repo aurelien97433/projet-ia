@@ -31,7 +31,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-17-2026 14:00
+last_updated: 11-17-2026 16:00
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -78,7 +78,7 @@ development_status:
   5-1-stocker-les-conversations-de-façon-strictement-privée: done  # P0 · dépend de : 2.2
   5-2a-fonction-chat-réponse-sourcée-côté-serveur: done  # P0 · dépend de : 4.1a, 5.1
   5-2b-page-assistant-poser-une-question-et-voir-les-sources: done  # P0 · dépend de : 5.2a
-  5-3-refus-honnêtes-et-marqueurs: review  # P0 · dépend de : 5.2b
+  5-3-refus-honnêtes-et-marqueurs: done  # P0 · dépend de : 5.2b
   5-4-validation-des-citations: backlog  # P0 · dépend de : 5.3
   5-5-réponse-progressive-sur-l-environnement-vercel: backlog  # P0 · dépend de : 5.4, 5.0
   5-6-conversations-et-historique: backlog  # P0 · dépend de : 5.5

@@ -2,7 +2,7 @@
 title: 'Story 5.3 : Refus honnêtes et marqueurs'
 type: 'feature'
 created: '2026-11-16'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '9686ecf08cf0b690545c5de5e0ef00237fb2922f'

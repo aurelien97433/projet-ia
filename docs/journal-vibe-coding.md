@@ -1668,3 +1668,35 @@ Coût OpenAI estimé pour l'ensemble : moins de 1 $ (crédit restant environ 9,8
 **Exposition.** Aucune : le projet n'utilise ni `'use cache'`, ni `unstable_cache`, ni `rootParams`, et la mise en page racine n'a pas de paramètre. App Router, Server Actions, Route Handlers et `proxy.ts` (middleware) ne sont pas concernés par cet avis.
 
 **Décision de l'utilisateur.** `next` et `eslint-config-next` passent de 16.4.3 à 16.4.5 (version corrective la plus proche dans la même mineure), dans un commit séparé, avant la 5.3. `package-lock.json` ne change que les 12 paquets de la famille Next.
+
+## Story 5.3 : refus honnêtes et marqueurs (2026-11-17)
+
+**Commits.** `5db6a19` (Next.js 16.4.5, entrée ci-dessus), puis `2120dfd` (story 5.3).
+
+**Vérification complète : première passe en échec.** Sur 16.4.5, Vitest (1 609), lint, tsc, build:ci et check:secrets verts ; e2e : 340 réussis, **3 échecs**, 19 ignorés (9,1 min) :
+- `document-status.spec.ts:642` (ordinateur), accessibilité du bandeau « prêt » : bandeau resté « En cours de traitement », test de 3,8 min ;
+- `document-status.spec.ts:289` (375 px), troisième échec consécutif de l'interrogation : 5 interrogations sur les 6 attendues en 25 s, test de 4,1 min ;
+- `search-page.spec.ts:94` (ordinateur), parcours au clavier : focus absent du champ de Recherche après la navigation vers le Tableau de bord.
+
+Aucun échec relancé seul, aucun délai modifié ; diagnostic décidé par l'utilisateur (option A).
+
+**Diagnostic A (chaque test seul, un worker, sans nouvelle tentative).**
+
+| Test | Version | Passages | Durées |
+|---|---|---|---|
+| `search-page.spec.ts:94` (ordinateur) | 16.4.5 | 5/5 | 3,0 · 1,8 · 2,2 · 1,9 · 1,9 s |
+| `search-page.spec.ts:94` (ordinateur) | 16.4.3 (restaurée provisoirement) | 5/5 | 3,3 · 1,8 · 1,7 · 1,9 · 1,8 s |
+| `document-status.spec.ts:642` (ordinateur) | 16.4.5 | 3/3 | 5,7 · 5,4 · 5,3 s |
+| `document-status.spec.ts:289` (375 px) | 16.4.5 | 3/3 | 20,2 · 20,0 · 20,0 s |
+
+Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêté sur l'alerte de sécurité de Next.js (`SecurityFatalError`), qui ne laisse passer qu'au second build.
+
+**Conclusion.** Pas de régression due à la 16.4.5 : le focus se comporte de la même façon sur les deux versions. Cause probable des trois échecs : saturation de la machine en fin de passe complète (durées de 3,8 et 4,1 min contre 5 et 20 s seuls). Point faible : `document-status.spec.ts:289` dure environ 20 s pour une attente de 25 s, il cède le premier sous charge.
+
+**Plantages libuv sans effet.** Pendant chacune des deux passes e2e complètes, deux processus Node se sont arrêtés sur `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c` (Windows), hors du serveur de l'application. La seconde passe complète, avec les mêmes plantages, est entièrement verte : 343 réussis, 0 échec, 19 ignorés (5,5 min).
+
+**Revue.** Un relecteur séparé (décision de l'utilisateur), 11 constats triés dans la spec. Deux corrigés : les boutons du bloc de refus sortis de la région `role="status"` (seul le texte du refus est annoncé) ; l'appel court coupé par sa borne de 16 tokens accepté quand la première ligne est un refus complet (interprétation validée par l'utilisateur). Les autres sont rejetés : tolérance du marqueur à ne pas élargir, cas rares ou déjà traités.
+
+**Déploiement et production (sur `2120dfd`).** `deploy:supabase` par l'utilisateur : aucune migration, `chat` (38 kB), `process-document` et `semantic-search` redéployées ; `test:search:live` vert ; Note de test passée à « Prêt » puis supprimée. `npm run test:chat:live` : **12 sur 12** (q1 réponse avec « Procédure de facturation », p1 réponse, h1 `refusal_info_absente`, o1 `refusal_hors_cadre`), aucun terme du piège, compteur du jour 0 → 12, cohérent ; rapport `docs/mesures/assistant-live.md`. Aucun marqueur mal formé par le modèle réel. Vérification sur le site par l'utilisateur : bloc « information absente » avec ses trois boutons, « Reformuler » et « Rechercher » conformes ; bloc « hors cadre » avec « Reformuler » seul ; q1 sans marqueur visible ; tour du site après Next.js 16.4.5 (connexion, Bibliothèque, Document, Recherche) conforme.
+
+**Statut.** Story 5.3 `done`. Prochaine : 5.4 (validation des citations).
