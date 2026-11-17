@@ -79,6 +79,22 @@ async function providerError(response: Response): Promise<{ code?: string; type?
   }
 }
 
+// Réponse en échec du fournisseur : plafond (AI_BUDGET_EXHAUSTED) et autres refus définitifs levés ;
+// 429 hors plafond et 5xx : raison de la nouvelle tentative.
+async function rejectedStatus(response: Response, operation: string, attempt: number): Promise<string> {
+  const { code, type, param } = await providerError(response);
+  const details = { operation, status: response.status, code: code ?? type, param, attempt };
+  if (response.status === 429 && (BUDGET_ERROR_CODES.has(code ?? "") || BUDGET_ERROR_CODES.has(type ?? ""))) {
+    logEvent("ai_budget_exhausted", details);
+    throw new AiError("AI_BUDGET_EXHAUSTED", false, "plafond du fournisseur atteint", code ?? type, undefined, "no_response");
+  }
+  if (response.status !== 429 && response.status < 500) {
+    logEvent("ai_provider_rejected", details);
+    throw new AiError("AI_UNAVAILABLE", false, `refus du fournisseur (${response.status})`, code ?? type, param, "no_response");
+  }
+  return `status_${response.status}`;
+}
+
 // Appel au fournisseur : délai par tentative, nouvelles tentatives selon spec.retry (par défaut 2,
 // sur 429 hors plafond, 5xx et erreur réseau) ; tout autre refus est définitif. Renvoie le corps
 // JSON, ou null pour acceptStatus. Chaque AiError porte l'issue de l'appel (outcome) : aucune
@@ -115,18 +131,7 @@ async function callProvider(spec: RequestSpec, deps: AiDeps): Promise<unknown> {
         }
       }
       if (response.status === spec.acceptStatus) return null;
-
-      const { code, type, param } = await providerError(response);
-      const details = { operation: spec.operation, status: response.status, code: code ?? type, param, attempt };
-      if (response.status === 429 && (BUDGET_ERROR_CODES.has(code ?? "") || BUDGET_ERROR_CODES.has(type ?? ""))) {
-        logEvent("ai_budget_exhausted", details);
-        throw new AiError("AI_BUDGET_EXHAUSTED", false, "plafond du fournisseur atteint", code ?? type, undefined, "no_response");
-      }
-      if (response.status !== 429 && response.status < 500) {
-        logEvent("ai_provider_rejected", details);
-        throw new AiError("AI_UNAVAILABLE", false, `refus du fournisseur (${response.status})`, code ?? type, param, "no_response");
-      }
-      retryReason = `status_${response.status}`;
+      retryReason = await rejectedStatus(response, spec.operation, attempt);
     } catch (error) {
       if (error instanceof AiError) throw error;
       if (controller.signal.aborted) {
@@ -205,8 +210,8 @@ export type GenerationResult = {
   usage: { inputTokens: number; outputTokens: number };
 };
 
-// Génération d'une réponse, non diffusée (story 5.2a-1 ; la diffusion arrive en 5.5) : Chat
-// Completions, raisonnement désactivé, échantillonnage de GENERATION_SAMPLING, sortie bornée, une
+// Génération d'une réponse, non diffusée (story 5.2a-1 ; mode JSON de chat, flux : streamAnswer) :
+// Chat Completions, raisonnement désactivé, échantillonnage de GENERATION_SAMPLING, sortie bornée, une
 // seule nouvelle tentative (GENERATION_RETRY, story 5.2a-2 : jamais après une erreur réseau). Une
 // réponse vide, tronquée ou filtrée (finish_reason autre que « stop ») est invalide : aucun fait
 // partiel n'est rendu. Ni les consignes ni la réponse ne sont journalisées.
@@ -259,6 +264,24 @@ async function complete(
   const choice = Array.isArray(parsed?.choices) ? parsed.choices[0] : undefined;
   const text = typeof choice?.message?.content === "string" ? choice.message.content : "";
   const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : "absent";
+  checkOutput(operation, text, finishReason, typeof choice?.message?.refusal === "string", acceptTruncatedAfterFirstLine);
+  return {
+    text,
+    model: typeof parsed?.model === "string" ? parsed.model : model,
+    usage: { inputTokens: count(parsed?.usage?.prompt_tokens), outputTokens: count(parsed?.usage?.completion_tokens) },
+  };
+}
+
+const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+
+// Sortie complète exigée : finish_reason « stop » (sauf exception de l'appel court) et texte non vide.
+function checkOutput(
+  operation: string,
+  text: string,
+  finishReason: string,
+  refusal: boolean,
+  acceptTruncatedAfterFirstLine: boolean,
+): void {
   const firstLineComplete = acceptTruncatedAfterFirstLine && finishReason === "length" && text.includes("\n");
   if ((finishReason !== "stop" && !firstLineComplete) || text.trim() === "") {
     logEvent("ai_output_invalid", {
@@ -266,7 +289,7 @@ async function complete(
       finish_reason: finishReason,
       empty: text.trim() === "",
       // Refus de sécurité du modèle : signalé, jamais son texte.
-      refusal: typeof choice?.message?.refusal === "string",
+      refusal,
     });
     // Sortie tronquée ou filtrée : avec un échantillonnage fixe, la même demande redonnerait le même
     // résultat ; elle n'est donc pas réessayable.
@@ -280,12 +303,193 @@ async function complete(
       "response_received",
     );
   }
-  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
-  return {
-    text,
-    model: typeof parsed?.model === "string" ? parsed.model : model,
-    usage: { inputTokens: count(parsed?.usage?.prompt_tokens), outputTokens: count(parsed?.usage?.completion_tokens) },
+}
+
+export type StreamAnswerOptions = AiOptions & {
+  // Délai jusqu'au premier morceau de texte ; timeoutMs borne l'appel entier. Les deux échéances
+  // partent du début de l'appel : une nouvelle tentative ne reçoit que le temps restant.
+  firstChunkTimeoutMs?: number;
+  // Chaque morceau de texte reçu, dans l'ordre ; false arrête la lecture du fournisseur (refus ou
+  // marqueur invalide reconnus par l'appelant).
+  onText: (text: string) => boolean | void;
+};
+
+// stopped : lecture arrêtée par onText (texte partiel, non contrôlé) ; firstChunkMs : délai du premier
+// morceau de texte depuis l'appel ; usage null si le fournisseur ne l'a pas transmis (lecture arrêtée
+// avant son dernier morceau, par exemple après un refus) : inconnu, jamais compté à 0.
+export type StreamResult = Omit<GenerationResult, "usage"> & {
+  usage: GenerationResult["usage"] | null;
+  stopped: boolean;
+  firstChunkMs: number | null;
+};
+
+const STREAM_OPERATION = "generate_stream";
+
+// Génération diffusée (story 5.5, AD-16) : mêmes modèle, échantillonnage, raisonnement et borne de
+// sortie que generateAnswer, avec stream: true. Une seule nouvelle tentative sur 429 (hors plafond) ou
+// 5xx reçus, donc avant le premier morceau ; aucune après une erreur réseau, un délai dépassé ou une
+// réponse reçue. Lecture complète : mêmes contrôles que generateAnswer (finish_reason « stop », texte
+// non vide). Ni les consignes ni le texte ne sont journalisés.
+export async function streamAnswer(messages: ChatMessage[], options: StreamAnswerOptions): Promise<StreamResult> {
+  const deps = { ...defaultDeps(), ...options.deps };
+  if (!deps.apiKey) {
+    logEvent("ai_key_missing", { operation: STREAM_OPERATION });
+    throw new AiError("AI_UNAVAILABLE", false, "OPENAI_API_KEY absente", undefined, undefined, "no_response");
+  }
+  const model = generationModel();
+  const totalMs = options.timeoutMs ?? GENERATION_TIMEOUT_MS;
+  const firstMs = Math.min(options.firstChunkTimeoutMs ?? totalMs, totalMs);
+  const body = JSON.stringify({
+    model,
+    messages,
+    reasoning_effort: GENERATION_REASONING_EFFORT,
+    max_completion_tokens: GENERATION_MAX_COMPLETION_TOKENS,
+    ...GENERATION_SAMPLING,
+    stream: true,
+    stream_options: { include_usage: true },
+  });
+  const started = Date.now();
+
+  for (let attempt = 0; ; attempt += 1) {
+    const attemptStarted = Date.now();
+    const elapsed = Date.now() - started;
+    if (elapsed >= firstMs) {
+      // Échéance atteinte pendant l'attente avant une nouvelle tentative : aucune réponse reçue.
+      logEvent("ai_timeout", { operation: STREAM_OPERATION, attempt, received: false, duration_ms: elapsed });
+      throw new AiError("AI_TIMEOUT", true, "délai dépassé", undefined, undefined, "no_response");
+    }
+    const controller = new AbortController();
+    const total = setTimeout(() => controller.abort(), totalMs - elapsed);
+    const first = setTimeout(() => controller.abort(), firstMs - elapsed);
+    let received = false;
+    let retryReason: string;
+    try {
+      const response = await deps.fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${deps.apiKey}`, "Content-Type": "application/json" },
+        body,
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        received = true;
+        if (!response.body) {
+          logEvent("ai_output_invalid", { operation: STREAM_OPERATION, reason: "body" });
+          throw new AiError("AI_OUTPUT_INVALID", false, "flux absent", undefined, undefined, "response_received");
+        }
+        return await readCompletionStream(response.body, model, started, () => clearTimeout(first), options.onText);
+      }
+      retryReason = await rejectedStatus(response, STREAM_OPERATION, attempt);
+    } catch (error) {
+      if (error instanceof AiError) throw error;
+      if (controller.signal.aborted) {
+        logEvent("ai_timeout", { operation: STREAM_OPERATION, attempt, received, duration_ms: Date.now() - attemptStarted });
+        throw new AiError("AI_TIMEOUT", true, "délai dépassé", undefined, undefined, "timeout");
+      }
+      if (received) {
+        // Flux coupé après la réponse du fournisseur : génération facturée, jamais réessayée.
+        logEvent("ai_stream_interrupted", { operation: STREAM_OPERATION, attempt });
+        throw new AiError("AI_UNAVAILABLE", true, "flux interrompu", undefined, undefined, "response_received");
+      }
+      retryReason = "network";
+    } finally {
+      clearTimeout(total);
+      clearTimeout(first);
+    }
+
+    if (attempt >= GENERATION_RETRY.maxRetries || (retryReason === "network" && !GENERATION_RETRY.onNetworkError)) {
+      logEvent("ai_unavailable", { operation: STREAM_OPERATION, reason: retryReason, attempts: attempt + 1 });
+      throw new AiError("AI_UNAVAILABLE", true, "fournisseur indisponible", undefined, undefined, "no_response");
+    }
+    await deps.sleep(AI_RETRY_BASE_DELAY_MS * 2 ** attempt);
+  }
+}
+
+type StreamChunk = {
+  model?: unknown;
+  error?: unknown;
+  choices?: { delta?: { content?: unknown; refusal?: unknown }; finish_reason?: unknown }[];
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } | null;
+};
+
+// Lecture du flux SSE du fournisseur (lignes « data: {…} », puis « data: [DONE] »).
+async function readCompletionStream(
+  body: ReadableStream<Uint8Array>,
+  requestedModel: string,
+  started: number,
+  onFirstChunk: () => void,
+  onText: (text: string) => boolean | void,
+): Promise<StreamResult> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let model = requestedModel;
+  let usage: GenerationResult["usage"] | null = null;
+  let finishReason = "absent";
+  let refusal = false;
+  let firstChunkMs: number | null = null;
+  let stopped = false;
+  let finished = false;
+
+  const readLine = (line: string) => {
+    if (!line.startsWith("data:")) return;
+    const data = line.slice("data:".length).trim();
+    if (data === "[DONE]") {
+      finished = true;
+      return;
+    }
+    let chunk: StreamChunk;
+    try {
+      chunk = JSON.parse(data) as StreamChunk;
+    } catch {
+      logEvent("ai_output_invalid", { operation: STREAM_OPERATION, reason: "json" });
+      throw new AiError("AI_OUTPUT_INVALID", false, "morceau illisible", undefined, undefined, "response_received");
+    }
+    if (chunk.error !== undefined && chunk.error !== null) {
+      logEvent("ai_stream_interrupted", { operation: STREAM_OPERATION, reason: "provider_error" });
+      throw new AiError("AI_UNAVAILABLE", true, "erreur dans le flux", undefined, undefined, "response_received");
+    }
+    if (typeof chunk.model === "string") model = chunk.model;
+    if (chunk.usage) {
+      usage = { inputTokens: count(chunk.usage.prompt_tokens), outputTokens: count(chunk.usage.completion_tokens) };
+    }
+    const choice = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
+    if (typeof choice?.delta?.refusal === "string") refusal = true;
+    if (typeof choice?.finish_reason === "string") finishReason = choice.finish_reason;
+    const content = choice?.delta?.content;
+    if (typeof content === "string" && content !== "") {
+      if (firstChunkMs === null) {
+        firstChunkMs = Date.now() - started;
+        onFirstChunk();
+      }
+      text += content;
+      if (onText(content) === false) stopped = true;
+    }
   };
+
+  try {
+    while (!stopped && !finished) {
+      const { done, value } = await reader.read();
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      let newline = buffer.indexOf("\n");
+      while (!stopped && !finished && newline !== -1) {
+        const line = buffer.slice(0, newline).replace(/\r$/, "");
+        buffer = buffer.slice(newline + 1);
+        readLine(line);
+        newline = buffer.indexOf("\n");
+      }
+      if (done) {
+        if (!stopped && !finished && buffer.trim() !== "") readLine(buffer.replace(/\r$/, ""));
+        break;
+      }
+    }
+  } finally {
+    // Refus reconnu, fin ou erreur : la lecture du fournisseur est arrêtée.
+    await reader.cancel().catch(() => {});
+  }
+
+  if (!stopped) checkOutput(STREAM_OPERATION, text, finishReason, refusal, false);
+  return { text, model, usage, stopped, firstChunkMs };
 }
 
 // Accès du projet aux modèles, sans coût (GET /models/{id}) : true si le modèle est accessible,

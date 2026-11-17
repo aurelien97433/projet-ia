@@ -9,7 +9,7 @@ const router = { push: vi.fn(), refresh, prefetch: vi.fn(), replace: vi.fn() };
 let params = new URLSearchParams();
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => params }));
 
-const { AssistantView, answerSegments, CHAT_CLIENT_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
+const { AssistantView, answerSegments, CHAT_CLIENT_TIMEOUT_MS, CHAT_FIRST_DISPLAY_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
 const { ASSISTANT_FIELD_ID, assistantHref } = await import("@/components/assistant/constants");
 
 const t = texts.assistant;
@@ -460,30 +460,6 @@ describe("erreurs", () => {
     expect(alert.textContent).toContain(t.failed);
     expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
   });
-
-  it("délai client de 85 s, au-delà du relais (70 s) et sous maxDuration (120 s) : requête abandonnée, alerte AI_TIMEOUT avec « Réessayer »", async () => {
-    vi.useFakeTimers();
-    let signal: AbortSignal | undefined;
-    fetchMock().mockImplementation(
-      (_url, init) =>
-        new Promise((_resolve, reject) => {
-          signal = (init as RequestInit).signal ?? undefined;
-          signal?.addEventListener("abort", () => reject(new DOMException("abandon", "AbortError")));
-        }),
-    );
-    expect(CHAT_CLIENT_TIMEOUT_MS).toBe(85_000);
-    render(<AssistantView />);
-    type("Question");
-    fireEvent.keyDown(field(), { key: "Enter" });
-    await act(() => vi.advanceTimersByTimeAsync(84_000));
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(signal?.aborted).toBe(false);
-    await act(() => vi.advanceTimersByTimeAsync(1_000));
-    expect(signal?.aborted).toBe(true);
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain(t.failedTitle);
-    expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
-  });
 });
 
 describe("revue de la 5.2b", () => {
@@ -541,5 +517,221 @@ describe("revue de la 5.2b", () => {
     await act(async () => release(failure("AI_UNAVAILABLE", 503, true, t.failed)));
     expect(screen.getByRole("status").textContent).toBe("");
     expect(screen.getByRole("status").className).not.toContain("hidden");
+  });
+});
+
+// Story 5.5 : réponse progressive (flux SSE relayé par /api/chat).
+function controlledStream(headers: Record<string, string> = {}) {
+  let target!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      target = controller;
+    },
+  });
+  const encoder = new TextEncoder();
+  return {
+    response: new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream; charset=utf-8", ...headers } }),
+    send: (event: string, data: unknown) => target.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
+    raw: (text: string) => target.enqueue(encoder.encode(text)),
+    close: () => target.close(),
+  };
+}
+const DONE = {
+  conversationId: CONVERSATION,
+  message: {
+    kind: "answer",
+    content: "Une facture est émise sous 5 jours ouvrés[S1].",
+    sources: [{ documentId: DOC, title: "Procédure de facturation", passageNumbers: [1] }],
+  },
+};
+const provisional = () => document.querySelector("[data-provisional]");
+const tick = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+describe("réponse progressive (story 5.5)", () => {
+  it("demande le flux ; texte provisoire qui s'écrit, aria-busy, hors de la région d'annonce ; puis remplacé par la réponse validée", async () => {
+    const stream = controlledStream();
+    fetchMock().mockResolvedValue(stream.response);
+    render(<AssistantView />);
+    await ask("Sous quel délai une facture doit-elle être émise ?");
+    const [, init] = fetchMock().mock.calls[0];
+    expect((init as RequestInit).headers).toMatchObject({ Accept: "text/event-stream" });
+    expect(screen.getByRole("status").textContent).toBe(t.pending);
+
+    // Commentaire d'ouverture ignoré ; premier delta, coupé au milieu d'un événement.
+    stream.raw(": flux\n\nevent: delta\ndata: {\"text\":\"Une fac");
+    await tick();
+    expect(provisional()).toBeNull();
+    stream.raw("ture\"}\n\n");
+    await tick();
+    expect(provisional()?.getAttribute("aria-busy")).toBe("true");
+    expect(provisional()?.textContent).toContain("Une facture");
+    expect(screen.getByRole("status").contains(provisional())).toBe(false);
+    // La région d'annonce ne lit pas le texte provisoire.
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(send().getAttribute("aria-disabled")).toBe("true");
+
+    stream.send("delta", { text: " est émise sous 5 jours ouvrés." });
+    await tick();
+    expect(provisional()?.textContent).toContain("Une facture est émise sous 5 jours ouvrés.");
+
+    stream.send("done", DONE);
+    await tick();
+    expect(provisional()).toBeNull();
+    const status = screen.getByRole("status");
+    expect(within(status).getByText(answerText("Une facture est émise sous 5 jours ouvrés Source 1."))).toBeTruthy();
+    expect(within(within(status).getByRole("list", { name: t.sourcesLabel })).getAllByRole("listitem")).toHaveLength(1);
+    expect(status.textContent).not.toMatch(/\[[PS]/);
+    expect(send().getAttribute("aria-disabled")).toBeNull();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it.each([
+    ["information absente", "refusal_info_absente", t.refusalInfoAbsente],
+    ["hors cadre", "refusal_hors_cadre", t.refusalHorsCadre],
+  ])("refusal (%s) : bloc de refus d'un coup, sans texte provisoire", async (_, kind, text) => {
+    const stream = controlledStream();
+    fetchMock().mockResolvedValue(stream.response);
+    render(<AssistantView />);
+    await ask("Question");
+    stream.send("refusal", { kind, content: text });
+    await tick();
+    expect(provisional()).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe(text);
+    expect(document.querySelector("[data-refusal]")).not.toBeNull();
+  });
+
+  it("error après des delta (citations invalides) : texte provisoire retiré, alerte et « Réessayer », question conservée", async () => {
+    const stream = controlledStream();
+    fetchMock().mockResolvedValue(stream.response);
+    render(<AssistantView />);
+    await ask("Question");
+    stream.send("delta", { text: "Texte provisoire PERROQUET" });
+    await tick();
+    expect(provisional()).not.toBeNull();
+    stream.send("error", { code: "AI_CITATIONS_INVALID", message: t.unverifiable, retryable: true });
+    await tick();
+    expect(provisional()).toBeNull();
+    expect(document.body.textContent).not.toContain("PERROQUET");
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(t.unverifiable);
+    expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
+    expect(document.activeElement).toBe(alert);
+    expect(within(thread()).getByText("Question")).toBeTruthy();
+  });
+
+  it.each([
+    ["flux fermé sans événement final", (stream: ReturnType<typeof controlledStream>) => stream.close()],
+    ["événement final illisible", (stream: ReturnType<typeof controlledStream>) => stream.raw("event: done\ndata: {pas du json\n\n")],
+    ["done mal formé", (stream: ReturnType<typeof controlledStream>) => stream.send("done", { conversationId: "x", message: {} })],
+  ])("%s : panne réessayable, texte provisoire retiré", async (_, finish) => {
+    const stream = controlledStream();
+    fetchMock().mockResolvedValue(stream.response);
+    render(<AssistantView />);
+    await ask("Question");
+    stream.send("delta", { text: "Début" });
+    await tick();
+    finish(stream);
+    await tick();
+    expect(provisional()).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(t.failed);
+  });
+
+  it("réponse JSON d'un bloc (refus avant le flux) : traitée comme avant", async () => {
+    fetchMock().mockResolvedValue(failure("QUOTA_EXCEEDED", 429, false, t.quotaExceeded("demain"), "2026-11-17T00:00:00.000Z"));
+    render(<AssistantView />);
+    await ask("Question");
+    expect(screen.getByRole("alert").textContent).toBe(t.quotaExceeded("demain"));
+  });
+
+  it("20 s sans premier affichage : requête abandonnée, alerte AI_TIMEOUT avec « Réessayer », question conservée", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    fetchMock().mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          signal = (init as RequestInit).signal ?? undefined;
+          signal?.addEventListener("abort", () => reject(new DOMException("abandon", "AbortError")));
+        }),
+    );
+    expect(CHAT_FIRST_DISPLAY_TIMEOUT_MS).toBe(20_000);
+    render(<AssistantView />);
+    type("Question");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    await act(() => vi.advanceTimersByTimeAsync(19_900));
+    expect(signal?.aborted).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(signal?.aborted).toBe(true);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(t.failedTitle);
+    expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
+    expect(within(thread()).getByText("Question")).toBeTruthy();
+  });
+
+  it("en-têtes reçus mais aucun événement en 20 s : panne ; un delta avant 20 s lève ce délai, 90 s au total retire le texte provisoire", async () => {
+    vi.useFakeTimers();
+    const silent = controlledStream();
+    fetchMock().mockResolvedValueOnce(silent.response);
+    render(<AssistantView />);
+    await ask("Question");
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(screen.getByRole("alert").textContent).toContain(t.failed);
+
+    cleanup();
+    const slow = controlledStream();
+    fetchMock().mockResolvedValueOnce(slow.response);
+    render(<AssistantView />);
+    await ask("Question");
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    slow.send("delta", { text: "Début" });
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(provisional()?.textContent).toContain("Début");
+    await act(() => vi.advanceTimersByTimeAsync(80_000));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(CHAT_CLIENT_TIMEOUT_MS).toBe(90_000);
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(provisional()).toBeNull();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(t.failedTitle);
+    expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
+  });
+});
+
+describe("mesure du flux (?mesure=1, story 5.5)", () => {
+  it("sans ?mesure=1 : aucun instrument", async () => {
+    render(<AssistantView />);
+    await flush();
+    expect(document.querySelector("[data-measure]")).toBeNull();
+  });
+
+  it("avec ?mesure=1 : premier delta, fin, morceaux et région relevés ; résultat copié sans identifiant, jeton ni e-mail", async () => {
+    params = new URLSearchParams({ mesure: "1" });
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const stream = controlledStream({ "x-vercel-id": "cdg1::fra1::abcd1-1763390000000-0123456789ab" });
+    fetchMock().mockResolvedValue(stream.response);
+    render(<AssistantView />);
+    expect(screen.getByRole("heading", { name: t.measureTitle })).toBeTruthy();
+    expect((screen.getByRole("button", { name: t.measureCopy }) as HTMLButtonElement).disabled).toBe(true);
+    await ask("Sous quel délai une facture doit-elle être émise après la livraison ?");
+    stream.send("delta", { text: "Une facture" });
+    await tick();
+    stream.send("delta", { text: " est émise." });
+    await tick();
+    stream.send("done", DONE);
+    await tick();
+    expect(document.querySelector("[data-measure-count]")?.textContent).toBe(t.measureCount(1));
+    fireEvent.click(screen.getByRole("button", { name: t.measureCopy }));
+    await flush();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copied = String((writeText.mock.calls[0] as unknown[])[0]);
+    expect(copied).toContain("q1 — Sous quel délai une facture doit-elle être émise après la livraison ?");
+    expect(copied).toContain("| fra1 |");
+    expect(copied).not.toContain(CONVERSATION);
+    expect(copied).not.toContain(DOC);
+    expect(copied).not.toContain("abcd1");
+    expect(copied).not.toContain("::");
+    expect(copied).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    expect(copied).not.toContain("@");
+    expect(screen.getByText(t.measureCopied)).toBeTruthy();
   });
 });

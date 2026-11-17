@@ -67,3 +67,24 @@ Pour la story 5.5 : reprendre les réglages de la variante de base (`text/event-
 - `stream-probe` supprimée du projet distant par l'utilisateur (`npx supabase functions delete stream-probe --remote=<réf>`) ; `functions list` n'affiche plus que `process-document` et `semantic-search`.
 - Branche distante `probe/5-0-stream` supprimée ; aucun code de l'essai sur `main` (relais, page, fonction, configuration et tests restés sur la branche).
 - Le déploiement de prévisualisation reste protégé par Vercel Authentication ; sa page d'essai ne fonctionne plus sans la fonction.
+
+# Flux réel de l'Assistant (story 5.5)
+
+Mesure du vrai flux de `chat` (Recherche, génération diffusée, masquage des repères) relayé par `POST /api/chat`, **à faire par l'utilisateur après `deploy:supabase` et le push**. Section à compléter avec le résultat copié.
+
+## Conditions prévues
+
+- **Production** Vercel Hobby, région `fra1`, fonction `chat` du projet Supabase distant (`eu-central-1`), et non un déploiement de prévisualisation comme l'écrit le critère d'`epics.md` : même offre, même région, même fonction distante (décision de l'utilisateur du 2026-11-17, Q1 = A ; note datée dans `epics.md`).
+- Relais : variante de base de la 5.0 (`text/event-stream; charset=utf-8`, `Cache-Control: no-cache, no-transform`, corps relayé tel quel) ; B1 prêt mais inactif.
+- Instrument : page `/assistant?mesure=1` (aucun lien depuis la navigation), dans le navigateur de l'utilisateur, connecté avec son propre Compte. Pour chaque question : heure d'envoi, premier `delta`, événement final, nombre de `delta` et de lectures du flux, étalement, région tirée de `x-vercel-id`. Bouton « Copier le résultat » : Markdown sans identifiant (Conversation, message, Compte, `x-vercel-id` complet), sans jeton ni e-mail ; une question hors mini Jeu n'est pas reprise.
+- 10 questions du mini Jeu (`demo/questions-mini.json`), posées une à une, en copiant leur texte exact. Coût estimé : ≈ 0,06 $.
+- Critères : premier affichage < 5 s en médiane ; texte reçu en plusieurs morceaux étalés (chaque réponse reçue en au moins deux lectures distinctes) ; région `fra1`.
+- Plan B (AD-16) si la mesure échoue : B1 (`CHAT_STREAM_VARIANT = "b1"` dans `src/server/chat/relay.ts`), redéployé et remesuré ; B2 impossible ; B3 proposé à l'utilisateur, jamais appliqué sans lui.
+
+## Résultats
+
+(À compléter : résultat copié depuis `/assistant?mesure=1`.)
+
+## Conclusion
+
+(À compléter.)

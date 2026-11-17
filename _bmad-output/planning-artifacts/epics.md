@@ -1428,6 +1428,8 @@ afin de ne pas attendre devant un écran figé.
 **Dépendances :** 5.4, 5.0.
 **Références :** CH-16, CH-18 · FR-16 · NFR-3, NFR-4 · AR-11, AR-12, AR-17, AR-23 · AD-10, AD-11, AD-16 · UX-DR14 · **Priorité :** P0
 
+**Note (2026-11-17, décisions de l'utilisateur, story 5.5) :** (Q1 = A) la mesure des 10 questions se fait **sur la production** après le push, et non sur un déploiement de prévisualisation comme l'écrit le critère ci-dessus : même offre Vercel Hobby, même région (`fra1`), même fonction `chat` distante (un seul projet Supabase). Elle passe par un instrument intégré à la page Assistant, actif seulement avec `?mesure=1`, dont le résultat copié ne contient ni identifiant, ni jeton, ni e-mail. B2 (runtime Edge) reste impossible avec Cache Components (décision du 2026-11-13) : le plan B est B1, puis B3 sur arbitrage. (Q2 = A) un relecteur séparé, centré sur le masquage en flux, le tampon du marqueur, les délais, l'enregistrement après déconnexion et la règle « rien en `delta` de pire que le texte final ».
+
 ### Story 5.6 : Conversations et Historique
 
 En tant que Collaborateur,

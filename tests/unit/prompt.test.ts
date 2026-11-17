@@ -56,13 +56,14 @@ describe("buildChatMessages", () => {
     expect(CHAT_SYSTEM_PROMPT).toContain("Ne nommez jamais un Document autre que celui du Passage que vous citez.");
   });
 
-  it("story 5.4 (décision de l'utilisateur du 2026-11-17, après l'échec de c1) : valeurs différentes pour un même fait, toutes données avec leur Passage dès la réponse directe, écart signalé", () => {
+  it("stories 5.4 et 5.5 (décisions de l'utilisateur du 2026-11-17) : valeurs différentes pour un même fait, toutes données avec leur Passage dès la réponse directe, écart signalé ; exemple sans « selon » devant un renvoi", () => {
     const rule =
-      "Avant de répondre, comparez les Passages entre eux. Si plusieurs Passages donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X selon [P1], Y selon [P3]. »";
+      "Avant de répondre, comparez les Passages entre eux. Si plusieurs Passages donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. »";
     const lines = CHAT_SYSTEM_PROMPT.split("\n");
-    // Une seule ligne, mot pour mot ; l'ancienne consigne a disparu.
+    // Une seule ligne, mot pour mot ; l'ancienne consigne et l'ancien exemple ont disparu.
     expect(lines.filter((line) => line === rule)).toHaveLength(1);
     expect(CHAT_SYSTEM_PROMPT).not.toContain("Si deux Passages se contredisent");
+    expect(CHAT_SYSTEM_PROMPT).not.toMatch(/selon \[P/);
     // Elle précise la réponse directe : placée après elle.
     const direct = lines.findIndex((line) => line.startsWith("Commencez par la réponse directe."));
     expect(lines.indexOf(rule)).toBeGreaterThan(direct);

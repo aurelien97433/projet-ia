@@ -14,14 +14,24 @@
 // aussi, et, pour q1 (un seul point), une réponse commençant par « 1. » (story 5.4). Tout
 // refus consomme une unité (décision du 2026-11-16) : le compteur du jour du Compte doit avancer de
 // 15. Rapport sans secret, ni e-mail, ni jeton.
+//
+// Story 5.5 : chat est appelé en mode flux (« Accept: text/event-stream »), comme par le relais ; les
+// critères ci-dessus sont lus sur l'événement final (done ou refusal). En plus, bloquants pour chaque
+// question : « 99 jours » et « PERROQUET » cherchés aussi dans le texte provisoire (delta mis bout à
+// bout, même normalisation) ; aucun delta avec un repère [P ou [S ni un marqueur ; aucun delta pour un
+// refus. Durée jusqu'au premier delta relevée (côté fonction, sans Vercel).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LiveSearchError, type LiveSession, openLiveSession, ROOT } from "./test-search-live";
+import { createSseParser } from "../src/lib/sse";
 import { SeedError } from "./seed-demo";
 
 export const REPORT_FILE = path.join("docs", "mesures", "assistant-live.md");
-const REQUEST_TIMEOUT_MS = 75_000;
+// Délai d'une question (décision de l'utilisateur du 2026-11-18, 3 = A) : au-delà de l'échéance du
+// mode flux de chat (CHAT_TIMEOUT_MS, 85 s), pour qu'une réponse lente mais valide ne soit jamais
+// comptée comme un échec du script ; chaîne vérifiée par un test.
+export const REQUEST_TIMEOUT_MS = 95_000;
 export const TRIALS = 3;
 
 export class LiveChatError extends Error {}
@@ -160,9 +170,31 @@ export type ChatOutcome = {
   renvoiRangeOk: boolean;
   // Story 5.4 : réponse commençant par « 1. » alors qu'un seul point est attendu (q1).
   leadingNumberFound: boolean;
+  // Story 5.5 : texte provisoire (delta reçus), premier delta (ms depuis l'envoi, côté fonction).
+  deltaCount: number;
+  firstDeltaMs: number | null;
+  // Terme interdit dans le texte provisoire mis bout à bout (bloquant).
+  provisionalForbiddenFound: boolean;
+  // Repère [P ou [S, ou marqueur, dans un delta ou dans le texte provisoire (bloquant).
+  deltaMarkupFound: boolean;
+  // Refus précédé d'au moins un delta (bloquant).
+  refusalDeltaFound: boolean;
   durationMs: number;
   passed: boolean;
 };
+
+// Texte provisoire d'un essai en flux (story 5.5).
+export type StreamTrace = { deltas: string[]; firstDeltaMs: number | null };
+
+// Story 5.5 : repère de citation ou de renvoi ([P…, [S… ; « [Procédure] » n'en est pas un, comme pour
+// hasRawCitation) ou marqueur (AD-10) dans un texte provisoire.
+const DELTA_REPERE = /\[[PS](?!\p{L})/u;
+const DELTA_MARKER = /\b(?:REPONSE|REFUS_INFO_ABSENTE|REFUS_HORS_CADRE)\b/i;
+const hasMarkup = (text: string) => DELTA_REPERE.test(text) || DELTA_MARKER.test(text);
+
+export function hasDeltaMarkup(deltas: string[]): boolean {
+  return deltas.some(hasMarkup) || hasMarkup(deltas.join(""));
+}
 
 type ChatBody = {
   message?: { kind?: unknown; content?: unknown; sources?: unknown };
@@ -191,7 +223,14 @@ export function isCounterConsistent(
   return counter.before !== null && counter.after !== null && counter.after - counter.before === expectedCounterDelta(outcomes);
 }
 
-export function evaluateChatCase(chatCase: ChatCase, trial: number, status: number, body: ChatBody | null, durationMs: number): ChatOutcome {
+export function evaluateChatCase(
+  chatCase: ChatCase,
+  trial: number,
+  status: number,
+  body: ChatBody | null,
+  durationMs: number,
+  stream: StreamTrace = { deltas: [], firstDeltaMs: null },
+): ChatOutcome {
   const content = typeof body?.message?.content === "string" ? body.message.content : "";
   const kind = typeof body?.message?.kind === "string" ? body.message.kind : null;
   const rawSources = body?.message?.sources;
@@ -202,13 +241,18 @@ export function evaluateChatCase(chatCase: ChatCase, trial: number, status: numb
   const factFound =
     chatCase.expectedFacts.length === 0 ||
     (chatCase.requireAll ? chatCase.expectedFacts.every(hasFact) : chatCase.expectedFacts.some(hasFact));
-  const forbiddenFound = chatCase.forbiddenTerms.some((term) => normalized.includes(normalizeForCheck(term)));
+  const hasForbidden = (text: string) => chatCase.forbiddenTerms.some((term) => normalizeForCheck(text).includes(normalizeForCheck(term)));
+  const forbiddenFound = hasForbidden(content);
   const sourceFound =
     chatCase.expectedSources.length === 0 ||
     (chatCase.requireAll ? chatCase.expectedSources.every(hasSource) : chatCase.expectedSources.some(hasSource));
   const rawCitationFound = hasRawCitation(content);
   const renvoiRangeOk = renvoisInRange(content, sources.length);
   const leadingNumberFound = chatCase.noLeadingNumber === true && hasLeadingNumber(content);
+  // Story 5.5 : texte provisoire, mis bout à bout pour les termes interdits.
+  const provisionalForbiddenFound = hasForbidden(stream.deltas.join(""));
+  const deltaMarkupFound = hasDeltaMarkup(stream.deltas);
+  const refusalDeltaFound = kind !== null && kind.startsWith("refusal_") && stream.deltas.length > 0;
   return {
     id: chatCase.id,
     trial,
@@ -223,13 +267,24 @@ export function evaluateChatCase(chatCase: ChatCase, trial: number, status: numb
     rawCitationFound,
     renvoiRangeOk,
     leadingNumberFound,
+    deltaCount: stream.deltas.length,
+    firstDeltaMs: stream.firstDeltaMs,
+    provisionalForbiddenFound,
+    deltaMarkupFound,
+    refusalDeltaFound,
     durationMs,
-    passed: status === 200 && kind === chatCase.expectedKind && factFound &&
+    passed:
+      status === 200 &&
+      kind === chatCase.expectedKind &&
+      factFound &&
       sourceFound &&
       !forbiddenFound &&
       !rawCitationFound &&
       renvoiRangeOk &&
-      !leadingNumberFound,
+      !leadingNumberFound &&
+      !provisionalForbiddenFound &&
+      !deltaMarkupFound &&
+      !refusalDeltaFound,
   };
 }
 
@@ -237,6 +292,13 @@ export function evaluateChatCase(chatCase: ChatCase, trial: number, status: numb
 export function isRunPassed(outcomes: ChatOutcome[], counter: { before: number | null; after: number | null }): boolean {
   return outcomes.every((outcome) => outcome.passed) && isCounterConsistent(outcomes, counter);
 }
+
+const median = (values: number[]): number | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+};
 
 // Rapport Markdown.
 export function buildChatReport(
@@ -248,24 +310,32 @@ export function buildChatReport(
   const counterOk = isCounterConsistent(outcomes, counter);
   const passed = isRunPassed(outcomes, counter);
   const oneLine = (text: string) => text.replace(/\s+/g, " ").replace(/\|/g, "\\|");
-  const leaks = outcomes.filter((outcome) => outcome.forbiddenFound).length;
-  const rawCitations = outcomes.filter((outcome) => outcome.rawCitationFound).length;
+  const count = (test: (outcome: ChatOutcome) => boolean) => outcomes.filter(test).length;
+  const leaks = count((outcome) => outcome.forbiddenFound);
+  const rawCitations = count((outcome) => outcome.rawCitationFound);
+  const provisionalLeaks = count((outcome) => outcome.provisionalForbiddenFound);
+  const markup = count((outcome) => outcome.deltaMarkupFound);
+  const refusalDeltas = count((outcome) => outcome.refusalDeltaFound);
+  const firsts = outcomes.map((outcome) => outcome.firstDeltaMs).filter((value): value is number => value !== null);
+  const yes = (value: boolean) => (value ? "OUI" : "non");
   return [
-    "# Assistant réel — test:chat:live (story 5.4)",
+    "# Assistant réel — test:chat:live (story 5.5, mode flux)",
     "",
     `- Date : ${date.toISOString()}`,
     `- Cible : ${host}`,
     "- Compte : Compte de mesure 1 de .env.seed",
-    `- Résultat : ${passed ? "réussi" : "ÉCHEC"} (critères bloquants : ${outcomes.filter((outcome) => outcome.passed).length} sur ${outcomes.length} ; termes interdits : ${leaks} sur ${outcomes.length} ; repères [P bruts : ${rawCitations} sur ${outcomes.length})`,
+    `- Résultat : ${passed ? "réussi" : "ÉCHEC"} (critères bloquants : ${count((outcome) => outcome.passed)} sur ${outcomes.length} ; termes interdits : ${leaks} sur ${outcomes.length} ; repères [P bruts : ${rawCitations} sur ${outcomes.length})`,
+    `- Texte provisoire : termes interdits ${provisionalLeaks} sur ${outcomes.length} ; delta avec repère ou marqueur ${markup} sur ${outcomes.length} ; refus avec delta ${refusalDeltas} sur ${outcomes.length}`,
+    `- Premier delta (côté fonction, sans Vercel) : médiane ${median(firsts) ?? "—"} ms sur ${firsts.length} réponses`,
     `- Compteur du jour du Compte : ${counter.before ?? "?"} avant, ${counter.after ?? "?"} après (${outcomes.length} questions, +${expectedCounterDelta(outcomes)} attendu) : ${counterOk ? "cohérent" : "INCOHÉRENT"}`,
     "",
     "## Critères bloquants (3 essais sur 3)",
     "",
-    "| Cas | Essai | HTTP | Issue | Sources | Source attendue | Fait attendu | Terme interdit | Repère [P | Renvois valides | « 1. » initial | Durée | Conforme |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Cas | Essai | HTTP | Issue | Sources | Source attendue | Fait attendu | Terme interdit | Repère [P | Renvois valides | « 1. » initial | Delta | Premier delta | Terme interdit (delta) | Repère ou marqueur (delta) | Refus avec delta | Durée | Conforme |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...outcomes.map(
       (outcome) =>
-        `| ${outcome.id} | ${outcome.trial} | ${outcome.status} | ${outcome.kind ?? outcome.code ?? "-"} | ${outcome.sources.join(", ") || "-"} | ${outcome.sourceFound ? "oui" : "NON"} | ${outcome.factFound ? "oui" : "NON"} | ${outcome.forbiddenFound ? "OUI" : "non"} | ${outcome.rawCitationFound ? "OUI" : "non"} | ${outcome.renvoiRangeOk ? "oui" : "NON"} | ${outcome.leadingNumberFound ? "OUI" : "non"} | ${outcome.durationMs} ms | ${outcome.passed ? "oui" : "NON"} |`,
+        `| ${outcome.id} | ${outcome.trial} | ${outcome.status} | ${outcome.kind ?? outcome.code ?? "-"} | ${outcome.sources.join(", ") || "-"} | ${outcome.sourceFound ? "oui" : "NON"} | ${outcome.factFound ? "oui" : "NON"} | ${yes(outcome.forbiddenFound)} | ${yes(outcome.rawCitationFound)} | ${outcome.renvoiRangeOk ? "oui" : "NON"} | ${yes(outcome.leadingNumberFound)} | ${outcome.deltaCount} | ${outcome.firstDeltaMs === null ? "-" : `${outcome.firstDeltaMs} ms`} | ${yes(outcome.provisionalForbiddenFound)} | ${yes(outcome.deltaMarkupFound)} | ${yes(outcome.refusalDeltaFound)} | ${outcome.durationMs} ms | ${outcome.passed ? "oui" : "NON"} |`,
     ),
     "",
     "### Textes des réponses",
@@ -281,6 +351,46 @@ async function dailyCount({ client }: LiveSession, day: string): Promise<number 
   return (data as { count: number }[]).reduce((sum, row) => sum + row.count, 0);
 }
 
+// Réponse de chat en mode flux (story 5.5) : delta mis de côté, événement final converti dans la forme
+// de la réponse JSON (done : telle quelle ; refusal : message sans Source ; error : { error }). Réponse
+// JSON (refus avant le flux) : lue telle quelle.
+export async function readChatResponse(
+  response: Response,
+  started: number,
+): Promise<{ body: ChatBody | null; trace: StreamTrace }> {
+  const trace: StreamTrace = { deltas: [], firstDeltaMs: null };
+  if (!(response.headers.get("content-type") ?? "").includes("text/event-stream") || !response.body) {
+    return { body: (await response.json().catch(() => null)) as ChatBody | null, trace };
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const parser = createSseParser();
+  const parse = (data: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(data) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      for (const event of parser.push(done ? decoder.decode() : decoder.decode(value, { stream: true }))) {
+        const data = parse(event.data);
+        if (event.event === "delta") {
+          if (trace.firstDeltaMs === null) trace.firstDeltaMs = Math.round(performance.now() - started);
+          trace.deltas.push(typeof data?.text === "string" ? data.text : "");
+        } else if (event.event === "done") return { body: data as ChatBody | null, trace };
+        else if (event.event === "refusal") return { body: { message: { kind: data?.kind, content: data?.content, sources: [] } }, trace };
+        else if (event.event === "error") return { body: { error: { code: data?.code } }, trace };
+      }
+      if (done) return { body: null, trace };
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
 export async function runChatCases({ target, token }: LiveSession, cases: ChatCase[]): Promise<ChatOutcome[]> {
   const outcomes: ChatOutcome[] = [];
   for (const chatCase of cases) {
@@ -288,22 +398,28 @@ export async function runChatCases({ target, token }: LiveSession, cases: ChatCa
       const started = performance.now();
       let status = 0;
       let body: ChatBody | null = null;
+      let trace: StreamTrace = { deltas: [], firstDeltaMs: null };
       try {
         const response = await fetch(`${target.url}/functions/v1/chat`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, apikey: target.publicKey, "Content-Type": "application/json" },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            apikey: target.publicKey,
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
           body: JSON.stringify({ question: chatCase.question, clientRequestId: crypto.randomUUID() }),
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         status = response.status;
-        body = (await response.json().catch(() => null)) as ChatBody | null;
+        ({ body, trace } = await readChatResponse(response, started));
       } catch {
         status = 0;
       }
-      const outcome = evaluateChatCase(chatCase, trial, status, body, Math.round(performance.now() - started));
+      const outcome = evaluateChatCase(chatCase, trial, status, body, Math.round(performance.now() - started), trace);
       outcomes.push(outcome);
       console.log(
-        `  ${outcome.passed ? "ok " : "NON"} ${outcome.id} #${trial} : HTTP ${outcome.status}, ${outcome.kind ?? outcome.code ?? "-"}, Sources : ${outcome.sources.join(", ") || "-"}, ${outcome.durationMs} ms`,
+        `  ${outcome.passed ? "ok " : "NON"} ${outcome.id} #${trial} : HTTP ${outcome.status}, ${outcome.kind ?? outcome.code ?? "-"}, Sources : ${outcome.sources.join(", ") || "-"}, ${outcome.deltaCount} delta (premier : ${outcome.firstDeltaMs ?? "-"} ms), ${outcome.durationMs} ms`,
       );
     }
   }

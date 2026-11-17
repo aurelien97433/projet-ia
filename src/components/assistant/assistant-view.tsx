@@ -12,27 +12,35 @@ import { Button } from "@/components/ui/button";
 import { ERROR_CODES, type ErrorCode } from "@/lib/errors";
 import {
   CHAT_MAX_QUESTION_LENGTH,
+  chatDeltaSchema,
   type ChatQuestionIssue,
+  chatRefusalEventSchema,
   type ChatResponse,
   chatResponseSchema,
   questionIssue,
 } from "@/lib/schemas/chat";
 import { searchHref, SEARCH_PATH } from "@/lib/search-links";
+import { createSseParser, type SseEvent } from "@/lib/sse";
+import { functionRegion, type Measure, measureMarkdown } from "@/lib/stream-measure";
 import { texts } from "@/lib/texts";
 import { ASSISTANT_FIELD_ID } from "./constants";
 
 const t = texts.assistant;
 
-// Délai côté navigateur, au-delà duquel la question est considérée comme en échec (décision du
-// 2026-11-16). Chaîne des délais : chat 60 s < relais 70 s < navigateur 85 s < maxDuration 120 s ; le
-// relais ne démarre qu'après requireUser, getSession et un éventuel démarrage à froid.
-export const CHAT_CLIENT_TIMEOUT_MS = 85_000;
+// Délais côté navigateur (story 5.5, AD-16), au-delà desquels la question est considérée comme en
+// échec : 20 s sans premier affichage (delta, refusal, done ou error), 90 s au total. Chaîne des
+// délais : génération 20 s au premier morceau < relais 25 s aux en-têtes ; chat 85 s < navigateur
+// 90 s < maxDuration 120 s.
+export const CHAT_FIRST_DISPLAY_TIMEOUT_MS = 20_000;
+export const CHAT_CLIENT_TIMEOUT_MS = 90_000;
 
 type ChatSource = ChatResponse["message"]["sources"][number];
 type RefusalVariant = "info_absente" | "hors_cadre";
 type ChatError = { code: ErrorCode; message: string; retryable: boolean };
 type Reply =
   | { kind: "pending" }
+  // Texte provisoire (story 5.5) : sans marqueur ni repère, remplacé par la réponse validée.
+  | { kind: "streaming"; text: string }
   | { kind: "answer"; content: string; sources: ChatSource[] }
   | { kind: "refusal"; variant: RefusalVariant }
   | { kind: "error"; error: ChatError };
@@ -75,13 +83,86 @@ function toReply(data: ChatResponse): Reply {
 
 const canRetry = (error: ChatError) => error.retryable && !NO_RETRY_CODES.includes(error.code);
 
+function parseData(event: SseEvent): unknown {
+  try {
+    return JSON.parse(event.data);
+  } catch {
+    return undefined;
+  }
+}
+
+// Événement final du flux → issue affichée ; null pour un delta ou un événement inconnu (ignoré).
+function finalReply(event: SseEvent): Reply | null {
+  switch (event.event) {
+    case "done": {
+      const parsed = chatResponseSchema.safeParse(parseData(event));
+      return parsed.success ? toReply(parsed.data) : unavailable();
+    }
+    case "refusal": {
+      const parsed = chatRefusalEventSchema.safeParse(parseData(event));
+      if (!parsed.success) return unavailable();
+      return { kind: "refusal", variant: parsed.data.kind === "refusal_hors_cadre" ? "hors_cadre" : "info_absente" };
+    }
+    case "error": {
+      const parsed = errorBodySchema.shape.error.safeParse(parseData(event));
+      return parsed.success ? { kind: "error", error: parsed.data } : unavailable();
+    }
+    default:
+      return null;
+  }
+}
+
+type StreamCallbacks = {
+  // Texte provisoire reçu (déjà masqué de ses repères par chat).
+  onDelta: (text: string) => void;
+  // Fin d'une lecture du flux qui a apporté au moins un delta (mesure : morceaux mis en tampon).
+  onDeltaRead: () => void;
+};
+
+// Lit le flux de /api/chat jusqu'à son événement final (done, refusal, error) ; flux fini sans
+// événement final ou illisible : panne. Abandon (délai) : lecture annulée aussitôt, panne.
+async function readChatStream(body: ReadableStream<Uint8Array>, signal: AbortSignal, callbacks: StreamCallbacks): Promise<Reply> {
+  const reader = body.getReader();
+  const stop = () => void reader.cancel().catch(() => {});
+  signal.addEventListener("abort", stop, { once: true });
+  const decoder = new TextDecoder();
+  const parser = createSseParser();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      const events = parser.push(done ? decoder.decode() : decoder.decode(value, { stream: true }));
+      let hadDelta = false;
+      for (const event of events) {
+        if (event.event === "delta") {
+          const parsed = chatDeltaSchema.safeParse(parseData(event));
+          if (!parsed.success) return unavailable();
+          hadDelta = true;
+          callbacks.onDelta(parsed.data.text);
+          continue;
+        }
+        const reply = finalReply(event);
+        if (reply) return reply;
+      }
+      if (hadDelta) callbacks.onDeltaRead();
+      if (done) return unavailable();
+    }
+  } finally {
+    signal.removeEventListener("abort", stop);
+    reader.cancel().catch(() => {});
+  }
+}
+
 // Page Assistant (E4, story 5.2b). Le navigateur n'appelle que POST /api/chat (jamais une Edge
 // Function ni le fournisseur d'IA). Chaque question crée sa Conversation et remplace l'échange affiché.
-// La réponse, d'un bloc, est affichée en texte brut avec ses renvois ¹ ² et ses puces numérotées
-// (story 5.4) ; un refus, dans le bloc de refus (story 5.3).
+// Story 5.5 : la réponse s'écrit progressivement (texte provisoire, aria-busy, hors de la région
+// d'annonce), puis la réponse validée la remplace, en texte brut avec ses renvois ¹ ² et ses puces
+// numérotées (story 5.4), annoncée une seule fois ; un refus arrive d'un bloc (story 5.3) ; une panne
+// retire le texte provisoire. ?mesure=1 : instrument de mesure du flux.
 export function AssistantView() {
   const router = useRouter();
-  const raw = useSearchParams().get("question");
+  const searchParams = useSearchParams();
+  const raw = searchParams.get("question");
+  const measuring = searchParams.get("mesure") === "1";
   const prefill = (raw ?? "").slice(0, CHAT_MAX_QUESTION_LENGTH);
 
   const [value, setValue] = useState(prefill);
@@ -93,6 +174,7 @@ export function AssistantView() {
   }
 
   const [exchange, setExchange] = useState<Exchange | null>(null);
+  const [measures, setMeasures] = useState<Measure[]>([]);
   // Question vide refusée à l'envoi ; la longueur, elle, est contrôlée à chaque frappe.
   const [emptyRefused, setEmptyRefused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -103,7 +185,8 @@ export function AssistantView() {
   // Occupé dès la première activation, avant même le rendu suivant (second clic ignoré).
   const busyRef = useRef(false);
 
-  const busy = exchange?.reply.kind === "pending";
+  // « Envoyer » inactif jusqu'à l'issue (réponse validée, refus ou panne).
+  const busy = exchange?.reply.kind === "pending" || exchange?.reply.kind === "streaming";
   // Longueur après suppression des espaces de bord, comme le schéma et la route : compteur et
   // contrôle mesurent la même chose.
   const questionLength = value.trim().length;
@@ -115,43 +198,92 @@ export function AssistantView() {
     const controller = new AbortController();
     controllerRef.current = controller;
     let expired = false;
-    const timeout = setTimeout(() => {
+    const expire = () => {
       expired = true;
       controller.abort();
-    }, CHAT_CLIENT_TIMEOUT_MS);
+    };
+    const total = setTimeout(expire, CHAT_CLIENT_TIMEOUT_MS);
+    const firstDisplay = setTimeout(expire, CHAT_FIRST_DISPLAY_TIMEOUT_MS);
     const isCurrent = () => controllerRef.current === controller;
+
+    // Mesure (?mesure=1) : instants depuis l'envoi ; aucun identifiant n'est gardé.
+    const sentAt = new Date();
+    const started = performance.now();
+    const elapsed = () => performance.now() - started;
+    let firstDeltaMs: number | null = null;
+    let deltas = 0;
+    const deltaReadsMs: number[] = [];
+    let region: string | null = null;
 
     let reply: Reply = unavailable();
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
         // Nouvel identifiant à chaque envoi, « Réessayer » compris (décision du 2026-11-16).
         body: JSON.stringify({ question, clientRequestId: crypto.randomUUID() }),
         cache: "no-store",
         signal: controller.signal,
       });
-      const body: unknown = await response.json().catch(() => undefined);
+      region = functionRegion(response.headers.get("x-vercel-id"));
       if (!isCurrent()) return;
       // Session expirée : le rafraîchissement renvoie vers la page de connexion.
       if (response.status === 401) router.refresh();
-      if (response.ok) {
-        const parsed = chatResponseSchema.safeParse(body);
-        if (parsed.success) reply = toReply(parsed.data);
+      const streamed = (response.headers.get("content-type") ?? "").includes("text/event-stream");
+      if (response.ok && streamed && response.body) {
+        let provisional = "";
+        reply = await readChatStream(response.body, controller.signal, {
+          onDelta: (text) => {
+            clearTimeout(firstDisplay);
+            if (firstDeltaMs === null) firstDeltaMs = elapsed();
+            deltas += 1;
+            provisional += text;
+            if (!isCurrent()) return;
+            const streaming: Reply = { kind: "streaming", text: provisional };
+            setExchange((current) => (current?.id === exchangeId ? { ...current, reply: streaming } : current));
+          },
+          onDeltaRead: () => deltaReadsMs.push(elapsed()),
+        });
       } else {
-        const parsed = errorBodySchema.safeParse(body);
-        if (parsed.success) reply = { kind: "error", error: parsed.data.error };
-        else if (response.status === 401) {
-          reply = { kind: "error", error: { code: "UNAUTHENTICATED", message: texts.session.expired, retryable: false } };
+        // Réponse d'un bloc : refus avant le flux (saisie, session, quota, plafond, double envoi) ou
+        // réponse JSON.
+        clearTimeout(firstDisplay);
+        const body: unknown = await response.json().catch(() => undefined);
+        if (!isCurrent()) return;
+        if (response.ok) {
+          const parsed = chatResponseSchema.safeParse(body);
+          if (parsed.success) reply = toReply(parsed.data);
+        } else {
+          const parsed = errorBodySchema.safeParse(body);
+          if (parsed.success) reply = { kind: "error", error: parsed.data.error };
+          else if (response.status === 401) {
+            reply = { kind: "error", error: { code: "UNAUTHENTICATED", message: texts.session.expired, retryable: false } };
+          }
         }
       }
     } catch {
       // Réseau ou abandon : panne, sauf si une autre demande a pris le relais.
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(total);
+      clearTimeout(firstDisplay);
     }
     if (!isCurrent()) return;
+    // Délai dépassé : panne, le texte provisoire éventuel est retiré.
     if (expired) reply = timedOut();
+    if (measuring) {
+      const measure: Measure = {
+        sentAt,
+        question,
+        outcome: reply.kind === "answer" ? "answer" : reply.kind === "refusal" ? "refusal" : "error",
+        code: reply.kind === "error" ? reply.error.code : undefined,
+        firstDeltaMs,
+        endMs: elapsed(),
+        deltas,
+        deltaReadsMs,
+        region,
+      };
+      setMeasures((current) => [...current, measure]);
+    }
     controllerRef.current = null;
     busyRef.current = false;
     // Erreur sans « Réessayer » (saisie invalide, double envoi, quota, plafond, session) : la question
@@ -166,7 +298,7 @@ export function AssistantView() {
   // (ou y revient depuis « Envoyer » ou « Réessayer »), sauf s'il a été posé ailleurs entre-temps.
   const replyKind = exchange?.reply.kind;
   useEffect(() => {
-    if (replyKind === undefined || replyKind === "pending") return;
+    if (replyKind === undefined || replyKind === "pending" || replyKind === "streaming") return;
     const active = document.activeElement;
     const free = active === null || active === document.body || containerRef.current?.contains(active) === true;
     if (!free) return;
@@ -262,6 +394,18 @@ export function AssistantView() {
                 {exchange.reply.kind === "answer" ? <Answer content={exchange.reply.content} sources={exchange.reply.sources} /> : null}
                 {exchange.reply.kind === "refusal" ? <RefusalText variant={exchange.reply.variant} /> : null}
               </div>
+              {/* Texte provisoire (story 5.5) : hors de la région d'annonce (jamais lu morceau par morceau),
+                  aria-busy ; la réponse validée le remplace dans la région et y est annoncée une seule fois. */}
+              {exchange.reply.kind === "streaming" ? (
+                <p
+                  data-provisional
+                  aria-busy="true"
+                  className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]"
+                >
+                  <span className="sr-only">{t.provisionalLabel} : </span>
+                  {exchange.reply.text}
+                </p>
+              ) : null}
               {exchange.reply.kind === "refusal" ? (
                 <RefusalActions
                   variant={exchange.reply.variant}
@@ -324,7 +468,48 @@ export function AssistantView() {
           {fieldIssue === "tooLong" ? t.questionTooLong : fieldIssue === "empty" ? t.questionEmpty : null}
         </p>
       </form>
+
+      {measuring ? <MeasurePanel measures={measures} /> : null}
     </div>
+  );
+}
+
+// Instrument de mesure du flux (story 5.5, ?mesure=1) : résultat Markdown sans identifiant, jeton ni
+// e-mail (stream-measure.ts), affiché et copiable.
+function MeasurePanel({ measures }: { measures: Measure[] }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const markdown = measureMarkdown(measures);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  }
+  return (
+    <section data-measure aria-labelledby="mesure-titre" className="flex min-w-0 flex-col gap-2 rounded-lg border border-border p-4 text-sm">
+      <h2 id="mesure-titre" className="font-semibold text-foreground">
+        {t.measureTitle}
+      </h2>
+      <p className="text-muted-foreground">{t.measureHelp}</p>
+      <p data-measure-count className="text-foreground">
+        {t.measureCount(measures.length)}
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" variant="outline" onClick={() => void copy()} disabled={measures.length === 0}>
+          {t.measureCopy}
+        </Button>
+        <p aria-live="polite" className="text-muted-foreground">
+          {copyState === "copied" ? t.measureCopied : copyState === "failed" ? t.measureCopyFailed : null}
+        </p>
+      </div>
+      {measures.length > 0 ? (
+        <pre data-measure-result className="max-h-64 overflow-auto rounded-md bg-surface p-3 text-xs whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {markdown}
+        </pre>
+      ) : null}
+    </section>
   );
 }
 

@@ -24,7 +24,8 @@ vi.mock("@/server/auth/require-user", () => ({ requireUser: mocks.requireUser })
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ auth: { getSession: mocks.getSession } }) }));
 
 const { POST, maxDuration } = await import("@/app/api/chat/route");
-const { relayChat, CHAT_RELAY_TIMEOUT_MS } = await import("@/server/chat/relay");
+const { relayChat, relayChatStream, CHAT_RELAY_TIMEOUT_MS, CHAT_STREAM_HEADERS_TIMEOUT_MS, CHAT_STREAM_VARIANT, copyStream } =
+  await import("@/server/chat/relay");
 
 const TOKEN = "jeton-de-session";
 const QUESTION = "Comment je relance un client qui n'a pas payé ?";
@@ -64,13 +65,34 @@ describe("POST /api/chat", () => {
     expect(maxDuration).toBe(120);
   });
 
-  it("chaîne des délais (décision du 2026-11-16) : chat 60 s < relais 70 s < navigateur 85 s < maxDuration 120 s", async () => {
-    const { CHAT_TIMEOUT_MS } = await import("../../supabase/functions/_shared/config.ts");
-    const { CHAT_CLIENT_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
-    expect([CHAT_TIMEOUT_MS, CHAT_RELAY_TIMEOUT_MS, CHAT_CLIENT_TIMEOUT_MS, maxDuration * 1_000]).toEqual([60_000, 70_000, 85_000, 120_000]);
-    expect(CHAT_TIMEOUT_MS).toBeLessThan(CHAT_RELAY_TIMEOUT_MS);
-    expect(CHAT_RELAY_TIMEOUT_MS).toBeLessThan(CHAT_CLIENT_TIMEOUT_MS);
+  it("chaîne des délais du flux (story 5.5) : génération 20 s au premier morceau < relais 25 s aux en-têtes ; chat 85 s < navigateur 90 s < maxDuration 120 s", async () => {
+    const config = await import("../../supabase/functions/_shared/config.ts");
+    const { CHAT_CLIENT_TIMEOUT_MS, CHAT_FIRST_DISPLAY_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
+    expect([config.CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS, CHAT_STREAM_HEADERS_TIMEOUT_MS]).toEqual([20_000, 25_000]);
+    expect(config.CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS).toBeLessThan(CHAT_STREAM_HEADERS_TIMEOUT_MS);
+    expect([config.CHAT_TIMEOUT_MS, CHAT_CLIENT_TIMEOUT_MS, maxDuration * 1_000]).toEqual([85_000, 90_000, 120_000]);
+    expect(config.CHAT_TIMEOUT_MS).toBeLessThan(CHAT_CLIENT_TIMEOUT_MS);
     expect(CHAT_CLIENT_TIMEOUT_MS).toBeLessThan(maxDuration * 1_000);
+    // Génération : 70 s au plus, dans l'échéance de chat ; navigateur : 20 s sans premier affichage.
+    expect(config.CHAT_GENERATION_MAX_TIMEOUT_MS).toBe(70_000);
+    expect(config.CHAT_GENERATION_MAX_TIMEOUT_MS).toBeLessThan(config.CHAT_TIMEOUT_MS);
+    expect(CHAT_FIRST_DISPLAY_TIMEOUT_MS).toBe(20_000);
+  });
+
+  it("premier affichage (décision du 2026-11-18, option A) : chat 17 s < navigateur 20 s", async () => {
+    const config = await import("../../supabase/functions/_shared/config.ts");
+    const { CHAT_FIRST_DISPLAY_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
+    expect([config.CHAT_FIRST_DISPLAY_MS, CHAT_FIRST_DISPLAY_TIMEOUT_MS]).toEqual([17_000, 20_000]);
+    expect(config.CHAT_FIRST_DISPLAY_MS).toBeLessThan(CHAT_FIRST_DISPLAY_TIMEOUT_MS);
+    // Le premier morceau de la génération ne dépasse jamais l'échéance du premier affichage.
+    expect(config.CHAT_FIRST_DISPLAY_MS).toBeLessThan(config.CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS);
+  });
+
+  it("chaîne des délais du mode JSON (décision du 2026-11-16, gardée pour une page antérieure au flux) : chat 60 s (génération 40 s) < relais 70 s < maxDuration 120 s", async () => {
+    const config = await import("../../supabase/functions/_shared/config.ts");
+    expect([config.CHAT_JSON_GENERATION_MAX_TIMEOUT_MS, config.CHAT_JSON_TIMEOUT_MS, CHAT_RELAY_TIMEOUT_MS, maxDuration * 1_000]).toEqual([
+      40_000, 60_000, 70_000, 120_000,
+    ]);
   });
 
   it("relaie la question avec le jeton de la session et la clé publique ; réponse relue, jamais en cache", async () => {
@@ -269,6 +291,191 @@ describe("relayChat", () => {
     await relayChat(request, TOKEN, undefined, TARGET);
     const output = [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls].flat().join("\n");
     expect(output).toContain("chat_relayed");
+    expect(output).not.toContain(QUESTION);
+    expect(output).not.toContain("Relancez");
+    expect(output).not.toContain(TOKEN);
+  });
+});
+
+// Story 5.5 : relais du flux (variante de base de la 5.0), refus avant le flux en JSON.
+const SSE = 'event: delta\ndata: {"text":"Relancez"}\n\nevent: done\ndata: {"conversationId":"x"}\n\n';
+const sseResponse = (text = SSE) =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "text/event-stream; charset=utf-8" } },
+  );
+
+describe("POST /api/chat en flux (story 5.5)", () => {
+  const streamPost = (body: unknown) =>
+    new Request("http://localhost/api/chat", {
+      method: "POST",
+      headers: { Accept: "text/event-stream" },
+      body: JSON.stringify(body),
+    });
+
+  it("Accept: text/event-stream : flux relayé tel quel, en-têtes de la variante de base, jeton de la session", async () => {
+    fetchMock.mockResolvedValue(sseResponse());
+    const response = await POST(streamPost({ question: QUESTION, clientRequestId: REQUEST_ID }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("no-cache, no-transform");
+    expect(response.headers.get("x-accel-buffering")).toBeNull();
+    expect(await response.text()).toBe(SSE);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://projet.exemple.test/functions/v1/chat");
+    expect(init.headers).toMatchObject({ Authorization: `Bearer ${TOKEN}`, apikey: "sb_publishable_exemple", Accept: "text/event-stream" });
+    expect(JSON.parse(init.body)).toEqual({ question: QUESTION, clientRequestId: REQUEST_ID });
+  });
+
+  it("sans Accept : mode JSON (page ouverte avant le push)", async () => {
+    fetchMock.mockResolvedValue(Response.json(ANSWER));
+    const response = await POST(post({ question: QUESTION, clientRequestId: REQUEST_ID }));
+    expect(await response.json()).toEqual(ANSWER);
+    expect(fetchMock.mock.calls[0][1].headers.Accept).toBeUndefined();
+  });
+
+  it("question invalide : 400 JSON, aucun relais, même en flux", async () => {
+    const response = await POST(streamPost({ question: "", clientRequestId: REQUEST_ID }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(appError("VALIDATION_FAILED", texts.assistant.questionEmpty, false));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("relayChatStream (story 5.5)", () => {
+  const request = { question: QUESTION, clientRequestId: REQUEST_ID };
+
+  it("25 s jusqu'aux en-têtes ; variante de base active (B1 prête, inactive)", () => {
+    expect(CHAT_STREAM_HEADERS_TIMEOUT_MS).toBe(25_000);
+    expect(CHAT_STREAM_VARIANT).toBe("base");
+  });
+
+  it("variante B1 : en-têtes X-Accel-Buffering et Content-Encoding, flux recopié sans transformation", async () => {
+    fetchMock.mockResolvedValue(sseResponse());
+    const response = await relayChatStream(request, TOKEN, undefined, TARGET, 1_000, "b1");
+    expect(response.headers.get("x-accel-buffering")).toBe("no");
+    expect(response.headers.get("content-encoding")).toBe("identity");
+    expect(response.headers.get("cache-control")).toBe("no-cache, no-transform");
+    expect(await response.text()).toBe(SSE);
+  });
+
+  it("copyStream : morceaux recopiés un à un, annulation transmise", async () => {
+    const cancel = vi.fn();
+    const source = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array([1]));
+      },
+      cancel,
+    });
+    const reader = copyStream(source).getReader();
+    expect((await reader.read()).value).toEqual(new Uint8Array([1]));
+    await reader.cancel("fin");
+    expect(cancel).toHaveBeenCalledWith("fin");
+  });
+
+  it.each([
+    ["QUOTA_EXCEEDED", 429, false],
+    ["AI_DAILY_CAP_REACHED", 503, false],
+    ["REQUEST_IN_PROGRESS", 409, false],
+    ["VALIDATION_FAILED", 400, false],
+  ] as const)("refus avant le flux (%s) : JSON avec son statut et le texte du catalogue", async (code, status, retryable) => {
+    fetchMock.mockResolvedValue(Response.json({ error: { code, message: "détail", retryable } }, { status }));
+    const response = await relayChatStream(request, TOKEN, undefined, TARGET);
+    expect(response.status).toBe(status);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(code);
+  });
+
+  it("401 de la passerelle : UNAUTHENTICATED en JSON", async () => {
+    fetchMock.mockResolvedValue(Response.json({ msg: "Invalid JWT" }, { status: 401 }));
+    const response = await relayChatStream(request, TOKEN, undefined, TARGET);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual(appError("UNAUTHENTICATED", texts.session.expired, false));
+  });
+
+  it("chat encore en mode JSON (réponse d'un bloc) : relue et relayée en JSON", async () => {
+    fetchMock.mockResolvedValue(Response.json(ANSWER));
+    const response = await relayChatStream(request, TOKEN, undefined, TARGET);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(ANSWER);
+  });
+
+  it("en-têtes au-delà du délai : 504 AI_TIMEOUT", async () => {
+    fetchMock.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
+    );
+    const response = await relayChatStream(request, TOKEN, undefined, TARGET, 50);
+    expect(response.status).toBe(504);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe("AI_TIMEOUT");
+  });
+
+  it("réseau : 503 AI_UNAVAILABLE ; clé publique absente : aucun appel", async () => {
+    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+    expect((await relayChatStream(request, TOKEN, undefined, TARGET)).status).toBe(503);
+    fetchMock.mockClear();
+    expect((await relayChatStream(request, TOKEN, undefined, { ...TARGET, apikey: undefined })).status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("le délai des en-têtes ne borne pas le corps : un flux plus long que lui est relayé jusqu'au bout", async () => {
+    vi.useFakeTimers();
+    try {
+      let push!: (text: string) => void;
+      let end!: () => void;
+      fetchMock.mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              push = (text) => controller.enqueue(new TextEncoder().encode(text));
+              end = () => controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        ),
+      );
+      const response = await relayChatStream(request, TOKEN, undefined, TARGET, 1_000);
+      const reader = response.body!.getReader();
+      push("event: delta\ndata: {}\n\n");
+      await vi.advanceTimersByTimeAsync(5_000);
+      push("event: done\ndata: {}\n\n");
+      end();
+      let text = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += new TextDecoder().decode(value);
+      }
+      expect(text).toContain("event: done");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("abandon du navigateur après les en-têtes : lecture de chat interrompue (chat termine de son côté)", async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+      upstreamSignal = init.signal ?? undefined;
+      return Promise.resolve(sseResponse());
+    });
+    const client = new AbortController();
+    const response = await relayChatStream(request, TOKEN, client.signal, TARGET);
+    expect(response.status).toBe(200);
+    expect(upstreamSignal?.aborted).toBe(false);
+    client.abort();
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
+  it("journaux sans question, texte ni jeton", async () => {
+    fetchMock.mockResolvedValue(sseResponse());
+    await (await relayChatStream(request, TOKEN, undefined, TARGET)).text();
+    const output = [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls].flat().join("\n");
+    expect(output).toContain("chat_stream_opened");
     expect(output).not.toContain(QUESTION);
     expect(output).not.toContain("Relancez");
     expect(output).not.toContain(TOKEN);

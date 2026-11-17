@@ -287,6 +287,15 @@ export const texts = {
       `Source ${ordinal} : ${label}${passages > 1 ? `, ${passages} Passages` : ""}`,
     // Entrées vers l'Assistant : Tableau de bord et page Document (Document prêt).
     askQuestion: "Poser une question",
+    // Texte provisoire en cours d'écriture (story 5.5), hors de la région d'annonce : nom accessible.
+    provisionalLabel: "Réponse en cours d'écriture",
+    // Instrument de mesure du flux (story 5.5, ?mesure=1 seulement, jamais lié depuis la navigation).
+    measureTitle: "Mesure du flux",
+    measureHelp: "Posez les questions du mini Jeu une à une, puis copiez le résultat.",
+    measureCount: (count: number) => `${count} question${count > 1 ? "s" : ""} mesurée${count > 1 ? "s" : ""}`,
+    measureCopy: "Copier le résultat",
+    measureCopied: "Résultat copié.",
+    measureCopyFailed: "Copie impossible : sélectionnez le résultat ci-dessous.",
   },
   dashboard: {
     recentDocuments: "Derniers Documents",

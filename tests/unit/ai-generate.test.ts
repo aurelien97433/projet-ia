@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { classifyRefusal, generateAnswer, type AiDeps } from "../../supabase/functions/_shared/ai.ts";
+import { classifyRefusal, generateAnswer, streamAnswer, type AiDeps } from "../../supabase/functions/_shared/ai.ts";
 import {
   AI_MAX_RETRIES,
   DEFAULT_GENERATION_MODEL,
@@ -274,5 +274,254 @@ describe("classifyRefusal (appel court, story 5.3)", () => {
     expect(await aiError(classifyRefusal(MESSAGES, { deps: fakeDeps(completion("REFUS_HORS_CADRE\nx", "content_filter")) }))).toMatchObject({
       code: "AI_OUTPUT_INVALID",
     });
+  });
+});
+
+// Story 5.5 : génération diffusée (fournisseur simulé en SSE).
+describe("streamAnswer (story 5.5)", () => {
+  const sseChunk = (data: unknown) => `data: ${JSON.stringify(data)}\n\n`;
+  // Flux du fournisseur : chaque morceau de texte dans un événement, puis finish_reason, usage, [DONE].
+  // split : découpage des octets envoyés (lignes coupées n'importe où).
+  function streamed(texts: string[], { finishReason = "stop", split = 0, done = true, open = false } = {}) {
+    const body = [
+      sseChunk({ model: "gpt-5.4-mini-2026-03-17", choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] }),
+      ...texts.map((content) => sseChunk({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })),
+      finishReason === "absent" ? "" : sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: finishReason }] }),
+      sseChunk({ choices: [], usage: { prompt_tokens: 120, completion_tokens: 18 } }),
+      done ? "data: [DONE]\n\n" : "",
+    ].join("");
+    const parts = split > 0 ? (body.match(new RegExp(`[\\s\\S]{1,${split}}`, "g")) ?? []) : [body];
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
+        // open : flux laissé ouvert (fournisseur qui continue d'écrire), à annuler par le lecteur.
+        if (!open) controller.close();
+      },
+      cancel,
+    });
+    return { response: new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } }), cancel };
+  }
+
+  it("corps : mêmes modèle, échantillonnage, raisonnement et borne que generateAnswer, avec stream: true", async () => {
+    const deps = fakeDeps(streamed(["Bonjour"]).response);
+    await streamAnswer(MESSAGES, { deps, onText: () => {} });
+    const [url, init] = deps.fetch.mock.calls[0];
+    expect(url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: DEFAULT_GENERATION_MODEL,
+      messages: MESSAGES,
+      reasoning_effort: "none",
+      max_completion_tokens: GENERATION_MAX_COMPLETION_TOKENS,
+      ...GENERATION_SAMPLING,
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+  });
+
+  it("morceaux rendus dans l'ordre, même avec des lignes coupées en plein milieu ; texte complet, modèle et usage", async () => {
+    const texts = ["REPONSE\n", "Relancez à J+15 ", "[P", "1]. Fin é."];
+    for (const split of [0, 1, 7]) {
+      const received: string[] = [];
+      const result = await streamAnswer(MESSAGES, {
+        deps: fakeDeps(streamed(texts, { split }).response),
+        onText: (text) => void received.push(text),
+      });
+      expect(received).toEqual(texts);
+      expect(result).toMatchObject({
+        text: texts.join(""),
+        model: "gpt-5.4-mini-2026-03-17",
+        usage: { inputTokens: 120, outputTokens: 18 },
+        stopped: false,
+      });
+      expect(result.firstChunkMs).not.toBeNull();
+    }
+  });
+
+  it("onText → false : lecture du fournisseur arrêtée (flux annulé), texte partiel non contrôlé", async () => {
+    const { response, cancel } = streamed(["REFUS_INFO_ABSENTE\n", "Texte à ignorer", " encore"], { finishReason: "length", open: true });
+    const received: string[] = [];
+    const result = await streamAnswer(MESSAGES, {
+      deps: fakeDeps(response),
+      onText: (text) => {
+        received.push(text);
+        return false;
+      },
+    });
+    expect(received).toEqual(["REFUS_INFO_ABSENTE\n"]);
+    expect(result).toMatchObject({ text: "REFUS_INFO_ABSENTE\n", stopped: true });
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["sortie tronquée", { finishReason: "length" }, false],
+    ["sortie filtrée", { finishReason: "content_filter" }, false],
+    ["flux sans fin (ni finish_reason ni [DONE])", { finishReason: "absent", done: false }, true],
+  ])("%s : AI_OUTPUT_INVALID « response_received »", async (_, options, retryable) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = await aiError(streamAnswer(MESSAGES, { deps: fakeDeps(streamed(["Début"], options).response), onText: () => {} }));
+    expect(error).toMatchObject({ code: "AI_OUTPUT_INVALID", retryable, outcome: "response_received" });
+    expect(logged()).not.toContain("Début");
+  });
+
+  it("503 puis flux : une seule nouvelle tentative avant le premier morceau ; 503 répétés : AI_UNAVAILABLE sans réponse", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const ok = fakeDeps(json(503, {}), streamed(["OK"]).response);
+    expect((await streamAnswer(MESSAGES, { deps: ok, onText: () => {} })).text).toBe("OK");
+    expect(ok.fetch).toHaveBeenCalledTimes(2);
+    const ko = fakeDeps(json(503, {}), json(503, {}), streamed(["OK"]).response);
+    expect(await aiError(streamAnswer(MESSAGES, { deps: ko, onText: () => {} }))).toMatchObject({
+      code: "AI_UNAVAILABLE",
+      outcome: "no_response",
+    });
+    expect(ko.fetch).toHaveBeenCalledTimes(1 + GENERATION_MAX_RETRIES);
+  });
+
+  it("plafond (429) : AI_BUDGET_EXHAUSTED sans nouvelle tentative ; erreur réseau : aucune nouvelle tentative", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const budget = fakeDeps(providerError(429, "project_spend_limit_exceeded"));
+    expect((await aiError(streamAnswer(MESSAGES, { deps: budget, onText: () => {} }))).code).toBe("AI_BUDGET_EXHAUSTED");
+    expect(budget.fetch).toHaveBeenCalledTimes(1);
+    const network = fakeDeps(new TypeError("fetch failed"), streamed(["OK"]).response);
+    expect(await aiError(streamAnswer(MESSAGES, { deps: network, onText: () => {} }))).toMatchObject({
+      code: "AI_UNAVAILABLE",
+      outcome: "no_response",
+    });
+    expect(network.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("flux coupé après le premier morceau : AI_UNAVAILABLE « response_received » (facturé), aucune nouvelle tentative", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let pulls = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        if (pulls === 1) controller.enqueue(new TextEncoder().encode(sseChunk({ choices: [{ index: 0, delta: { content: "Début" } }] })));
+        else controller.error(new TypeError("connexion coupée"));
+      },
+    });
+    const deps = fakeDeps(new Response(stream, { status: 200 }), streamed(["OK"]).response);
+    const received: string[] = [];
+    const error = await aiError(streamAnswer(MESSAGES, { deps, onText: (text) => void received.push(text) }));
+    expect(error).toMatchObject({ code: "AI_UNAVAILABLE", outcome: "response_received" });
+    expect(received).toEqual(["Début"]);
+    expect(deps.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("aucun morceau avant firstChunkTimeoutMs : AI_TIMEOUT « timeout » ; premier morceau à temps : délai total seul ensuite", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const encoder = new TextEncoder();
+    const slow = (firstDelay: number, secondDelay: number) =>
+      vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+        const stream = new ReadableStream<Uint8Array>({
+          async start(controller) {
+            const wait = (ms: number) =>
+              new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(resolve, ms);
+                init?.signal?.addEventListener("abort", () => {
+                  clearTimeout(timer);
+                  reject(new DOMException("interrompu", "AbortError"));
+                });
+              });
+            try {
+              await wait(firstDelay);
+              controller.enqueue(encoder.encode(sseChunk({ choices: [{ index: 0, delta: { content: "A" } }] })));
+              await wait(secondDelay);
+              controller.enqueue(encoder.encode(sseChunk({ choices: [{ index: 0, delta: { content: "B" }, finish_reason: "stop" }] })));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            } catch (error) {
+              controller.error(error);
+            }
+          },
+        });
+        return new Response(stream, { status: 200 });
+      });
+    const deps = (fetch: typeof globalThis.fetch) => ({ apiKey: FAKE_KEY as AiDeps["apiKey"], sleep: vi.fn(async () => {}), fetch });
+    const late = slow(300, 0);
+    expect(await aiError(streamAnswer(MESSAGES, { deps: deps(late), timeoutMs: 2_000, firstChunkTimeoutMs: 40, onText: () => {} }))).toMatchObject({
+      code: "AI_TIMEOUT",
+      outcome: "timeout",
+    });
+    expect(late).toHaveBeenCalledTimes(1);
+    const steady = slow(5, 120);
+    expect((await streamAnswer(MESSAGES, { deps: deps(steady), timeoutMs: 2_000, firstChunkTimeoutMs: 40, onText: () => {} })).text).toBe("AB");
+    const tooLong = slow(5, 400);
+    expect(await aiError(streamAnswer(MESSAGES, { deps: deps(tooLong), timeoutMs: 100, firstChunkTimeoutMs: 40, onText: () => {} }))).toMatchObject({
+      code: "AI_TIMEOUT",
+    });
+  });
+
+  it("clé absente : AI_UNAVAILABLE sans appel ; morceau illisible : AI_OUTPUT_INVALID", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = { ...fakeDeps(), apiKey: undefined };
+    expect(await aiError(streamAnswer(MESSAGES, { deps, onText: () => {} }))).toMatchObject({ code: "AI_UNAVAILABLE", outcome: "no_response" });
+    expect(deps.fetch).not.toHaveBeenCalled();
+    const broken = new Response("data: {pas du json\n\n", { status: 200 });
+    expect((await aiError(streamAnswer(MESSAGES, { deps: fakeDeps(broken), onText: () => {} }))).code).toBe("AI_OUTPUT_INVALID");
+  });
+});
+
+// Revue de la 5.5 : échéances comptées depuis le début de l'appel, usage inconnu quand la lecture est
+// arrêtée avant le morceau d'usage.
+describe("streamAnswer : échéances de l'appel et usage (revue de la 5.5)", () => {
+  const sseChunk = (data: unknown) => `data: ${JSON.stringify(data)}\n\n`;
+  // Flux dont le premier morceau arrive après delayMs (abandonné si le signal est abandonné).
+  const delayedStream = (delayMs: number, signal: AbortSignal | null | undefined) =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          const timer = setTimeout(() => {
+            controller.enqueue(new TextEncoder().encode(sseChunk({ choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }] })));
+            controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+            controller.close();
+          }, delayMs);
+          signal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            controller.error(new DOMException("interrompu", "AbortError"));
+          });
+        },
+      }),
+      { status: 200 },
+    );
+
+  it("nouvelle tentative après 503 : elle ne reçoit que le temps restant jusqu'au premier morceau (échéance de l'appel, pas de la tentative)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let calls = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      calls += 1;
+      return calls === 1 ? json(503, {}) : delayedStream(80, init?.signal);
+    });
+    // Attente de 60 ms avant la nouvelle tentative : 60 + 80 > 100 ms d'échéance au premier morceau.
+    const deps = { apiKey: FAKE_KEY as AiDeps["apiKey"], sleep: () => new Promise<void>((resolve) => setTimeout(resolve, 60)), fetch };
+    const error = await aiError(streamAnswer(MESSAGES, { deps, timeoutMs: 2_000, firstChunkTimeoutMs: 100, onText: () => {} }));
+    expect(error.code).toBe("AI_TIMEOUT");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    // Même enchaînement avec assez de temps : réponse rendue.
+    calls = 0;
+    expect((await streamAnswer(MESSAGES, { deps, timeoutMs: 2_000, firstChunkTimeoutMs: 400, onText: () => {} })).text).toBe("OK");
+  });
+
+  it("échéance déjà atteinte pendant l'attente avant la nouvelle tentative : AI_TIMEOUT sans réponse reçue, aucun second appel", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(503, {}));
+    const deps = { apiKey: FAKE_KEY as AiDeps["apiKey"], sleep: () => new Promise<void>((resolve) => setTimeout(resolve, 80)), fetch };
+    const error = await aiError(streamAnswer(MESSAGES, { deps, timeoutMs: 2_000, firstChunkTimeoutMs: 50, onText: () => {} }));
+    expect(error).toMatchObject({ code: "AI_TIMEOUT", outcome: "no_response" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("lecture arrêtée avant le morceau d'usage : usage inconnu (null), jamais 0 ; flux complet : usage rendu", async () => {
+    const body = [
+      sseChunk({ choices: [{ index: 0, delta: { content: "REFUS_HORS_CADRE\n" } }] }),
+      sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }),
+      sseChunk({ choices: [], usage: { prompt_tokens: 120, completion_tokens: 4 } }),
+      "data: [DONE]\n\n",
+    ].join("");
+    const stopped = await streamAnswer(MESSAGES, { deps: fakeDeps(new Response(body, { status: 200 })), onText: () => false });
+    expect(stopped).toMatchObject({ stopped: true, usage: null });
+    const complete = await streamAnswer(MESSAGES, { deps: fakeDeps(new Response(body, { status: 200 })), onText: () => {} });
+    expect(complete.usage).toEqual({ inputTokens: 120, outputTokens: 4 });
   });
 });

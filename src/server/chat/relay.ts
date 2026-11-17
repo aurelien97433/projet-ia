@@ -4,9 +4,22 @@ import { formatResetMoment } from "@/lib/reset-moment";
 import { type ChatRequest, type ChatResponse, chatResponseSchema } from "@/lib/schemas/chat";
 import { texts } from "@/lib/texts";
 
-// Délai du relais : l'échéance de chat (60 s) plus l'enregistrement de l'échec et la marge du réseau
-// et du démarrage (story 5.2a-2). maxDuration de la route : 120 s.
+// Délai du relais JSON : l'échéance de chat en mode JSON (60 s) plus l'enregistrement de l'échec et la
+// marge du réseau et du démarrage (story 5.2a-2). maxDuration de la route : 120 s.
 export const CHAT_RELAY_TIMEOUT_MS = 70_000;
+// Relais du flux (story 5.5, AD-16) : 25 s jusqu'aux en-têtes de chat (envoyés dès la demande acceptée,
+// démarrage à froid compris) ; le corps n'est pas borné ici : chat s'arrête à 85 s, le navigateur à
+// 90 s, la route à maxDuration (120 s).
+export const CHAT_STREAM_HEADERS_TIMEOUT_MS = 25_000;
+
+// En-têtes du flux : variante de base validée en 5.0 (docs/mesures/flux-vercel.md). B1 (plan B d'AD-16,
+// prêt mais inactif) : recopie morceau par morceau, X-Accel-Buffering: no, sans compression. Elle ne
+// s'active qu'en changeant CHAT_STREAM_VARIANT, après une mesure en échec et sur décision de
+// l'utilisateur.
+export type StreamVariant = "base" | "b1";
+export const CHAT_STREAM_VARIANT: StreamVariant = "base";
+export const STREAM_HEADERS = { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform" };
+export const B1_STREAM_HEADERS = { ...STREAM_HEADERS, "X-Accel-Buffering": "no", "Content-Encoding": "identity" };
 
 export type ChatTarget = { url: string; apikey: string | undefined };
 
@@ -59,7 +72,8 @@ const validResetAt = (value: unknown): string | undefined =>
   typeof value === "string" && !Number.isNaN(new Date(value).getTime()) ? new Date(value).toISOString() : undefined;
 
 // Relaie la question vers l'Edge Function chat avec le jeton d'accès du Collaborateur (jamais
-// service_role). Réponse JSON, non diffusée (diffusion : 5.5). Les codes AD-19 de la fonction sont
+// service_role). Mode JSON (réponse d'un bloc), gardé pour une page antérieure au flux (story 5.5,
+// onglet ouvert pendant le push) ; le flux passe par relayChatStream. Les codes AD-19 de la fonction sont
 // relayés tels quels, avec le texte du catalogue et resetAt ; la réponse est relue par
 // chatResponseSchema. L'abandon du navigateur est propagé : la fonction termine et enregistre son
 // travail de son côté (AD-17). Ne lève jamais d'exception ; journaux sans question, réponse ni jeton.
@@ -94,8 +108,12 @@ export async function relayChat(
     logEvent("chat_relay_failed", { cause, duration_ms: Date.now() - started });
     return cause === "timeout" ? failed("AI_TIMEOUT", true, 504) : unavailable();
   }
-  const duration_ms = Date.now() - started;
+  return readJsonResult(response, body, Date.now() - started);
+}
 
+// Réponse JSON de chat (mode JSON, ou refus avant le flux) : succès relu par chatResponseSchema, codes
+// AD-19 relayés avec le texte du catalogue et resetAt.
+function readJsonResult(response: Response, body: unknown, duration_ms: number): ChatRelayResult {
   if (response.ok) {
     const parsed = chatResponseSchema.safeParse(body);
     if (!parsed.success) {
@@ -116,4 +134,88 @@ export async function relayChat(
   }
   logEvent("chat_relay_refused", { code: error.code, status: response.status, duration_ms });
   return failed(error.code, error.retryable === true, response.status, validResetAt(error.resetAt));
+}
+
+const jsonResponse = ({ status, body }: ChatRelayResult) =>
+  Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+
+// B1 : recopie morceau par morceau dans un nouveau ReadableStream, sans transformation (story 5.0).
+export function copyStream(source: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
+// Relais du flux (story 5.5) : la question part vers chat avec « Accept: text/event-stream » et le
+// jeton d'accès du Collaborateur (jamais service_role). Flux reçu : corps relayé tel quel (variante de
+// base de la 5.0), sans lecture ni transformation. Réponse JSON (refus avant le flux : session, saisie,
+// rejeu, quota, plafond ; ou chat encore en mode JSON) : même traitement que relayChat. 25 s au plus
+// jusqu'aux en-têtes ; l'abandon du navigateur interrompt l'envoi, chat termine et enregistre son travail
+// de son côté (AD-17). Ne lève jamais d'exception ; journaux sans question, texte ni jeton.
+export async function relayChatStream(
+  request: ChatRequest,
+  accessToken: string,
+  clientSignal?: AbortSignal,
+  target: ChatTarget = defaultTarget(),
+  headersTimeoutMs = CHAT_STREAM_HEADERS_TIMEOUT_MS,
+  variant: StreamVariant = CHAT_STREAM_VARIANT,
+): Promise<Response> {
+  const started = Date.now();
+  if (!target.apikey) {
+    logEvent("chat_relay_failed", { cause: "not_configured", mode: "stream" });
+    return jsonResponse(unavailable());
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, headersTimeoutMs);
+  const abort = () => controller.abort();
+  clientSignal?.addEventListener("abort", abort, { once: true });
+  if (clientSignal?.aborted) abort();
+
+  let response: Response;
+  try {
+    response = await fetch(target.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: target.apikey,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ question: request.question, clientRequestId: request.clientRequestId }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch {
+    clientSignal?.removeEventListener("abort", abort);
+    const cause = timedOut ? "timeout" : clientSignal?.aborted ? "client_aborted" : "network";
+    logEvent("chat_relay_failed", { cause, mode: "stream", duration_ms: Date.now() - started });
+    return jsonResponse(cause === "timeout" ? failed("AI_TIMEOUT", true, 504) : unavailable());
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (response.ok && response.body && contentType.includes("text/event-stream")) {
+    logInfo("chat_stream_opened", { variant, duration_ms: Date.now() - started });
+    return variant === "b1"
+      ? new Response(copyStream(response.body), { status: 200, headers: B1_STREAM_HEADERS })
+      : new Response(response.body, { status: 200, headers: STREAM_HEADERS });
+  }
+
+  clientSignal?.removeEventListener("abort", abort);
+  const body: unknown = await response.json().catch(() => undefined);
+  return jsonResponse(readJsonResult(response, body, Date.now() - started));
 }

@@ -5,7 +5,13 @@ import { createClient } from "@supabase/supabase-js";
 import type { Locator, Page, Request } from "@playwright/test";
 import { EMBEDDING_MODEL, EMBEDDING_VERSION } from "../../supabase/functions/_shared/config.ts";
 import { fakeVector } from "../../supabase/functions/_shared/fake-embeddings.ts";
-import { FAKE_HORS_CADRE_MARKER, FAKE_INVALID_CITATION_MARKER, FAKE_INVALID_MARKER } from "../../supabase/functions/_shared/fake-generation.ts";
+import {
+  FAKE_HORS_CADRE_MARKER,
+  FAKE_INFO_ABSENTE_MARKER,
+  FAKE_INVALID_CITATION_MARKER,
+  FAKE_INVALID_MARKER,
+  FAKE_SLOW_STREAM_MARKER,
+} from "../../supabase/functions/_shared/fake-generation.ts";
 import { texts } from "../../src/lib/texts";
 import { expect, isDesktop, test, type Account } from "../support/e2e-auth";
 import { localSupabase } from "../support/local-supabase";
@@ -497,4 +503,119 @@ test("page prérendue /assistant : ni question, ni réponse", async ({}, testInf
   expect(html).not.toContain("data-question-bubble");
   expect(html).not.toContain("data-answer");
   expect(html).not.toContain(t.pending);
+});
+
+// Story 5.5 : réponse progressive. Génération simulée lente (morceaux espacés de 400 ms) pour observer
+// le texte provisoire ; pannes et délais : flux de /api/chat simulé.
+const sse = (events: [string, unknown][]) => ({
+  status: 200,
+  contentType: "text/event-stream; charset=utf-8",
+  body: events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join(""),
+});
+
+// Enregistre, dans la page, chaque texte provisoire affiché (même bref) et s'il a été annoncé.
+async function watchProvisional(page: Page) {
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { __provisional: string[] }).__provisional = seen;
+    new MutationObserver(() => {
+      const node = document.querySelector("[data-provisional]");
+      if (node?.textContent) seen.push(node.textContent);
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+}
+const provisionalSeen = (page: Page) => page.evaluate(() => (window as unknown as { __provisional: string[] }).__provisional);
+
+test("réponse progressive (story 5.5) : texte provisoire aria-busy, hors de la région d'annonce, sans repère ; puis réponse validée avec renvoi ; seul /api/chat est appelé", async ({
+  page,
+  account,
+}) => {
+  const seeded = await seedDocument(account, `${tag()} ${FAKE_SLOW_STREAM_MARKER}`);
+  const requests = collectRequests(page);
+  await openAssistant(page);
+  await watchProvisional(page);
+  await field(page).fill(seeded.question);
+  await field(page).press("Enter");
+
+  const provisional = thread(page).locator("[data-provisional]");
+  await expect(provisional).toBeVisible();
+  await expect(provisional).toHaveAttribute("aria-busy", "true");
+  await expect(answerStatus(page).locator("[data-provisional]")).toHaveCount(0);
+  await expect(sendButton(page)).toHaveAttribute("aria-disabled", "true");
+
+  const text = answerStatus(page).locator("[data-answer] p").first();
+  await expect(text).toHaveText(/^Réponse simulée à partir des Documents Source 1\./);
+  await expect(provisional).toHaveCount(0);
+  const seen = await provisionalSeen(page);
+  expect(seen.length).toBeGreaterThan(0);
+  for (const value of seen) expect(value).not.toMatch(/\[[PS]|REPONSE/);
+  await expect(sendButton(page)).not.toHaveAttribute("aria-disabled", "true");
+  expect(chatCalls(requests)).toHaveLength(1);
+  expect(chatCalls(requests)[0].headers()["accept"]).toContain("text/event-stream");
+  expectBoundary(requests);
+});
+
+test("refus en flux (story 5.5) : bloc de refus d'un coup, jamais de texte provisoire", async ({ page, account }) => {
+  const seeded = await seedDocument(account, `${tag()} ${FAKE_SLOW_STREAM_MARKER} ${FAKE_INFO_ABSENTE_MARKER}`);
+  await openAssistant(page);
+  await watchProvisional(page);
+  await field(page).fill(seeded.question);
+  await field(page).press("Enter");
+  await expect(page.locator("[data-refusal]")).toBeVisible();
+  await expect(answerStatus(page)).toHaveText(t.refusalInfoAbsente);
+  expect(await provisionalSeen(page)).toEqual([]);
+});
+
+test("panne après le texte provisoire (story 5.5) : texte provisoire retiré, alerte et « Réessayer », question conservée", async ({ page }) => {
+  await page.route("**/api/chat", (route) =>
+    route.fulfill(
+      sse([
+        ["delta", { text: "Texte provisoire" }],
+        ["error", { code: "AI_CITATIONS_INVALID", message: t.unverifiable, retryable: true }],
+      ]),
+    ),
+  );
+  await openAssistant(page);
+  await field(page).fill("Question en panne");
+  await field(page).press("Enter");
+  const alert = thread(page).getByRole("alert");
+  await expect(alert).toContainText(t.unverifiable);
+  await expect(alert.getByRole("button", { name: t.retry })).toBeVisible();
+  await expect(thread(page).locator("[data-provisional]")).toHaveCount(0);
+  await expect(page.getByText("Texte provisoire")).toHaveCount(0);
+  await expect(page.locator("[data-question-bubble]")).toContainText("Question en panne");
+});
+
+test("20 s sans premier affichage (story 5.5) : alerte de panne et « Réessayer », question conservée", async ({ page }) => {
+  await page.clock.install();
+  // Aucune réponse de /api/chat : la requête reste en attente jusqu'à l'abandon par la page.
+  await page.route("**/api/chat", () => new Promise(() => {}));
+  await openAssistant(page);
+  await field(page).fill("Question sans réponse");
+  await field(page).press("Enter");
+  await expect(page.getByText(t.pending)).toBeVisible();
+  await page.clock.fastForward(19_000);
+  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await page.clock.fastForward(1_500);
+  const alert = thread(page).getByRole("alert");
+  await expect(alert).toContainText(t.failedTitle);
+  await expect(alert.getByRole("button", { name: t.retry })).toBeVisible();
+  await expect(page.locator("[data-question-bubble]")).toContainText("Question sans réponse");
+});
+
+test("mesure du flux (?mesure=1, story 5.5) : instrument visible et résultat sans identifiant ; absent sans le paramètre", async ({ page, account }) => {
+  await openAssistant(page);
+  await expect(page.locator("[data-measure]")).toHaveCount(0);
+  const seeded = await seedDocument(account);
+  await page.goto("/assistant?mesure=1");
+  await expect(field(page)).toBeVisible();
+  await expect(page.getByRole("heading", { name: t.measureTitle })).toBeVisible();
+  await field(page).fill(seeded.question);
+  await field(page).press("Enter");
+  await expect(answerStatus(page).locator("[data-answer]")).toBeVisible();
+  await expect(page.locator("[data-measure-count]")).toHaveText(t.measureCount(1));
+  const result = await page.locator("[data-measure-result]").textContent();
+  expect(result).toContain("(hors mini Jeu, texte non repris)");
+  expect(result).not.toContain(seeded.question);
+  expect(result).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-|@|::/);
 });

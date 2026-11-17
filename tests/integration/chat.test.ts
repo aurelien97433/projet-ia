@@ -9,6 +9,7 @@ import {
   FAKE_INVALID_CITATION_MARKER,
   FAKE_INVALID_MARKER,
   FAKE_NO_CITATION_MARKER,
+  FAKE_SLOW_STREAM_MARKER,
 } from "../../supabase/functions/_shared/fake-generation.ts";
 import { localProcessSecret, localSqlRows, localSupabase, uniqueEmail } from "../support/local-supabase";
 
@@ -442,5 +443,123 @@ describe("fonction chat (vectorisation et génération simulées)", () => {
       body: JSON.stringify({ question: "Q", clientRequestId: crypto.randomUUID() }),
     });
     expect(response.status).toBe(401);
+  });
+});
+
+// Story 5.5 : mode flux de chat sur la pile locale (génération simulée diffusée en morceaux, marqueur
+// et repères coupés entre deux morceaux).
+describe("fonction chat en flux (story 5.5)", () => {
+  type StreamEvent = { event: string; data: Record<string, unknown> };
+  const request = (user: User, question: string, signal?: AbortSignal, clientRequestId: string = crypto.randomUUID()) =>
+    fetch(`${localSupabase().url}/functions/v1/chat`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${user.token}`,
+        apikey: localSupabase().publishableKey,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ question, clientRequestId }),
+      signal,
+    });
+  async function streamChat(user: User, question: string, clientRequestId?: string) {
+    const response = await request(user, question, undefined, clientRequestId);
+    const text = await response.text();
+    const events: StreamEvent[] = text
+      .split("\n\n")
+      .filter((block) => block.startsWith("event: "))
+      .map((block) => {
+        const [eventLine, dataLine] = block.split("\n");
+        return { event: eventLine.slice("event: ".length), data: JSON.parse(dataLine.slice("data: ".length)) };
+      });
+    const deltas = events.filter((event) => event.event === "delta").map((event) => String(event.data.text));
+    const final = events.filter((event) => event.event !== "delta");
+    return { response, deltas, final };
+  }
+  async function answerOf(conversationId: string) {
+    const { data } = await measure.client
+      .from("messages")
+      .select("kind, content, error_code")
+      .eq("conversation_id", conversationId)
+      .neq("kind", "question")
+      .maybeSingle();
+    return data;
+  }
+  const latestConversation = async (user: User, title: string) => {
+    const { data } = await user.client.from("conversations").select("id").eq("title", title).order("created_at", { ascending: false }).limit(1);
+    return data?.[0]?.id as string | undefined;
+  };
+
+  it("réponse : delta sans marqueur ni repère, puis done identique au texte enregistré ; unité consommée", async () => {
+    const before = await userCount(measure);
+    const { response, deltas, final } = await streamChat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(deltas.length).toBeGreaterThanOrEqual(2);
+    for (const delta of deltas) expect(delta).not.toMatch(/\[[PS]|REPONSE/);
+    expect(final).toHaveLength(1);
+    expect(final[0].event).toBe("done");
+    const body = final[0].data as { conversationId: string; message: { kind: string; content: string; sources: unknown[] } };
+    expect(body.message.kind).toBe("answer");
+    expect(body.message.content).toMatch(/\[S1\]/);
+    expect(deltas.join("")).toBe(body.message.content.replace(/\[S\d+\]/g, ""));
+    expect(await answerOf(body.conversationId)).toEqual({ kind: "answer", content: body.message.content, error_code: null });
+    expect(await userCount(measure)).toBe(before + 1);
+  });
+
+  it("refus avec Passages : un seul refusal, aucun delta, message standard enregistré", async () => {
+    const { deltas, final } = await streamChat(measure, `Combien de jours de congés payés par an ? ${FAKE_INFO_ABSENTE_MARKER}`);
+    expect(deltas).toEqual([]);
+    expect(final).toEqual([{ event: "refusal", data: { kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE } }]);
+  });
+
+  it("sans Passage (appel court) : refusal", async () => {
+    const { deltas, final } = await streamChat(measure, `xyzzy plugh quux frobnicate ${FAKE_HORS_CADRE_MARKER}`);
+    expect(deltas).toEqual([]);
+    expect(final).toEqual([{ event: "refusal", data: { kind: "refusal_hors_cadre", content: REFUSAL_HORS_CADRE } }]);
+  });
+
+  it("aucune citation valide : delta, puis error AI_CITATIONS_INVALID ; échec enregistré, unité consommée", async () => {
+    const question = `Combien de jours de congés payés par an ? ${FAKE_NO_CITATION_MARKER} flux`;
+    const before = await userCount(measure);
+    const { deltas, final } = await streamChat(measure, question);
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(final).toEqual([{ event: "error", data: expect.objectContaining({ code: "AI_CITATIONS_INVALID", retryable: true }) }]);
+    const conversation = await latestConversation(measure, question);
+    expect(await answerOf(conversation!)).toMatchObject({ kind: "failure", error_code: "AI_CITATIONS_INVALID" });
+    expect(await userCount(measure)).toBe(before + 1);
+  });
+
+  it("marqueur invalide : aucun delta, error AI_OUTPUT_INVALID", async () => {
+    const { deltas, final } = await streamChat(measure, `Combien de jours de congés payés par an ? ${FAKE_INVALID_MARKER}`);
+    expect(deltas).toEqual([]);
+    expect(final[0]).toMatchObject({ event: "error", data: { code: "AI_OUTPUT_INVALID" } });
+  });
+
+  it("même clientRequestId en flux : 409 REQUEST_IN_PROGRESS en JSON", async () => {
+    const id = crypto.randomUUID();
+    await streamChat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", id);
+    const response = await request(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", undefined, id);
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as ChatBody).error.code).toBe("REQUEST_IN_PROGRESS");
+  });
+
+  it("client déconnecté pendant le flux : la réponse est enregistrée quand même", async () => {
+    const question = `Sous quel délai les notes de frais sont-elles remboursées ? ${FAKE_SLOW_STREAM_MARKER}`;
+    const controller = new AbortController();
+    const response = await request(measure, question, controller.signal);
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    await reader.read();
+    controller.abort();
+    await reader.cancel().catch(() => {});
+    let saved: Awaited<ReturnType<typeof answerOf>> = null;
+    for (let attempt = 0; attempt < 40 && !saved; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const conversation = await latestConversation(measure, question);
+      if (conversation) saved = await answerOf(conversation);
+    }
+    expect(saved).toMatchObject({ kind: "answer", error_code: null });
+    expect(saved!.content).toMatch(/\[S1\]/);
   });
 });

@@ -1,19 +1,36 @@
 // Fonction chat (story 5.2a-2, FR-16, FR-17, AD-14, AD-16, AD-17). Appelée par Next.js seulement, avec
 // le jeton du Collaborateur (verify_jwt = true dans supabase/config.toml, session revérifiée auprès
-// d'Auth). La base est interrogée avec ce jeton, jamais avec service_role. Réponse JSON non diffusée
-// (la diffusion arrive en 5.5).
+// d'Auth). La base est interrogée avec ce jeton, jamais avec service_role.
+//
+// Deux modes (story 5.5) : flux SSE si le relais envoie « Accept: text/event-stream » (texte provisoire
+// en delta, masqué de son marqueur et de ses repères, puis done, refusal ou error) ; sinon réponse JSON
+// d'un bloc (story 5.4), même logique, même enregistrement. Les refus avant la génération (session,
+// validation, rejeu, quota, plafond) sont des réponses JSON avec leur statut HTTP dans les deux modes.
 //
 // Ordre : validation ; rejeu (même clientRequestId, avant toute réservation) ; réservation du quota
 // du Compte et du plafond global (avant tout appel à OpenAI) ; Conversation et question ;
 // vectorisation, match_passages, relecture des Documents ; aucun Passage → appel court qui départage
-// les deux refus (story 5.3) ; sinon consignes et génération, marqueur en première ligne (AD-10) ;
+// les deux refus (story 5.3) ; sinon consignes et génération (diffusée en mode flux), marqueur en première ligne (AD-10) ;
 // citations validées, texte réécrit avec les renvois [S{n}] (story 5.4) ; enregistrement atomique.
 // Un refus enregistre le message standard du catalogue, jamais le texte du modèle. Tout échec après
 // la réservation est enregistré (kind = failure). L'unité n'est rendue que si aucun appel facturable
 // n'a abouti (règle de libération du 2026-11-13, appel court compris : décision du 2026-11-16). Aucun
 // texte de question, de Passage ni de réponse n'est journalisé.
-import { type AiDeps, classifyRefusal, embed, generateAnswer, type GenerationResult } from "../_shared/ai.ts";
 import {
+  type AiDeps,
+  classifyRefusal,
+  embed,
+  generateAnswer,
+  type GenerationResult,
+  streamAnswer,
+  type StreamResult,
+} from "../_shared/ai.ts";
+
+// Résultat d'un appel au modèle, diffusé ou non : usage null quand le flux a été arrêté avant que le
+// fournisseur ne le transmette (story 5.5).
+type ModelResult = GenerationResult | StreamResult;
+import {
+  type ChatRequest,
   type GenerationState,
   conversationTitle,
   type DocumentRow,
@@ -26,7 +43,11 @@ import {
 } from "../_shared/chat.ts";
 import {
   CHAT_CLEANUP_TIMEOUT_MS,
+  CHAT_FIRST_DISPLAY_MS,
+  CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS,
   CHAT_GENERATION_MAX_TIMEOUT_MS,
+  CHAT_JSON_GENERATION_MAX_TIMEOUT_MS,
+  CHAT_JSON_TIMEOUT_MS,
   CHAT_MAX_PASSAGES,
   CHAT_PASSAGES_PER_DOCUMENT,
   CHAT_TIMEOUT_MS,
@@ -37,8 +58,9 @@ import {
 import { AiError, type ErrorCode, errorResponse, logEvent, logInfo } from "../_shared/errors.ts";
 import { generationDeps } from "../_shared/fake-generation.ts";
 import { readCitations } from "../_shared/rag/citations.ts";
-import { type Marker, readMarker } from "../_shared/rag/marker.ts";
-import { buildChatMessages, buildRefusalMessages, type ChatMessage } from "../_shared/rag/prompt.ts";
+import { MARKER_MAX_LENGTH, type Marker, readMarker } from "../_shared/rag/marker.ts";
+import { buildChatMessages, buildRefusalMessages } from "../_shared/rag/prompt.ts";
+import { createStreamMask } from "../_shared/rag/stream-mask.ts";
 import { isMatchRow, type MatchRow, searchVectorization } from "../_shared/search.ts";
 
 // Textes du catalogue (src/lib/texts.ts) : les Edge Functions n'importent rien de src/. Le relais
@@ -248,7 +270,90 @@ const json = (body: unknown) =>
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
   });
 
-export type HandleOptions = { timeoutMs?: number; generationTimeoutMs?: number; cleanupTimeoutMs?: number };
+// Mode flux (story 5.5) : demandé par l'en-tête Accept du relais. Sans lui, réponse JSON d'un bloc
+// (story 5.4), même logique et même enregistrement : un relais ou une page antérieurs au push restent
+// servis pendant le déploiement (deploy:supabase précède le push).
+function wantsStream(request: Request): boolean {
+  return (request.headers.get("Accept") ?? "").includes("text/event-stream");
+}
+
+export const SSE_HEADERS = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+};
+
+// Événements du flux (story 5.5) : delta (texte provisoire, sans marqueur ni repère), refusal (message
+// standard, d'un bloc), done (même forme que la réponse JSON), error (forme AD-19 sans enveloppe).
+export type StreamEvent = "delta" | "refusal" | "done" | "error";
+
+// Flux SSE vers le relais. Une déconnexion (relais ou navigateur) ferme seulement l'envoi : le travail
+// continue jusqu'à son terme (AD-17), sans lever d'exception.
+function eventStream() {
+  const encoder = new TextEncoder();
+  let target: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let open = true;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      target = controller;
+    },
+    cancel() {
+      open = false;
+    },
+  });
+  const write = (text: string) => {
+    if (!open || !target) return;
+    try {
+      target.enqueue(encoder.encode(text));
+    } catch {
+      open = false;
+    }
+  };
+  return {
+    stream,
+    // Commentaire SSE envoyé dès l'ouverture : en-têtes et premiers octets partent sans attendre la
+    // génération (ignoré par le lecteur).
+    opened: () => write(": flux\n\n"),
+    send: (event: StreamEvent, data: unknown) => write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+    close: () => {
+      if (!open || !target) return;
+      open = false;
+      try {
+        target.close();
+      } catch {
+        // Déjà fermé par le lecteur.
+      }
+    },
+    disconnected: () => !open,
+  };
+}
+
+type ChatBody = {
+  conversationId: string;
+  message: {
+    kind: "answer" | RefusalKind;
+    content: string;
+    sources: { documentId: string | null; title: string; passageNumbers: number[] }[];
+  };
+};
+
+type Outcome =
+  | { type: "answer"; body: ChatBody }
+  | { type: "refusal"; body: ChatBody }
+  | { type: "error"; code: ErrorCode; status: number; retryable: boolean };
+
+type LogDetails = Record<string, string | number | boolean | undefined>;
+
+export type HandleOptions = {
+  timeoutMs?: number;
+  generationTimeoutMs?: number;
+  firstChunkTimeoutMs?: number;
+  // Mode flux : premier événement affiché (delta, refusal, done ou error) au plus tard ce délai après
+  // la réception de la demande (CHAT_FIRST_DISPLAY_MS).
+  firstDisplayMs?: number;
+  cleanupTimeoutMs?: number;
+  // Travail poursuivi après l'envoi des en-têtes (mode flux) : EdgeRuntime.waitUntil en production.
+  waitUntil?: (promise: Promise<unknown>) => void;
+};
 
 export async function handle(request: Request, options: HandleOptions = {}): Promise<Response> {
   if (request.method !== "POST") return errorResponse("VALIDATION_FAILED", FAILURE_MESSAGE, false, 405);
@@ -264,12 +369,32 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   }
   const target = { url, apikey, token };
 
+  const streaming = wantsStream(request);
+  const mode = streaming ? "stream" : "json";
   const started = Date.now();
-  const timeoutMs = options.timeoutMs ?? CHAT_TIMEOUT_MS;
-  const generationMaxMs = options.generationTimeoutMs ?? CHAT_GENERATION_MAX_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? (streaming ? CHAT_TIMEOUT_MS : CHAT_JSON_TIMEOUT_MS);
+  const generationMaxMs =
+    options.generationTimeoutMs ?? (streaming ? CHAT_GENERATION_MAX_TIMEOUT_MS : CHAT_JSON_GENERATION_MAX_TIMEOUT_MS);
+  const firstChunkMaxMs = options.firstChunkTimeoutMs ?? CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS;
+  const firstDisplayMs = options.firstDisplayMs ?? CHAT_FIRST_DISPLAY_MS;
   const controller = new AbortController();
   const signal = controller.signal;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Premier affichage du serveur (mode flux, décision de l'utilisateur du 2026-11-18, option A) : si
+  // aucun événement n'est parti 17 s après la réception (session, recherche, appel court ou génération
+  // trop lents), l'échéance commune est déclenchée : error AI_TIMEOUT, échec enregistré, règle de
+  // libération inchangée (unité rendue avant tout envoi au fournisseur, consommée après). Le navigateur
+  // n'abandonne qu'à 20 s : l'écran ne montre jamais une panne pour une réponse que chat enregistre.
+  let firstDisplayExpired = false;
+  const firstDisplayTimer = streaming
+    ? setTimeout(() => {
+        firstDisplayExpired = true;
+        controller.abort();
+      }, firstDisplayMs)
+    : undefined;
+  const displayed = () => clearTimeout(firstDisplayTimer);
+  // Temps restant avant l'échéance du premier affichage (mode flux).
+  const firstDisplayLeft = () => Math.max(1, firstDisplayMs - (Date.now() - started));
   // Le délai peut expirer pendant une étape sans lecteur : son rejet ne doit jamais rester non géré.
   const expired = deadline(signal);
   expired.catch(() => {});
@@ -280,6 +405,9 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   let reservationId: string | null = null;
   let conversationId: string | null = null;
   let generation: GenerationState = "not_sent";
+  // Texte provisoire (mode flux) : délai du premier delta depuis la demande, nombre de delta envoyés.
+  let firstDeltaMs: number | null = null;
+  let deltas = 0;
 
   // Rend l'unité réservée, avec son propre délai (le délai commun peut être expiré). Jamais de levée.
   const release = async (): Promise<boolean> => {
@@ -295,7 +423,42 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     }
   };
 
-  try {
+  // Échec enregistré (AD-17), même si le navigateur s'est déconnecté, avec son propre délai ; unité
+  // rendue selon la règle de libération. Jamais de levée.
+  const fail = async (error: unknown): Promise<Outcome & { type: "error" }> => {
+    const { code, status, retryable, cause } = failure(error, signal.aborted);
+    let recorded = false;
+    if (conversationId) {
+      try {
+        const cleanup = AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS);
+        await rpc(target, "record_assistant_failure", { p_conversation_id: conversationId, p_error_code: code }, cleanup);
+        recorded = true;
+      } catch (recordError) {
+        logEvent("chat_failure_not_recorded", { cause: recordError instanceof ChatError ? recordError.reason : "network" });
+      }
+    }
+    const released = reservationId !== null && isReleasable(generation) ? await release() : false;
+    logEvent("chat_failed", {
+      code,
+      cause,
+      stage,
+      generation,
+      recorded,
+      released,
+      mode,
+      ...streamDetails(),
+      first_display_expired: firstDisplayExpired || undefined,
+      duration_ms: Date.now() - started,
+    });
+    return { type: "error", code, status, retryable };
+  };
+
+  const streamDetails = (): LogDetails =>
+    streaming ? { first_delta_ms: firstDeltaMs ?? undefined, deltas } : {};
+
+  // Étapes avant toute génération : refus en JSON avec leur statut HTTP, dans les deux modes. Null :
+  // demande acceptée (rendue), unité réservée, Conversation et question créées.
+  const accept = async (): Promise<Response | ChatRequest> => {
     await within(verifySession(target, signal));
 
     stage = "validation";
@@ -342,199 +505,301 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     const conversation = (startedConversation as { conversation_id?: unknown } | null)?.conversation_id;
     if (typeof conversation !== "string") throw new ChatError("INTERNAL", 500, true, "conversation_invalid_body");
     conversationId = conversation;
+    return input;
+  };
 
-    stage = "embed";
-    const vectorization = searchVectorization("chat");
-    const embedStarted = Date.now();
-    const { vectors } = await within(
-      embed([input.question], { deps: withSignal(vectorization.deps, signal), timeoutMs: remaining() }),
-    );
-
-    stage = "match";
-    const matchStarted = Date.now();
-    const rows = await within(matchPassages(target, vectors[0], vectorization.minSimilarity, signal));
-
-    stage = "documents";
-    const documents = await within(readDocuments(target, [...new Set(rows.map((row) => row.document_id))], signal));
-    const passages = retainPassages(rows, documents);
-
-    const fakeGeneration = generationDeps();
-    const generateStarted = Date.now();
-
-    // Appel au modèle (génération ou appel court, même règle de libération) : seul un appel sans
-    // aucune réponse reçue (réseau, 5xx, refus, plafond), hors délai commun dépassé, laisse l'unité
-    // rendable ; délai après envoi et réponse reçue la consomment. Une AiError sans issue a été levée
-    // avant tout envoi (ex. clé absente) ; celle du délai commun (signal abandonné) reste « billed ».
-    const callModel = async (call: typeof generateAnswer, messages: ChatMessage[]): Promise<GenerationResult> => {
-      generation = "billed";
-      try {
-        return await within(
-          call(messages, { deps: withSignal(fakeGeneration, signal), timeoutMs: Math.min(generationMaxMs, remaining()) }),
-        );
-      } catch (error) {
-        if (error instanceof AiError && (error.outcome === "no_response" || error.outcome === undefined) && !signal.aborted) {
-          generation = "no_response";
-        }
-        throw error;
+  // Morceaux du fournisseur → texte provisoire (story 5.5) : rien n'est envoyé avant la fin de la
+  // première ligne ou MARKER_MAX_LENGTH caractères ; REPONSE → texte masqué de ses repères
+  // (stream-mask.ts) ; refus ou marqueur invalide → lecture du fournisseur arrêtée, aucun delta.
+  const streamFilter = (onDelta: (text: string) => void) => {
+    const mask = createStreamMask();
+    let head = "";
+    let state: "head" | "answer" | "stopped" = "head";
+    const emit = (text: string) => {
+      if (text === "") return;
+      if (firstDeltaMs === null) {
+        firstDeltaMs = Date.now() - started;
+        displayed();
       }
+      deltas += 1;
+      onDelta(text);
     };
+    const onText = (chunk: string): boolean => {
+      if (state === "answer") {
+        emit(mask.push(chunk));
+        return true;
+      }
+      if (state === "stopped") return false;
+      head += chunk;
+      if (!head.includes("\n") && head.length <= MARKER_MAX_LENGTH) return true;
+      const marking = readMarker(head);
+      if (!marking || marking.marker !== "REPONSE") {
+        state = "stopped";
+        return false;
+      }
+      state = "answer";
+      emit(mask.push(marking.rest));
+      return true;
+    };
+    // Fin de la lecture : rien de retenu n'est envoyé (repère ouvert, espaces de fin), sauf un « [ » seul.
+    const end = () => {
+      if (state === "answer") emit(mask.flush());
+    };
+    return { onText, end };
+  };
 
-    // Refus : message standard du catalogue enregistré, sans Source ; le texte du modèle est ignoré
-    // (jamais affiché ni enregistré). Appel facturé : unité consommée (décision du 2026-11-16).
-    const refuse = async (marker: Exclude<Marker, "REPONSE">, generated: GenerationResult): Promise<Response> => {
-      const { kind, content } = REFUSALS[marker];
-      stage = "refusal";
-      await within(
-        rpc(target, "save_assistant_answer", { p_conversation_id: conversationId, p_kind: kind, p_content: content, p_sources: [] }, signal),
+  // Recherche, génération, marqueur, citations, enregistrement. Ne lève jamais : un échec est
+  // enregistré et rendu comme une issue « error ».
+  const answer = async (input: ChatRequest, onDelta: (text: string) => void): Promise<Outcome> => {
+    try {
+      stage = "embed";
+      const vectorization = searchVectorization("chat");
+      const embedStarted = Date.now();
+      const { vectors } = await within(
+        embed([input.question], { deps: withSignal(vectorization.deps, signal), timeoutMs: remaining() }),
       );
-      logInfo("chat_done", {
-        kind,
+
+      stage = "match";
+      const matchStarted = Date.now();
+      const rows = await within(matchPassages(target, vectors[0], vectorization.minSimilarity, signal));
+
+      stage = "documents";
+      const documents = await within(readDocuments(target, [...new Set(rows.map((row) => row.document_id))], signal));
+      const passages = retainPassages(rows, documents);
+
+      const fakeGeneration = generationDeps();
+      const generateStarted = Date.now();
+
+      // Appel au modèle (génération, diffusée ou non, ou appel court : même règle de libération) : seul
+      // un appel sans aucune réponse reçue (réseau, 5xx, refus, plafond), hors délai commun dépassé,
+      // laisse l'unité rendable ; délai après envoi et réponse reçue la consomment. Une AiError sans
+      // issue a été levée avant tout envoi (ex. clé absente) ; celle du délai commun (signal
+      // abandonné) reste « billed ».
+      const callModel = async (
+        call: (deps: Partial<AiDeps>, timeoutMs: number) => Promise<ModelResult>,
+      ): Promise<ModelResult> => {
+        generation = "billed";
+        try {
+          return await within(call(withSignal(fakeGeneration, signal), Math.min(generationMaxMs, remaining())));
+        } catch (error) {
+          if (error instanceof AiError && (error.outcome === "no_response" || error.outcome === undefined) && !signal.aborted) {
+            generation = "no_response";
+          }
+          throw error;
+        }
+      };
+
+      const logged = (generated: ModelResult): LogDetails => ({
         passages: passages.length,
         simulated: vectorization.simulated,
         generation_simulated: fakeGeneration !== undefined,
         model: generated.model,
-        input_tokens: generated.usage.inputTokens,
-        output_tokens: generated.usage.outputTokens,
-        generate_ms: Date.now() - generateStarted,
-        duration_ms: Date.now() - started,
+        // Usage inconnu (flux arrêté avant son dernier morceau) : signalé, jamais compté à 0.
+        input_tokens: generated.usage?.inputTokens,
+        output_tokens: generated.usage?.outputTokens,
+        usage_missing: generated.usage === null ? true : undefined,
+        mode,
+        ...streamDetails(),
       });
-      return json({ conversationId, message: { kind, content, sources: [] } });
-    };
 
-    if (passages.length === 0) {
-      // Aucun Passage au-dessus du seuil : appel court, sortie bornée au marqueur, qui départage
-      // information absente et hors cadre (FR-18). REPONSE ou toute autre sortie : AI_OUTPUT_INVALID.
-      stage = "classify";
-      const classified = await callModel(classifyRefusal, buildRefusalMessages(input.question));
-      const marking = readMarker(classified.text);
-      if (!marking || marking.marker === "REPONSE") {
-        logEvent("chat_marker_invalid", { stage, marker: marking?.marker });
-        throw invalidOutput("marqueur de l'appel court invalide");
+      // Refus : message standard du catalogue enregistré, sans Source ; le texte du modèle est ignoré
+      // (jamais affiché ni enregistré). Appel facturé : unité consommée (décision du 2026-11-16).
+      const refuse = async (marker: Exclude<Marker, "REPONSE">, generated: ModelResult): Promise<Outcome> => {
+        const { kind, content } = REFUSALS[marker];
+        stage = "refusal";
+        await within(
+          rpc(target, "save_assistant_answer", { p_conversation_id: conversationId, p_kind: kind, p_content: content, p_sources: [] }, signal),
+        );
+        logInfo("chat_done", {
+          kind,
+          ...logged(generated),
+          generate_ms: Date.now() - generateStarted,
+          duration_ms: Date.now() - started,
+        });
+        return { type: "refusal", body: { conversationId: conversationId as string, message: { kind, content, sources: [] } } };
+      };
+
+      if (passages.length === 0) {
+        // Aucun Passage au-dessus du seuil : appel court, non diffusé, sortie bornée au marqueur, qui
+        // départage information absente et hors cadre (FR-18). REPONSE ou toute autre sortie :
+        // AI_OUTPUT_INVALID.
+        stage = "classify";
+        // Mode flux : l'appel court ne dépasse pas l'échéance du premier affichage.
+        const classified = await callModel((deps, timeoutMs) =>
+          classifyRefusal(buildRefusalMessages(input.question), {
+            deps,
+            timeoutMs: streaming ? Math.min(timeoutMs, firstDisplayLeft()) : timeoutMs,
+          }),
+        );
+        const marking = readMarker(classified.text);
+        if (!marking || marking.marker === "REPONSE") {
+          logEvent("chat_marker_invalid", { stage, marker: marking?.marker });
+          throw invalidOutput("marqueur de l'appel court invalide");
+        }
+        return await refuse(marking.marker, classified);
       }
-      return await refuse(marking.marker, classified);
-    }
 
-    stage = "generate";
-    const messages = buildChatMessages({ question: input.question, passages: passages.map((passage) => passage.chat) });
-    const generated = await callModel(generateAnswer, messages);
+      stage = "generate";
+      const messages = buildChatMessages({ question: input.question, passages: passages.map((passage) => passage.chat) });
+      let generated: ModelResult;
+      if (streaming) {
+        const filter = streamFilter(onDelta);
+        generated = await callModel((deps, timeoutMs) =>
+          streamAnswer(messages, {
+            deps,
+            timeoutMs,
+            // min(20 s, 17 s − temps déjà écoulé depuis la réception) : premier morceau à temps pour
+            // le premier affichage.
+            firstChunkTimeoutMs: Math.min(firstChunkMaxMs, timeoutMs, firstDisplayLeft()),
+            onText: filter.onText,
+          }),
+        );
+        filter.end();
+      } else {
+        generated = await callModel((deps, timeoutMs) => generateAnswer(messages, { deps, timeoutMs }));
+      }
 
-    // Marqueur en première ligne (AD-10) : absent ou invalide → AI_OUTPUT_INVALID, sans texte du
-    // modèle ; refus → message standard ; REPONSE → le texte qui suit, sans le marqueur.
-    stage = "marker";
-    const marking = readMarker(generated.text);
-    if (!marking) {
-      logEvent("chat_marker_invalid", { stage });
-      throw invalidOutput("marqueur absent ou invalide");
-    }
-    if (marking.marker !== "REPONSE") return await refuse(marking.marker, generated);
-    const answer = marking.rest.trim();
-    if (answer === "") {
-      logEvent("chat_marker_invalid", { stage, marker: marking.marker, empty: true });
-      throw invalidOutput("réponse vide après le marqueur");
-    }
+      // Marqueur en première ligne (AD-10) : absent ou invalide → AI_OUTPUT_INVALID, sans texte du
+      // modèle ; refus → message standard ; REPONSE → le texte qui suit, sans le marqueur. En flux, la
+      // lecture s'est arrêtée dès un refus ou un marqueur invalide : sa première ligne suffit.
+      stage = "marker";
+      const marking = readMarker(generated.text);
+      if (!marking) {
+        logEvent("chat_marker_invalid", { stage });
+        throw invalidOutput("marqueur absent ou invalide");
+      }
+      if (marking.marker !== "REPONSE") return await refuse(marking.marker, generated);
+      const text = marking.rest.trim();
+      if (text === "") {
+        logEvent("chat_marker_invalid", { stage, marker: marking.marker, empty: true });
+        throw invalidOutput("réponse vide après le marqueur");
+      }
 
-    stage = "citations";
-    const reading = readCitations(answer, passages.map((passage) => passage.chat));
-    if (reading.cited.length === 0) {
-      // Génération reçue et facturée : unité consommée.
-      logEvent("chat_citations_invalid", { unknown: reading.unknown.length });
-      throw new AiError("AI_CITATIONS_INVALID", true, "aucune citation valide", undefined, undefined, "response_received");
-    }
-    // Story 5.4 (AD-11) : texte enregistré et renvoyé avec les renvois [S{n}], citations invalides
-    // retirées sans message (leur nombre seul est journalisé, dans chat_done).
-    const content = reading.text;
-    const sources = sourcesToSave(reading.sources, passages);
+      stage = "citations";
+      const reading = readCitations(text, passages.map((passage) => passage.chat));
+      if (reading.cited.length === 0) {
+        // Génération reçue et facturée : unité consommée.
+        logEvent("chat_citations_invalid", { unknown: reading.unknown.length });
+        throw new AiError("AI_CITATIONS_INVALID", true, "aucune citation valide", undefined, undefined, "response_received");
+      }
+      // Story 5.4 (AD-11) : texte enregistré et renvoyé avec les renvois [S{n}], citations invalides
+      // retirées sans message (leur nombre seul est journalisé, dans chat_done).
+      const content = reading.text;
+      const sources = sourcesToSave(reading.sources, passages);
 
-    stage = "save";
-    const saveStarted = Date.now();
-    const saved = (await within(
-      rpc(
-        target,
-        "save_assistant_answer",
-        {
-          p_conversation_id: conversationId,
-          p_kind: "answer",
-          p_content: content,
-          p_sources: sources.map(({ document_id, document_title, text_version, passages }) => ({
-            document_id,
-            document_title,
-            text_version,
-            passages,
-          })),
-        },
-        signal,
-      ),
-    )) as { sources?: { ordinal?: unknown; document_id?: unknown }[] } | null;
-    const savedSources = Array.isArray(saved?.sources) ? saved.sources : null;
-    if (!savedSources || savedSources.length !== sources.length) throw new ChatError("INTERNAL", 500, true, "save_invalid_body");
+      stage = "save";
+      const saveStarted = Date.now();
+      const saved = (await within(
+        rpc(
+          target,
+          "save_assistant_answer",
+          {
+            p_conversation_id: conversationId,
+            p_kind: "answer",
+            p_content: content,
+            p_sources: sources.map(({ document_id, document_title, text_version, passages }) => ({
+              document_id,
+              document_title,
+              text_version,
+              passages,
+            })),
+          },
+          signal,
+        ),
+      )) as { sources?: { ordinal?: unknown; document_id?: unknown }[] } | null;
+      const savedSources = Array.isArray(saved?.sources) ? saved.sources : null;
+      if (!savedSources || savedSources.length !== sources.length) throw new ChatError("INTERNAL", 500, true, "save_invalid_body");
 
-    const finished = Date.now();
-    logInfo("chat_done", {
-      kind: "answer",
-      passages: passages.length,
-      sources: sources.length,
-      cited: reading.cited.length,
-      unknown_citations: reading.unknown.length,
-      model_renvois_removed: reading.modelRenvoisRemoved,
-      simulated: vectorization.simulated,
-      generation_simulated: fakeGeneration !== undefined,
-      model: generated.model,
-      input_tokens: generated.usage.inputTokens,
-      output_tokens: generated.usage.outputTokens,
-      embed_ms: matchStarted - embedStarted,
-      generate_ms: saveStarted - generateStarted,
-      duration_ms: finished - started,
-    });
-    return json({
-      conversationId,
-      message: {
+      const finished = Date.now();
+      logInfo("chat_done", {
         kind: "answer",
-        content,
-        sources: sources.map((source, index) => ({
-          // Null si le Document a été supprimé entre la Recherche et l'enregistrement (FR-12).
-          documentId: typeof savedSources[index].document_id === "string" ? savedSources[index].document_id : null,
-          title: source.document_title,
-          passageNumbers: source.passageNumbers,
-        })),
-      },
-    });
-  } catch (error) {
-    const { code, status, retryable, cause } = failure(error, signal.aborted);
-    // Échec enregistré (AD-17), même si le navigateur s'est déconnecté, avec son propre délai.
-    let recorded = false;
-    if (conversationId) {
-      try {
-        const cleanup = AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS);
-        await rpc(target, "record_assistant_failure", { p_conversation_id: conversationId, p_error_code: code }, cleanup);
-        recorded = true;
-      } catch (recordError) {
-        logEvent("chat_failure_not_recorded", { cause: recordError instanceof ChatError ? recordError.reason : "network" });
-      }
+        ...logged(generated),
+        sources: sources.length,
+        cited: reading.cited.length,
+        unknown_citations: reading.unknown.length,
+        model_renvois_removed: reading.modelRenvoisRemoved,
+        embed_ms: matchStarted - embedStarted,
+        generate_ms: saveStarted - generateStarted,
+        duration_ms: finished - started,
+      });
+      return {
+        type: "answer",
+        body: {
+          conversationId: conversationId as string,
+          message: {
+            kind: "answer",
+            content,
+            sources: sources.map((source, index) => ({
+              // Null si le Document a été supprimé entre la Recherche et l'enregistrement (FR-12).
+              documentId: typeof savedSources[index].document_id === "string" ? savedSources[index].document_id : null,
+              title: source.document_title,
+              passageNumbers: source.passageNumbers,
+            })),
+          },
+        },
+      };
+    } catch (error) {
+      return await fail(error);
     }
-    const released = reservationId !== null && isReleasable(generation) ? await release() : false;
-    logEvent("chat_failed", {
-      code,
-      cause,
-      stage,
-      generation,
-      recorded,
-      released,
-      duration_ms: Date.now() - started,
-    });
-    return errorResponse(code, messageFor(code), retryable, status);
-  } finally {
-    clearTimeout(timer);
+  };
+
+  let accepted: Response | ChatRequest;
+  try {
+    accepted = await accept();
+  } catch (error) {
+    const failed = await fail(error);
+    accepted = errorResponse(failed.code, messageFor(failed.code), failed.retryable, failed.status);
   }
+  if (accepted instanceof Response) {
+    clearTimeout(timer);
+    displayed();
+    return accepted;
+  }
+  const input = accepted;
+
+  if (!streaming) {
+    try {
+      const outcome = await answer(input, () => {});
+      return outcome.type === "error"
+        ? errorResponse(outcome.code, messageFor(outcome.code), outcome.retryable, outcome.status)
+        : json(outcome.body);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Mode flux : en-têtes envoyés dès la demande acceptée ; le travail continue même si le relais ou le
+  // navigateur se déconnecte (AD-17) : réponse ou échec enregistré, unité consommée ou rendue.
+  const events = eventStream();
+  events.opened();
+  const work = (async () => {
+    try {
+      const outcome = await answer(input, (text) => events.send("delta", { text }));
+      displayed();
+      if (outcome.type === "answer") events.send("done", outcome.body);
+      else if (outcome.type === "refusal") {
+        events.send("refusal", { kind: outcome.body.message.kind, content: outcome.body.message.content });
+      } else events.send("error", { code: outcome.code, message: messageFor(outcome.code), retryable: outcome.retryable });
+      if (events.disconnected()) logInfo("chat_stream_disconnected", { outcome: outcome.type, duration_ms: Date.now() - started });
+    } finally {
+      clearTimeout(timer);
+      displayed();
+      events.close();
+    }
+  })();
+  options.waitUntil?.(work.catch(() => {}));
+  return new Response(events.stream, { status: 200, headers: SSE_HEADERS });
 }
 
 // Le travail continue jusqu'à son terme même si le relais se déconnecte (AD-17) : la promesse est
-// confiée à EdgeRuntime.waitUntil quand il existe.
+// confiée à EdgeRuntime.waitUntil quand il existe ; en mode flux, le travail qui suit l'envoi des
+// en-têtes aussi.
 const runtime = globalThis as {
   Deno?: { serve(handler: (request: Request) => Promise<Response>): unknown };
   EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void };
 };
 runtime.Deno?.serve((request) => {
-  const work = handle(request);
+  const work = handle(request, { waitUntil: (promise) => runtime.EdgeRuntime?.waitUntil(promise) });
   runtime.EdgeRuntime?.waitUntil(work.catch(() => {}));
   return work;
 });

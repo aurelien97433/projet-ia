@@ -17,7 +17,7 @@ export const DEFAULT_GENERATION_MODEL = "gpt-5.4-mini";
 
 export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
-// Génération de la réponse (story 5.2a-1, non diffusée ; la diffusion arrive en 5.5). Délai par
+// Génération de la réponse (story 5.2a-1 ; diffusée en 5.5 par streamAnswer). Délai par
 // tentative ; sortie bornée (une réponse est limitée à 20 000 caractères en base, story 5.1).
 export const GENERATION_TIMEOUT_MS = 45_000;
 export const GENERATION_MAX_COMPLETION_TOKENS = 1_500;
@@ -37,11 +37,24 @@ export const CHAT_MAX_PASSAGES = 8;
 export const CHAT_MAX_QUESTION_LENGTH = 2_000;
 export const PASSAGE_TITLE_MAX_LENGTH = 200;
 
-// Fonction chat (story 5.2a-2). Échéance globale de 60 s : chaque étape reçoit le temps restant, la
-// génération au plus 40 s. Au-delà de l'échéance, l'échec et la libération éventuelle sont encore
-// enregistrés, avec leur propre délai. Relais Next.js : 70 s ; maxDuration de la route : 120 s.
-export const CHAT_TIMEOUT_MS = 60_000;
-export const CHAT_GENERATION_MAX_TIMEOUT_MS = 40_000;
+// Fonction chat, mode flux (story 5.5, AD-16). Échéance globale de 85 s : chaque étape reçoit le temps
+// restant ; génération diffusée : 20 s jusqu'au premier morceau, 70 s au plus en tout. Au-delà de
+// l'échéance, l'échec et la libération éventuelle sont encore enregistrés, avec leur propre délai.
+// Chaîne : génération 20 s au premier morceau < relais 25 s aux en-têtes ; chat 85 s < navigateur
+// 90 s < maxDuration 120 s.
+export const CHAT_TIMEOUT_MS = 85_000;
+export const CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS = 20_000;
+// Premier affichage du serveur (story 5.5, décision de l'utilisateur du 2026-11-18, option A) : en mode
+// flux, chat envoie son premier événement (delta, refusal, done ou error) au plus 17 s après la
+// réception de la demande, sous les 20 s du navigateur ; la génération reçoit au plus
+// min(20 s, 17 s − temps déjà écoulé) jusqu'au premier morceau.
+export const CHAT_FIRST_DISPLAY_MS = 17_000;
+export const CHAT_GENERATION_MAX_TIMEOUT_MS = 70_000;
+// Mode JSON (réponse d'un bloc, story 5.2a-2), gardé pour un relais ou une page qui n'attend pas de
+// flux (déploiement de chat avant le push, onglet ouvert avant le push) : échéance de 60 s, génération
+// 40 s au plus, sous le délai de 70 s du relais JSON.
+export const CHAT_JSON_TIMEOUT_MS = 60_000;
+export const CHAT_JSON_GENERATION_MAX_TIMEOUT_MS = 40_000;
 export const CHAT_CLEANUP_TIMEOUT_MS = 5_000;
 // Recherche de l'Assistant (AD-9) : 8 Passages au plus (CHAT_MAX_PASSAGES), 3 par Document.
 export const CHAT_PASSAGES_PER_DOCUMENT = 3;

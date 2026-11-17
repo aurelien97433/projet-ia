@@ -54,3 +54,12 @@ export const chatResponseSchema = z.object({
 });
 
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
+
+// Événements du flux de chat (story 5.5), relayés tels quels par /api/chat : texte provisoire (delta),
+// refus d'un bloc (refusal), réponse validée (done, même forme que chatResponseSchema), panne (error,
+// forme AD-19 sans enveloppe).
+export const chatDeltaSchema = z.object({ text: z.string().min(1) });
+export const chatRefusalEventSchema = z.object({
+  kind: z.enum(["refusal_info_absente", "refusal_hors_cadre"]),
+  content: z.string().min(1),
+});
