@@ -6,6 +6,7 @@ import {
   FAKE_HORS_CADRE_MARKER,
   FAKE_IGNORED_TEXT,
   FAKE_INFO_ABSENTE_MARKER,
+  FAKE_INVALID_CITATION_MARKER,
   FAKE_INVALID_MARKER,
   FAKE_NO_CITATION_MARKER,
 } from "../../supabase/functions/_shared/fake-generation.ts";
@@ -394,7 +395,21 @@ describe("fonction chat (vectorisation et génération simulées)", () => {
     const { body } = await chat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?");
     expect(body.message.kind).toBe("answer");
     expect(body.message.content).not.toMatch(/REPONSE/);
+    // Story 5.4 : renvois canoniques [S{n}], jamais de repère [P{n}] enregistré.
+    expect(body.message.content).toMatch(/\[S1\]/);
+    expect(body.message.content).not.toMatch(/\[P/);
     expect((await lastAnswer(body.conversationId)).content).toBe(body.message.content);
+  });
+
+  it("story 5.4 : citation invalide retirée du texte enregistré, renvoi [S1] à la place de [P1] ; unité consommée", async () => {
+    const before = await userCount(measure);
+    const { status, body } = await chat(measure, `Combien de jours de congés payés par an ? ${FAKE_INVALID_CITATION_MARKER}`);
+    expect(status).toBe(200);
+    const content = "Réponse simulée à partir des Documents[S1]. Point simulé sans Passage.";
+    expect(body.message).toMatchObject({ kind: "answer", content });
+    expect(body.message.sources).toHaveLength(1);
+    expect(await lastAnswer(body.conversationId)).toEqual({ kind: "answer", content, error_code: null, sources: 1 });
+    expect(await userCount(measure)).toBe(before + 1);
   });
 
   it("quota personnel atteint : 429 QUOTA_EXCEEDED avec resetAt, aucune Conversation", async () => {

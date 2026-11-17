@@ -7,10 +7,11 @@
 // du Compte et du plafond global (avant tout appel à OpenAI) ; Conversation et question ;
 // vectorisation, match_passages, relecture des Documents ; aucun Passage → appel court qui départage
 // les deux refus (story 5.3) ; sinon consignes et génération, marqueur en première ligne (AD-10) ;
-// citations ; enregistrement atomique. Un refus enregistre le message standard du catalogue, jamais
-// le texte du modèle. Tout échec après la réservation est enregistré (kind = failure). L'unité n'est
-// rendue que si aucun appel facturable n'a abouti (règle de libération du 2026-11-13, appel court
-// compris : décision du 2026-11-16). Aucun texte de question, de Passage ni de réponse n'est journalisé.
+// citations validées, texte réécrit avec les renvois [S{n}] (story 5.4) ; enregistrement atomique.
+// Un refus enregistre le message standard du catalogue, jamais le texte du modèle. Tout échec après
+// la réservation est enregistré (kind = failure). L'unité n'est rendue que si aucun appel facturable
+// n'a abouti (règle de libération du 2026-11-13, appel court compris : décision du 2026-11-16). Aucun
+// texte de question, de Passage ni de réponse n'est journalisé.
 import { type AiDeps, classifyRefusal, embed, generateAnswer, type GenerationResult } from "../_shared/ai.ts";
 import {
   type GenerationState,
@@ -435,10 +436,13 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     stage = "citations";
     const reading = readCitations(answer, passages.map((passage) => passage.chat));
     if (reading.cited.length === 0) {
-      // Génération reçue et facturée : unité consommée (retrait des citations invalides : 5.4).
+      // Génération reçue et facturée : unité consommée.
       logEvent("chat_citations_invalid", { unknown: reading.unknown.length });
       throw new AiError("AI_CITATIONS_INVALID", true, "aucune citation valide", undefined, undefined, "response_received");
     }
+    // Story 5.4 (AD-11) : texte enregistré et renvoyé avec les renvois [S{n}], citations invalides
+    // retirées sans message (leur nombre seul est journalisé, dans chat_done).
+    const content = reading.text;
     const sources = sourcesToSave(reading.sources, passages);
 
     stage = "save";
@@ -450,7 +454,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
         {
           p_conversation_id: conversationId,
           p_kind: "answer",
-          p_content: answer,
+          p_content: content,
           p_sources: sources.map(({ document_id, document_title, text_version, passages }) => ({
             document_id,
             document_title,
@@ -471,6 +475,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       sources: sources.length,
       cited: reading.cited.length,
       unknown_citations: reading.unknown.length,
+      model_renvois_removed: reading.modelRenvoisRemoved,
       simulated: vectorization.simulated,
       generation_simulated: fakeGeneration !== undefined,
       model: generated.model,
@@ -484,7 +489,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       conversationId,
       message: {
         kind: "answer",
-        content: answer,
+        content,
         sources: sources.map((source, index) => ({
           // Null si le Document a été supprimé entre la Recherche et l'enregistrement (FR-12).
           documentId: typeof savedSources[index].document_id === "string" ? savedSources[index].document_id : null,

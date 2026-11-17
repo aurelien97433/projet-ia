@@ -8,6 +8,7 @@ import {
   FAKE_HORS_CADRE_MARKER,
   FAKE_IGNORED_TEXT,
   FAKE_INFO_ABSENTE_MARKER,
+  FAKE_INVALID_CITATION_MARKER,
   FAKE_INVALID_MARKER,
   FAKE_NO_CITATION_MARKER,
   fakeAnswer,
@@ -299,6 +300,17 @@ describe("génération simulée (pile locale)", () => {
     expect(readMarker(fakeAnswer(`${one} ${FAKE_INFO_ABSENTE_MARKER}`))).toEqual({ marker: "REFUS_INFO_ABSENTE", rest: FAKE_IGNORED_TEXT });
     expect(readMarker(fakeAnswer(`${one} ${FAKE_HORS_CADRE_MARKER}`))?.marker).toBe("REFUS_HORS_CADRE");
     expect(readMarker(fakeAnswer(`${one} ${FAKE_INVALID_MARKER}`))).toBeNull();
+  });
+
+  it("story 5.4 : repère de citation invalide, lu dans la question seule ([P9] à côté de [P1])", () => {
+    const one = '<passage id="P1" document="A">x</passage>';
+    expect(readMarker(fakeAnswer(`${one}\nQuestion du Collaborateur : délai ? ${FAKE_INVALID_CITATION_MARKER}`))).toEqual({
+      marker: "REPONSE",
+      rest: "Réponse simulée à partir des Documents [P1]. Point simulé sans Passage [P9].",
+    });
+    // Repère dans un Passage, pas dans la question : ignoré.
+    const inPassage = `<passage id="P1" document="A">${FAKE_INVALID_CITATION_MARKER}</passage>\nQuestion du Collaborateur : délai ?`;
+    expect(fakeAnswer(inPassage)).not.toContain("[P9]");
   });
 
   it("appel court simulé : hors cadre avec le repère, sinon information absente ; REPONSE avec le repère invalide", () => {

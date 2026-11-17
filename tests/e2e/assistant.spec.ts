@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { createClient } from "@supabase/supabase-js";
-import type { Page, Request } from "@playwright/test";
+import type { Locator, Page, Request } from "@playwright/test";
 import { EMBEDDING_MODEL, EMBEDDING_VERSION } from "../../supabase/functions/_shared/config.ts";
 import { fakeVector } from "../../supabase/functions/_shared/fake-embeddings.ts";
-import { FAKE_HORS_CADRE_MARKER, FAKE_INVALID_MARKER } from "../../supabase/functions/_shared/fake-generation.ts";
+import { FAKE_HORS_CADRE_MARKER, FAKE_INVALID_CITATION_MARKER, FAKE_INVALID_MARKER } from "../../supabase/functions/_shared/fake-generation.ts";
 import { texts } from "../../src/lib/texts";
 import { expect, isDesktop, test, type Account } from "../support/e2e-auth";
 import { localSupabase } from "../support/local-supabase";
@@ -91,6 +91,14 @@ const sendButton = (page: Page) => page.getByRole("button", { name: t.submit, ex
 const thread = (page: Page) => page.getByRole("list", { name: t.threadLabel });
 // Région d'annonce (masquée tant qu'elle est vide : getByRole l'ignorerait).
 const answerStatus = (page: Page) => thread(page).locator('[role="status"]');
+// Texte lu par un lecteur d'écran (parties aria-hidden exclues, texte masqué compris) : puces de
+// Source (story 5.4), dont les points médians sont masqués.
+const spokenText = (locator: Locator) =>
+  locator.evaluate((element) => {
+    const clone = element.cloneNode(true) as Element;
+    clone.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove());
+    return clone.textContent;
+  });
 const counter = (page: Page) => page.locator("[data-counter]");
 const fulfill = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 
@@ -135,11 +143,16 @@ test("nominal (génération simulée) : question, état neutre, réponse d'un bl
   await expect(sendButton(page)).toHaveAttribute("aria-disabled", "true");
   release();
 
-  // Réponse simulée citant [P1] (citations laissées telles quelles jusqu'à la 5.4).
-  await expect(answerStatus(page).locator("[data-answer] p").first()).toHaveText(/^Réponse simulée à partir des Documents \[P1\]\./);
+  // Réponse simulée citant [P1] : renvoi ¹ lu « Source 1 » (story 5.4), aucun repère brut.
+  const text = answerStatus(page).locator("[data-answer] p").first();
+  await expect(text).toHaveText(/^Réponse simulée à partir des Documents Source 1\./);
+  await expect(text).not.toContainText("[P");
+  await expect(text).not.toContainText("[S");
+  await expect(text.locator("sup").first()).toHaveText("Source 1");
   await expect(pending).toHaveCount(0);
   const chips = answerStatus(page).getByRole("list", { name: t.sourcesLabel }).getByRole("listitem");
   await expect(chips.filter({ hasText: seeded.title })).toHaveCount(1);
+  expect(await spokenText(chips.first())).toBe(`Source 1 : ${seeded.title}`);
   await expect(answerStatus(page).getByRole("button")).toHaveCount(0);
   await expect(answerStatus(page).getByRole("link")).toHaveCount(0);
   await expect(sendButton(page)).not.toHaveAttribute("aria-disabled", "true");
@@ -268,6 +281,27 @@ test("marqueur invalide (génération simulée) : alerte de panne avec « Réess
   await expect(alert.getByRole("button", { name: t.retry })).toBeVisible();
   await expect(page.getByText(/REPONSE|réponse simulée/)).toHaveCount(0);
   await expect(page.locator("[data-refusal]")).toHaveCount(0);
+  expectBoundary(requests);
+});
+
+test("citation invalide (story 5.4, génération simulée) : retirée sans message ; renvoi ¹ et puce « 1 · {titre} » ; axe sans violation", async ({
+  page,
+  account,
+}) => {
+  const seeded = await seedDocument(account, `${tag()} ${FAKE_INVALID_CITATION_MARKER}`);
+  const requests = collectRequests(page);
+  await openAssistant(page);
+  await field(page).fill(seeded.question);
+  await field(page).press("Enter");
+  const text = answerStatus(page).locator("[data-answer] p").first();
+  await expect(text).toHaveText(/^Réponse simulée à partir des Documents Source 1\. Point simulé sans Passage\.$/);
+  await expect(text.locator("sup")).toHaveCount(1);
+  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  const chip = answerStatus(page).getByRole("list", { name: t.sourcesLabel }).getByRole("listitem").first();
+  expect(await spokenText(chip)).toBe(`Source 1 : ${seeded.title}`);
+  await expect(chip.locator('[aria-hidden="true"]')).toHaveText(`1 · ${seeded.title}`);
+  const results = await new AxeBuilder({ page }).exclude("nextjs-portal").analyze();
+  expect(results.violations.map((v) => `${v.id} : ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
   expectBoundary(requests);
 });
 
@@ -423,7 +457,7 @@ test("axe sans violation, sans défilement horizontal, avec une réponse et ses 
         conversationId: crypto.randomUUID(),
         message: {
           kind: "answer",
-          content: `${long} [P1]`,
+          content: `${long}[S1][S2]`,
           sources: [
             { documentId: seeded.id, title: `${seeded.title} ${long}`, passageNumbers: [1, 2] },
             { documentId: null, title: "Ancienne FAQ", passageNumbers: [3] },
@@ -437,6 +471,12 @@ test("axe sans violation, sans défilement horizontal, avec une réponse et ses 
   await field(page).press("Enter");
   await expect(answerStatus(page).getByRole("listitem")).toHaveCount(2);
   await expect(answerStatus(page)).toContainText("Ancienne FAQ — Document supprimé");
+  // Story 5.4 : renvois ¹ ², puces numérotées ; Source supprimée : numéro gardé.
+  await expect(answerStatus(page).locator("[data-answer] sup")).toHaveText(["Source 1", "Source 2"]);
+  const chips = answerStatus(page).getByRole("listitem");
+  expect(await spokenText(chips.nth(0))).toBe(`Source 1 : ${seeded.title} ${long}, 2 Passages`);
+  expect(await spokenText(chips.nth(1))).toBe("Source 2 : Ancienne FAQ — Document supprimé");
+  await expect(chips.nth(1).locator('[aria-hidden="true"]')).toHaveText("2 · Ancienne FAQ — Document supprimé");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBe(0);
   if (!isDesktop(page)) {

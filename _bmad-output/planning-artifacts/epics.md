@@ -1390,8 +1390,10 @@ afin de pouvoir faire confiance aux preuves.
 **Quand** je la pose (3 essais)
 **Alors** à chaque essai, la réponse cite **les deux** Documents attendus comme Sources et contient les deux valeurs en conflit (par exemple les deux délais) ; une réponse qui n'en cite qu'un ou ne donne qu'une valeur est un échec
 
-**Tâches techniques :** `_shared/rag/citations.ts` ; renvois avec texte masqué « Source » ; puces `button` avec nom accessible ; tests unitaires (4 cas : toutes valides, partiellement invalides, numéro inexistant, aucune ; le réessai réussi est testé en 5.9).
+**Tâches techniques :** `_shared/rag/citations.ts` ; renvois avec texte masqué « Source » ; ~~puces `button` avec nom accessible~~ puces numérotées non interactives avec nom accessible (voir la note du 2026-11-17) ; tests unitaires (4 cas : toutes valides, partiellement invalides, numéro inexistant, aucune ; le réessai réussi est testé en 5.9).
 **Dépendances :** 5.3.
+
+**Note (2026-11-17, décisions de l'utilisateur, story 5.4) :** (Q1 = A) `chat` enregistre et renvoie le texte de la réponse avec le renvoi canonique `[S{n}]` (n = numéro de la Source) à la place de chaque citation valide, après avoir retiré les citations invalides et tout repère `[S…]` écrit par le modèle ; la page remplace `[S{n}]` par le renvoi ; aucune migration (écart avec la lettre d'AD-11 consigné dans l'architecture). (Q2 = A) Les puces de Source restent non interactives (`li`, pas `button`) jusqu'à la 5.7, qui leur donne leur action, leur `aria-expanded` et leur `aria-controls` : la tâche technique « puces `button` » ci-dessus est corrigée en ce sens. `npm run test:chat:live` passe à 15 questions (c1 ajoutée, 3 essais), après la mesure du classement de c1 (`npm run measure:search`, seuil 0,40 gardé).
 **Références :** CH-16 · FR-16, FR-17 · NFR-4 · SM-1 · AR-12 · AD-11 · UX-DR10 · **Priorité :** P0
 
 ### Story 5.5 : Réponse progressive sur l'environnement Vercel

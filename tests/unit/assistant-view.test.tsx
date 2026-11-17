@@ -9,7 +9,7 @@ const router = { push: vi.fn(), refresh, prefetch: vi.fn(), replace: vi.fn() };
 let params = new URLSearchParams();
 vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => params }));
 
-const { AssistantView, CHAT_CLIENT_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
+const { AssistantView, answerSegments, CHAT_CLIENT_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
 const { ASSISTANT_FIELD_ID, assistantHref } = await import("@/components/assistant/constants");
 
 const t = texts.assistant;
@@ -18,7 +18,7 @@ const DOC = "44444444-4444-4444-8444-444444444444";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-const answer = (content = "Une facture est émise sous 5 jours ouvrés [P1].", sources?: unknown[]) =>
+const answer = (content = "Une facture est émise sous 5 jours ouvrés[S1].", sources?: unknown[]) =>
   json({
     conversationId: CONVERSATION,
     message: {
@@ -38,6 +38,14 @@ const flush = () => act(async () => {});
 const bodies = () => fetchMock().mock.calls.map(([, init]) => JSON.parse(String((init as RequestInit).body)));
 const thread = () => screen.getByRole("list", { name: t.threadLabel });
 const bubbles = () => document.querySelectorAll("[data-question-bubble]");
+// Texte de la réponse tel qu'il est lu (renvois compris, « Source 1 ») : le paragraphe entier.
+const answerText = (text: string) => (_: string, element: Element | null) =>
+  element?.matches("[data-answer] p") === true && element.textContent === text;
+// Puce de Source : [texte affiché (points médians, masqué aux lecteurs d'écran), nom accessible].
+const chipView = (chip: HTMLElement) => [
+  chip.querySelector("[aria-hidden='true']")?.textContent,
+  chip.querySelector(".sr-only")?.textContent,
+];
 const counter = () => document.querySelector("[data-counter]")!;
 const NBSP = String.fromCharCode(0xa0);
 
@@ -126,10 +134,11 @@ describe("envoi", () => {
     await act(async () => release(answer()));
     expect(screen.queryByText(t.pending)).toBeNull();
     const status = screen.getByRole("status");
-    // Citations laissées telles quelles jusqu'à la 5.4.
-    expect(within(status).getByText("Une facture est émise sous 5 jours ouvrés [P1].")).toBeTruthy();
+    // Story 5.4 : renvoi ¹ précédé du texte masqué « Source », aucun repère brut.
+    expect(within(status).getByText(answerText("Une facture est émise sous 5 jours ouvrés Source 1."))).toBeTruthy();
     const chips = within(within(status).getByRole("list", { name: t.sourcesLabel })).getAllByRole("listitem");
-    expect(chips.map((chip) => chip.textContent)).toEqual(["Procédure de facturation"]);
+    expect(chips.map(chipView)).toEqual([["1 · Procédure de facturation", "Source 1 : Procédure de facturation"]]);
+    expect(status.textContent).not.toMatch(/\[[PS]/);
     // Puces non cliquables (5.7).
     expect(within(status).queryByRole("button")).toBeNull();
     expect(within(status).queryByRole("link")).toBeNull();
@@ -157,9 +166,9 @@ describe("envoi", () => {
   });
 
   it("réponse rendue en texte brut, jamais interprétée comme HTML ; Source de Document supprimé ; plusieurs Passages", async () => {
-    const hostile = `<img src=x onerror="alert(1)"><script>alert(2)</script> [P1]`;
+    const hostile = `<img src=x onerror="alert(1)"><script>alert(2)</script>`;
     fetchMock().mockResolvedValue(
-      answer(hostile, [
+      answer(`${hostile}[S1]`, [
         { documentId: DOC, title: "Procédure de facturation", passageNumbers: [1, 2] },
         { documentId: null, title: "Ancienne FAQ", passageNumbers: [3] },
       ]),
@@ -167,13 +176,52 @@ describe("envoi", () => {
     const { container } = render(<AssistantView />);
     await ask("Question");
     expect(container.querySelector("img, script")).toBeNull();
-    expect(screen.getByText(hostile)).toBeTruthy();
+    expect(screen.getByText(answerText(`${hostile} Source 1`))).toBeTruthy();
     const chips = within(screen.getByRole("list", { name: t.sourcesLabel })).getAllByRole("listitem");
-    expect(chips.map((chip) => chip.textContent)).toEqual([
-      `Procédure de facturation · ${t.passagesCount(2)}`,
-      "Ancienne FAQ — Document supprimé",
+    expect(chips.map(chipView)).toEqual([
+      ["1 · Procédure de facturation · 2 Passages", "Source 1 : Procédure de facturation, 2 Passages"],
+      ["2 · Ancienne FAQ — Document supprimé", "Source 2 : Ancienne FAQ — Document supprimé"],
     ]);
     expect(chips[1].getAttribute("data-deleted")).toBe("true");
+  });
+
+  it("story 5.4 : renvois ¹ ² en exposant, non cliquables, lus « Source n » ; puces numérotées dans l'ordre", async () => {
+    fetchMock().mockResolvedValue(
+      answer("Relancez à J+15[S1].\n1. Appeler[S2][S1].\n2. Écrire[S9].", [
+        { documentId: DOC, title: "Procédure de facturation", passageNumbers: [2] },
+        { documentId: DOC, title: "FAQ comptabilité", passageNumbers: [1] },
+      ]),
+    );
+    const { container } = render(<AssistantView />);
+    await ask("Question");
+    const renvois = [...container.querySelectorAll("[data-answer] sup")];
+    expect(renvois.map((renvoi) => renvoi.textContent)).toEqual([" Source 1", " Source 2", " Source 1"]);
+    expect(renvois.map((renvoi) => renvoi.querySelector(".sr-only")?.textContent)).toEqual([" Source ", " Source ", " Source "]);
+    for (const renvoi of renvois) {
+      expect(renvoi.closest("a, button")).toBeNull();
+      expect(renvoi.getAttribute("tabindex")).toBeNull();
+    }
+    // Renvoi sans Source correspondante : retiré ; aucun repère brut à l'écran ; mise en forme gardée.
+    const text = container.querySelector("[data-answer] p")!;
+    expect(text.textContent).toBe("Relancez à J+15 Source 1.\n1. Appeler Source 2, Source 1.\n2. Écrire.");
+    expect(text.textContent).not.toMatch(/\[[PS]/);
+    const chips = within(screen.getByRole("list", { name: t.sourcesLabel })).getAllByRole("listitem");
+    expect(chips.map(chipView)).toEqual([
+      ["1 · Procédure de facturation", "Source 1 : Procédure de facturation"],
+      ["2 · FAQ comptabilité", "Source 2 : FAQ comptabilité"],
+    ]);
+  });
+
+  it("story 5.4 : découpage du texte en segments (answerSegments)", () => {
+    expect(answerSegments("A [S1]. B [S2][S1]", 2)).toEqual([
+      { kind: "text", text: "A " },
+      { kind: "renvoi", ordinal: 1 },
+      { kind: "text", text: ". B " },
+      { kind: "renvoi", ordinal: 2 },
+      { kind: "renvoi", ordinal: 1 },
+    ]);
+    expect(answerSegments("A [S3] [S0] fin [P1]", 2)).toEqual([{ kind: "text", text: "A   fin [P1]" }]);
+    expect(answerSegments("", 1)).toEqual([]);
   });
 
   it("refus « information absente » (story 5.3) : bloc distinct, texte du catalogue, trois suites, sans zone Sources ; focus dans le champ", async () => {
@@ -246,13 +294,13 @@ describe("envoi", () => {
   });
 
   it("seconde question : l'échange précédent disparaît de l'écran, nouveau clientRequestId", async () => {
-    fetchMock().mockResolvedValueOnce(answer("Première réponse [P1].")).mockResolvedValueOnce(refusal());
+    fetchMock().mockResolvedValueOnce(answer("Première réponse[S1].")).mockResolvedValueOnce(refusal());
     render(<AssistantView />);
     await ask("Première question");
-    expect(screen.getByText("Première réponse [P1].")).toBeTruthy();
+    expect(screen.getByText(answerText("Première réponse Source 1."))).toBeTruthy();
     await ask("Seconde question");
     expect(screen.queryByText("Première question")).toBeNull();
-    expect(screen.queryByText("Première réponse [P1].")).toBeNull();
+    expect(screen.queryByText(answerText("Première réponse Source 1."))).toBeNull();
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0].textContent).toContain("Seconde question");
     expect(screen.getAllByRole("listitem").length).toBe(2);
@@ -341,7 +389,7 @@ describe("erreurs", () => {
     expect(second.clientRequestId).not.toBe(first.clientRequestId);
 
     await act(async () => release(answer()));
-    expect(screen.getByText("Une facture est émise sous 5 jours ouvrés [P1].")).toBeTruthy();
+    expect(screen.getByText(answerText("Une facture est émise sous 5 jours ouvrés Source 1."))).toBeTruthy();
     expect(bubbles()).toHaveLength(1);
     expect(document.activeElement).toBe(field());
   });

@@ -5,6 +5,11 @@ import {
   buildMeasureReport,
   type CaseMeasure,
   checkEmbedding,
+  CONTRADICTION_MIN_SIMILARITY,
+  type ContradictionCase,
+  analyzeContradiction,
+  contradictionSection,
+  loadContradiction,
   durations,
   MeasureError,
   recommend,
@@ -164,5 +169,59 @@ describe("rapport", () => {
     expect(source).not.toMatch(/OPENAI_API_KEY|SUPABASE_SERVICE_ROLE_KEY|seed\.serviceRoleKey|config\.serviceRoleKey/);
     // La seule clé service_role lue est celle de Supabase LOCAL (supabase status), pour measure-embed.
     expect(source).toMatch(/status\.SERVICE_ROLE_KEY/);
+  });
+});
+
+// Story 5.4 : la question de contradiction c1 doit retrouver ses deux Documents au-dessus de 0,42 et
+// les voir transmis au modèle par chat ; sinon, la story s'arrête et les mesures sont présentées.
+describe("measure:search — contradiction c1 (story 5.4)", () => {
+  const c1: ContradictionCase = { id: "c1", question: "délai de première relance ?", expectedTitles: ["FAQ", "Note finance"] };
+  const scores = (pairs: [string, number][]) => pairs.map(([title, similarity]) => ({ title, similarity }));
+
+  it("lit c1 dans questions-mini.json avec les titres du mini Jeu", () => {
+    const contradiction = loadContradiction();
+    expect(contradiction.id).toBe("c1");
+    expect(contradiction.question.length).toBeGreaterThan(0);
+    expect(contradiction.expectedTitles).toEqual(["FAQ comptabilité", "Note de réunion : finance de mars"]);
+  });
+
+  it("seuil du critère : 0,40 + 0,02", () => {
+    expect(CONTRADICTION_MIN_SIMILARITY).toBe(0.42);
+  });
+
+  it("deux Documents au-dessus de 0,42 et transmis : atteint", () => {
+    const analysis = analyzeContradiction(c1, scores([["FAQ", 0.47], ["Guide", 0.45], ["Note finance", 0.42]]), ["FAQ", "Guide", "Note finance"]);
+    expect(analysis.passes).toBe(true);
+    expect(analysis.documents).toEqual([
+      { title: "FAQ", similarity: 0.47, rank: 1, transmitted: true, passes: true },
+      { title: "Note finance", similarity: 0.42, rank: 3, transmitted: true, passes: true },
+    ]);
+  });
+
+  it("un Document entre 0,40 et 0,42 : non atteint, même s'il est transmis", () => {
+    const analysis = analyzeContradiction(c1, scores([["FAQ", 0.47], ["Note finance", 0.415]]), ["FAQ", "Note finance"]);
+    expect(analysis.passes).toBe(false);
+    expect(analysis.documents[1]).toMatchObject({ similarity: 0.415, passes: false });
+  });
+
+  it("un Document au-dessus de 0,42 mais non transmis (8 Passages au plus) : non atteint", () => {
+    const analysis = analyzeContradiction(c1, scores([["FAQ", 0.5], ["Note finance", 0.44]]), ["FAQ"]);
+    expect(analysis.passes).toBe(false);
+    expect(analysis.documents[1]).toMatchObject({ transmitted: false, passes: false });
+  });
+
+  it("un Document absent du classement : non atteint, similarité et rang absents", () => {
+    const analysis = analyzeContradiction(c1, scores([["FAQ", 0.5]]), ["FAQ"]);
+    expect(analysis.documents[1]).toEqual({ title: "Note finance", similarity: null, rank: null, transmitted: false, passes: false });
+    expect(analysis.passes).toBe(false);
+  });
+
+  it("section du rapport : verdict, tableau et classement complet", () => {
+    const ranking = scores([["FAQ", 0.47], ["Note finance", 0.399]]);
+    const text = contradictionSection(analyzeContradiction(c1, ranking, ["FAQ"]), ranking).join("\n");
+    expect(text).toContain("## Contradiction c1 (story 5.4)");
+    expect(text).toContain("NON atteint");
+    expect(text).toContain("| Note finance | 0,399 | 2 | non | NON |");
+    expect(text).toContain("2. Note finance : 0,399");
   });
 });

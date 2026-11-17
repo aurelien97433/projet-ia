@@ -158,13 +158,28 @@ describe("chat : parcours nominal", () => {
       conversationId: CONVERSATION,
       message: {
         kind: "answer",
-        content: `${ANSWER_SECRET} [P2]. Voir aussi [P1][P3] et [P9].`,
+        content: `${ANSWER_SECRET}[S1]. Voir aussi[S2] et.`,
         sources: [
           { documentId: DOC_2, title: "FAQ comptabilité", passageNumbers: [2] },
           { documentId: DOC_1, title: "Procédure de facturation", passageNumbers: [1, 3] },
         ],
       },
     });
+  });
+
+  it("story 5.4 : citations invalides retirées sans message, nombre seul journalisé ; renvois [S{n}] enregistrés", async () => {
+    routes.generate = async () => completion(`REPONSE\n${ANSWER_SECRET} [P1][P3]. Suite [P0] et [P1, P2] [P2]. Fin [S4] [P9].`);
+    const body = await (await ask()).json();
+    const content = `${ANSWER_SECRET}[S1]. Suite et[S2]. Fin.`;
+    expect(body.message.content).toBe(content);
+    expect(body.message.sources.map((source: { passageNumbers: number[] }) => source.passageNumbers)).toEqual([[1, 3], [2]]);
+    expect(bodyOf("/rpc/save_assistant_answer").p_content).toBe(content);
+    const output = logs();
+    expect(output).toMatch(/"unknown_citations":3/);
+    expect(output).toMatch(/"model_renvois_removed":1/);
+    expect(output).not.toContain("[P0]");
+    expect(output).not.toContain("[P1, P2]");
+    expect(output).not.toContain("[P9]");
   });
 
   it("Conversation : titre = question, question nettoyée, identifiant de demande", async () => {
@@ -184,7 +199,7 @@ describe("chat : parcours nominal", () => {
     expect(save).toEqual({
       p_conversation_id: CONVERSATION,
       p_kind: "answer",
-      p_content: `${ANSWER_SECRET} [P2]. Voir aussi [P1][P3] et [P9].`,
+      p_content: `${ANSWER_SECRET}[S1]. Voir aussi[S2] et.`,
       p_sources: [
         { document_id: DOC_2, document_title: "FAQ comptabilité", text_version: 1, passages: [{ passage_id: P2, start: 0, end: 40 }] },
         {
@@ -299,8 +314,8 @@ describe("chat : marqueur de la génération (story 5.3)", () => {
     const response = await ask();
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.message).toMatchObject({ kind: "answer", content: "Sous 5 jours ouvrés [P1]." });
-    expect(bodyOf("/rpc/save_assistant_answer").p_content).toBe("Sous 5 jours ouvrés [P1].");
+    expect(body.message).toMatchObject({ kind: "answer", content: "Sous 5 jours ouvrés[S1]." });
+    expect(bodyOf("/rpc/save_assistant_answer").p_content).toBe("Sous 5 jours ouvrés[S1].");
     expect(calls("classify")).toBe(0);
   });
 

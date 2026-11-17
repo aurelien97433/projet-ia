@@ -279,6 +279,12 @@ export const texts = {
     sourcesLabel: "Sources",
     passagesCount: (count: number) => `${count} Passages`,
     sourceDeleted: (title: string) => `${title} — Document supprimé`,
+    // Renvoi ¹ ² (story 5.4, EXPERIENCE.md) : numéro précédé de ce texte masqué (lu « Source 1 »).
+    citationPrefix: "Source",
+    // Nom accessible de la puce de Source (EXPERIENCE.md) : « Source {n} : {titre}, {k} Passages »,
+    // sans les points médians affichés ; « , {k} Passages » seulement si plusieurs Passages.
+    sourceName: (ordinal: number, label: string, passages: number) =>
+      `Source ${ordinal} : ${label}${passages > 1 ? `, ${passages} Passages` : ""}`,
     // Entrées vers l'Assistant : Tableau de bord et page Document (Document prêt).
     askQuestion: "Poser une question",
   },

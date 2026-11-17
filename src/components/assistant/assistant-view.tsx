@@ -3,7 +3,7 @@
 import { Info } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { z } from "zod";
 import { ErrorAlert } from "@/components/forms/error-alert";
@@ -77,8 +77,8 @@ const canRetry = (error: ChatError) => error.retryable && !NO_RETRY_CODES.includ
 
 // Page Assistant (E4, story 5.2b). Le navigateur n'appelle que POST /api/chat (jamais une Edge
 // Function ni le fournisseur d'IA). Chaque question crée sa Conversation et remplace l'échange affiché.
-// La réponse, d'un bloc, est affichée en texte brut, citations [P{n}] comprises (retirées en 5.4) ; un
-// refus, dans le bloc de refus (story 5.3).
+// La réponse, d'un bloc, est affichée en texte brut avec ses renvois ¹ ² et ses puces numérotées
+// (story 5.4) ; un refus, dans le bloc de refus (story 5.3).
 export function AssistantView() {
   const router = useRouter();
   const raw = useSearchParams().get("question");
@@ -328,33 +328,91 @@ export function AssistantView() {
   );
 }
 
-// Réponse sourcée, d'un bloc, en texte brut ; puces de Source non cliquables (cliquables en 5.7).
+// Segments du texte de la réponse : texte brut ou renvoi vers la Source de numéro n (1 à sources).
+// Le texte enregistré par chat porte les renvois canoniques [S{n}] (story 5.4, AD-11) ; un renvoi sans
+// Source correspondante est retiré. Le texte n'est jamais interprété comme du HTML.
+type AnswerSegment = { kind: "text"; text: string } | { kind: "renvoi"; ordinal: number };
+
+const RENVOI = /\[S(\d+)\]/g;
+
+export function answerSegments(content: string, sourceCount: number): AnswerSegment[] {
+  const segments: AnswerSegment[] = [];
+  let last = 0;
+  const pushText = (text: string) => {
+    if (text === "") return;
+    const previous = segments.at(-1);
+    if (previous?.kind === "text") previous.text += text;
+    else segments.push({ kind: "text", text });
+  };
+  for (const match of content.matchAll(RENVOI)) {
+    pushText(content.slice(last, match.index));
+    last = match.index + match[0].length;
+    const ordinal = Number(match[1]);
+    if (ordinal >= 1 && ordinal <= sourceCount) segments.push({ kind: "renvoi", ordinal });
+  }
+  pushText(content.slice(last));
+  return segments;
+}
+
+// Réponse sourcée, d'un bloc, en texte brut avec ses renvois ¹ ² (non cliquables, précédés du texte
+// masqué « Source ») ; puces de Source numérotées, non interactives jusqu'à la 5.7 (décision de
+// l'utilisateur du 2026-11-17, Q2 = A).
 function Answer({ content, sources }: { content: string; sources: ChatSource[] }) {
   return (
     <div data-answer className="flex min-w-0 flex-col gap-3">
-      <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]">{content}</p>
+      <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
+        {answerSegments(content, sources.length).map((segment, index, segments) =>
+          segment.kind === "text" ? (
+            segment.text
+          ) : (
+            <Fragment key={index}>
+              {/* Texte masqué « Source » précédé d'un espace (le renvoi est collé au mot) ; renvois consécutifs
+                  séparés à la lecture (« Source 2, Source 1 ») ; la marge les sépare à l'écran. */}
+              {segments[index - 1]?.kind === "renvoi" ? <span className="sr-only">,</span> : null}
+              <sup
+                data-renvoi={segment.ordinal}
+                className="ms-0.5 rounded-sm border border-accent-line bg-accent-soft px-1 text-[0.7em] font-medium text-accent-text"
+              >
+                <span className="sr-only">{` ${t.citationPrefix} `}</span>
+                {segment.ordinal}
+              </sup>
+            </Fragment>
+          ),
+        )}
+      </p>
       {sources.length > 0 ? (
         <ul aria-label={t.sourcesLabel} className="flex min-w-0 flex-wrap gap-2">
           {sources.map((source, index) => (
-            <li
-              key={`${source.documentId ?? "supprime"}-${index}`}
-              data-source-chip
-              data-deleted={source.documentId === null || undefined}
-              className={
-                source.documentId === null
-                  ? "max-w-full rounded-full border border-border bg-surface px-3 py-1 text-sm text-muted-foreground line-through [overflow-wrap:anywhere]"
-                  : "max-w-full rounded-full border border-accent-line bg-accent-soft px-3 py-1 text-sm font-medium text-accent-text [overflow-wrap:anywhere]"
-              }
-            >
-              {source.documentId === null ? t.sourceDeleted(source.title) : source.title}
-              {source.passageNumbers.length > 1 ? (
-                <span className="font-normal"> · {t.passagesCount(source.passageNumbers.length)}</span>
-              ) : null}
-            </li>
+            <SourceChip key={`${source.documentId ?? "supprime"}-${index}`} source={source} ordinal={index + 1} />
           ))}
         </ul>
       ) : null}
     </div>
+  );
+}
+
+// Puce « {n} · {titre} » (« · {k} Passages » si plusieurs) ; points médians masqués, nom accessible
+// « Source {n} : {titre}, {k} Passages ». Source supprimée : style barré, numéro gardé.
+function SourceChip({ source, ordinal }: { source: ChatSource; ordinal: number }) {
+  const deleted = source.documentId === null;
+  const label = deleted ? t.sourceDeleted(source.title) : source.title;
+  const count = source.passageNumbers.length;
+  return (
+    <li
+      data-source-chip
+      data-deleted={deleted || undefined}
+      className={
+        deleted
+          ? "max-w-full rounded-full border border-border bg-surface px-3 py-1 text-sm text-muted-foreground line-through [overflow-wrap:anywhere]"
+          : "max-w-full rounded-full border border-accent-line bg-accent-soft px-3 py-1 text-sm font-medium text-accent-text [overflow-wrap:anywhere]"
+      }
+    >
+      <span aria-hidden="true">
+        {ordinal} · {label}
+        {count > 1 ? <span className="font-normal"> · {t.passagesCount(count)}</span> : null}
+      </span>
+      <span className="sr-only">{t.sourceName(ordinal, label, count)}</span>
+    </li>
   );
 }
 

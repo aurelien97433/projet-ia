@@ -8,12 +8,18 @@
 //      1 Passage par Document) : similarité de chaque Document ;
 //   3. semantic-search est appelée une fois par Requête (durées de la chaîne réelle) ;
 //   4. le balayage des seuils et les marges sont calculés hors ligne.
+// Story 5.4 : la question de contradiction c1 de questions-mini.json est vectorisée dans le même appel ;
+// ses deux Documents attendus doivent dépasser CONTRADICTION_MIN_SIMILARITY (seuil + 0,02) ET figurer
+// parmi les Passages que chat transmettrait au modèle (mêmes paramètres de match_passages). Sinon,
+// arrêt de la story et mesures présentées à l'utilisateur (aucun changement de seuil ni de question).
 // Rapport : docs/mesures/recherche.md, sans secret, adresse e-mail, jeton ni vecteur.
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CHAT_MAX_PASSAGES,
+  CHAT_PASSAGES_PER_DOCUMENT,
   EMBEDDING_DIMENSION,
   EMBEDDING_MODEL,
   EMBEDDING_VERSION,
@@ -191,6 +197,84 @@ export function slowCause(d: Durations): string {
   return parts.join(" ");
 }
 
+// Contradiction c1 (story 5.4) : marge de 0,02 au-dessus du seuil de l'Assistant (décision de
+// l'utilisateur du 2026-11-17 : 0,42 pour un seuil de 0,40).
+export const CONTRADICTION_MARGIN = 0.02;
+export const CONTRADICTION_MIN_SIMILARITY = round3(RAG_MIN_SIMILARITY + CONTRADICTION_MARGIN);
+
+export type ContradictionCase = { id: string; question: string; expectedTitles: string[] };
+
+export function loadContradiction(root = ROOT): ContradictionCase {
+  const manifest = JSON.parse(readFileSync(path.join(root, "demo", "documents-mini.json"), "utf8")) as {
+    documents: { key: string; title: string }[];
+  };
+  const questions = JSON.parse(readFileSync(path.join(root, "demo", "questions-mini.json"), "utf8")) as {
+    contradiction?: { id: string; question: string; expectedDocuments: string[] };
+  };
+  const contradiction = questions.contradiction;
+  if (!contradiction || contradiction.expectedDocuments.length < 2) {
+    throw new MeasureError("question de contradiction absente ou incomplète dans demo/questions-mini.json.");
+  }
+  const expectedTitles = contradiction.expectedDocuments.map((key) => {
+    const title = manifest.documents.find((document) => document.key === key)?.title;
+    if (!title) throw new MeasureError(`Document attendu inconnu du mini Jeu : ${key}.`);
+    return title;
+  });
+  return { id: contradiction.id, question: contradiction.question, expectedTitles };
+}
+
+export type ContradictionDocument = {
+  title: string;
+  similarity: number | null; // meilleur Passage, sans seuil
+  rank: number | null; // rang du Document, sans seuil
+  transmitted: boolean; // parmi les Passages que chat transmettrait au modèle
+  passes: boolean;
+};
+
+export type ContradictionAnalysis = { id: string; question: string; documents: ContradictionDocument[]; passes: boolean };
+
+// scores : meilleure similarité par Document (seuil 0) ; transmittedTitles : titres des Passages
+// renvoyés par match_passages avec les paramètres de chat.
+export function analyzeContradiction(
+  contradiction: ContradictionCase,
+  scores: DocumentScore[],
+  transmittedTitles: string[],
+  minSimilarity = CONTRADICTION_MIN_SIMILARITY,
+): ContradictionAnalysis {
+  const documents = contradiction.expectedTitles.map((title) => {
+    const index = scores.findIndex((score) => score.title === title);
+    const similarity = index === -1 ? null : round3(scores[index].similarity);
+    const transmitted = transmittedTitles.includes(title);
+    return { title, similarity, rank: index === -1 ? null : index + 1, transmitted, passes: similarity !== null && similarity >= minSimilarity && transmitted };
+  });
+  return { id: contradiction.id, question: contradiction.question, documents, passes: documents.every((document) => document.passes) };
+}
+
+export function contradictionSection(analysis: ContradictionAnalysis, scores: DocumentScore[]): string[] {
+  const verdict = analysis.passes
+    ? `atteint : les ${analysis.documents.length} Documents dépassent ${formatThreshold(CONTRADICTION_MIN_SIMILARITY)} et sont transmis au modèle`
+    : `NON atteint : arrêt de la story 5.4, mesures à présenter à l'utilisateur (aucun changement de seuil ni de question)`;
+  return [
+    "## Contradiction c1 (story 5.4)",
+    "",
+    `Question : « ${analysis.question} ». Critère : chaque Document attendu ≥ ${formatThreshold(CONTRADICTION_MIN_SIMILARITY)} (seuil ${formatThreshold(RAG_MIN_SIMILARITY)} + ${formatThreshold(CONTRADICTION_MARGIN)}) et transmis au modèle par chat (${CHAT_MAX_PASSAGES} Passages au plus, ${CHAT_PASSAGES_PER_DOCUMENT} par Document).`,
+    "",
+    `- Résultat : ${verdict}`,
+    "",
+    "| Document attendu | Similarité | Rang sans seuil | Transmis par chat | Conforme |",
+    "| --- | --- | --- | --- | --- |",
+    ...analysis.documents.map(
+      (document) =>
+        `| ${document.title} | ${format(document.similarity)} | ${document.rank ?? "absent"} | ${document.transmitted ? "oui" : "non"} | ${document.passes ? "oui" : "NON"} |`,
+    ),
+    "",
+    "Classement complet (meilleur Passage par Document, sans seuil) :",
+    "",
+    ...scores.map((score, index) => `${index + 1}. ${score.title} : ${format(round3(score.similarity))}`),
+    "",
+  ];
+}
+
 export type EmbeddingCheck = { model: string; version: number; dimension: number };
 
 // Même modèle, même version et même dimension que la production (EMBEDDING_* de _shared/config.ts,
@@ -211,6 +295,7 @@ export function buildMeasureReport(input: {
   sweepRows: ThresholdRow[];
   recommendation: Recommendation;
   durations: Durations;
+  contradiction?: { analysis: ContradictionAnalysis; scores: DocumentScore[] };
   date?: Date;
 }): string {
   const { host, embedding, analyses, outcomes, sweepRows, recommendation: rec, durations: d } = input;
@@ -263,6 +348,7 @@ export function buildMeasureReport(input: {
     `- match_passages seule (projet distant, médiane) : ${d.matchMedian} ms`,
     `- Analyse : ${slowCause(d)}`,
     "",
+    ...(input.contradiction ? contradictionSection(input.contradiction.analysis, input.contradiction.scores) : []),
   ].join("\n");
 }
 
@@ -300,9 +386,12 @@ async function embedLocally(stack: LocalStack, texts: string[]): Promise<{ check
 async function main(): Promise<void> {
   try {
     const cases = loadCases();
-    // Local d'abord : rien n'est appelé à distance si la pile locale ou sa clé ne répondent pas.
-    const { check, vectors } = await embedLocally(localStack(), cases.map((item) => item.query));
+    const contradiction = loadContradiction();
+    // Local d'abord : rien n'est appelé à distance si la pile locale ou sa clé ne répondent pas. La
+    // question c1 est vectorisée dans le même appel, en dernier.
+    const { check, vectors } = await embedLocally(localStack(), [...cases.map((item) => item.query), contradiction.question]);
     checkEmbedding(check);
+    const contradictionVector = vectors[cases.length];
     console.log(`measure:search — vectorisation locale conforme : ${check.model}, version ${check.version}, ${check.dimension} dimensions`);
 
     const session = await openLiveSession("measure:search");
@@ -320,6 +409,30 @@ async function main(): Promise<void> {
       if (error) throw new MeasureError(`match_passages a refusé l'appel (${error.code}).`);
       measures.push({ ...item, scores: scoresFromRows(data), matchMs: Math.round(performance.now() - started) });
     }
+    // c1 : similarité de chaque Document (seuil 0, 1 Passage par Document), puis Passages que chat
+    // transmettrait au modèle (mêmes paramètres que chat/index.ts).
+    const c1Scores = await session.client.rpc("match_passages", {
+      query_embedding: JSON.stringify(contradictionVector),
+      min_similarity: 0,
+      max_passages: MATCH_ROWS,
+      max_per_document: 1,
+      embedding_model: EMBEDDING_MODEL,
+      embedding_version: EMBEDDING_VERSION,
+    });
+    if (c1Scores.error) throw new MeasureError(`match_passages a refusé l'appel de c1 (${c1Scores.error.code}).`);
+    const c1Transmitted = await session.client.rpc("match_passages", {
+      query_embedding: JSON.stringify(contradictionVector),
+      min_similarity: RAG_MIN_SIMILARITY,
+      max_passages: CHAT_MAX_PASSAGES,
+      max_per_document: CHAT_PASSAGES_PER_DOCUMENT,
+      embedding_model: EMBEDDING_MODEL,
+      embedding_version: EMBEDDING_VERSION,
+    });
+    if (c1Transmitted.error) throw new MeasureError(`match_passages a refusé l'appel de c1 (${c1Transmitted.error.code}).`);
+    const contradictionScores = scoresFromRows(c1Scores.data);
+    const transmittedTitles = scoresFromRows(c1Transmitted.data).map((score) => score.title);
+    const contradictionAnalysis = analyzeContradiction(contradiction, contradictionScores, transmittedTitles);
+
     const outcomes = await runLiveCases(session, cases);
     await session.client.auth.signOut().catch(() => {});
 
@@ -334,10 +447,17 @@ async function main(): Promise<void> {
       sweepRows,
       recommendation,
       durations: durations(outcomes, measures),
+      contradiction: { analysis: contradictionAnalysis, scores: contradictionScores },
     });
     mkdirSync(path.join(ROOT, path.dirname(MEASURE_REPORT_FILE)), { recursive: true });
     writeFileSync(path.join(ROOT, MEASURE_REPORT_FILE), report, "utf8");
     console.log(`measure:search — ${recommendation.keep ? "0,40 gardé" : "décision à présenter à l'utilisateur"} ; rapport : ${MEASURE_REPORT_FILE}`);
+    const c1Line = contradictionAnalysis.documents
+      .map((document) => `${document.title} ${format(document.similarity)}${document.transmitted ? "" : " (non transmis)"}`)
+      .join(", ");
+    console.log(
+      `measure:search — c1 : ${contradictionAnalysis.passes ? "atteint" : "NON atteint"} (≥ ${formatThreshold(CONTRADICTION_MIN_SIMILARITY)} et transmis) : ${c1Line}`,
+    );
   } catch (error) {
     if (!(error instanceof MeasureError || error instanceof LiveSearchError || error instanceof SeedError)) throw error;
     console.error(`measure:search — échec : ${error.message}`);

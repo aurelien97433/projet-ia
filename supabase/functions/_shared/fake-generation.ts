@@ -13,6 +13,8 @@ import { REFUSAL_SYSTEM_PROMPT } from "./rag/prompt.ts";
 // Repères placés dans la question (texte neutralisé dans les consignes, sans chevron ni esperluette) :
 // réponse simulée sans aucune citation (cas AI_CITATIONS_INVALID).
 export const FAKE_NO_CITATION_MARKER = "[simulation:sans-citation]";
+// Story 5.4 : citation invalide [P9] à côté d'une citation valide [P1] (retirée du texte enregistré).
+export const FAKE_INVALID_CITATION_MARKER = "[simulation:citation-invalide]";
 // Refus « information absente » malgré des Passages (texte du modèle ignoré par chat).
 export const FAKE_INFO_ABSENTE_MARKER = "[simulation:info-absente]";
 // Refus « hors cadre » : avec Passages, et pour l'appel court sans Passage.
@@ -40,6 +42,9 @@ export function fakeAnswer(userMessage: string): string {
   if (question.includes(FAKE_INFO_ABSENTE_MARKER)) return `REFUS_INFO_ABSENTE\n${FAKE_IGNORED_TEXT}`;
   if (question.includes(FAKE_HORS_CADRE_MARKER)) return `REFUS_HORS_CADRE\n${FAKE_IGNORED_TEXT}`;
   if (passages === 0 || question.includes(FAKE_NO_CITATION_MARKER)) return "REPONSE\nRéponse simulée, sans citation.";
+  if (question.includes(FAKE_INVALID_CITATION_MARKER)) {
+    return "REPONSE\nRéponse simulée à partir des Documents [P1]. Point simulé sans Passage [P9].";
+  }
   return passages >= 2
     ? "REPONSE\nRéponse simulée à partir des Documents [P1]. Second point simulé [P2]."
     : "REPONSE\nRéponse simulée à partir des Documents [P1].";
