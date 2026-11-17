@@ -1658,3 +1658,13 @@ Trois écarts relevés par l'utilisateur :
 Coût OpenAI estimé pour l'ensemble : moins de 1 $ (crédit restant environ 9,8 $).
 
 **Décisions pour la 5.3.** Marqueur en première ligne, tolérance limitée aux espaces, à la casse et aux astérisques de mise en gras. Appel court gardé quand aucun Passage ne dépasse le seuil : FR-18 (P0) exige le message « hors cadre » pour une question de culture générale, qui ne retrouve presque jamais de Passage ; l'unité est consommée (appel facturé). AD-14 et la phrase de FR-18 sur les pannes seront alignés dans la spec. Bloc de refus avec les boutons d'UX-DR11. Test réel limité à 12 questions (q1, p1, information absente, hors cadre), sans la relance. Relecteur séparé.
+
+## Mise à jour de sécurité de Next.js (2026-11-17)
+
+**Constat.** Pendant la 5.3, chaque premier `next build` s'arrêtait sur une alerte de sécurité intégrée à Next.js (`SecurityFatalError`), puis passait au second essai. Avis : **GHSA-mfr8-8qww-v76h** (CVE-2026-119790), gravité **modérée**, versions 16.3.0 à 16.4.4, corrigé en 16.4.5.
+
+**Partie touchée.** Le cache (`'use cache'` appelé à la fois directement et via `unstable_cache()`, lisant un paramètre de la mise en page racine) : au démarrage à froid, une course pouvait servir des données en cache d'une valeur de paramètre racine à une autre.
+
+**Exposition.** Aucune : le projet n'utilise ni `'use cache'`, ni `unstable_cache`, ni `rootParams`, et la mise en page racine n'a pas de paramètre. App Router, Server Actions, Route Handlers et `proxy.ts` (middleware) ne sont pas concernés par cet avis.
+
+**Décision de l'utilisateur.** `next` et `eslint-config-next` passent de 16.4.3 à 16.4.5 (version corrective la plus proche dans la même mineure), dans un commit séparé, avant la 5.3. `package-lock.json` ne change que les 12 paquets de la famille Next.
