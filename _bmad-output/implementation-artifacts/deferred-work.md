@@ -201,3 +201,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/5-4-validation-des-citations.md`
   summary: `measure:search` — aucun test ne vérifie que `buildMeasureReport` reçoit et écrit la section « Contradiction c1 », ni l'indice du vecteur de c1 dans `main()`.
   evidence: revue Verification Gap de la 5.4 ; seuls `loadContradiction`, `analyzeContradiction` et `contradictionSection` sont testés ; mesure déjà faite le 2026-11-17 (rapport conforme) et script figé par la spec ; à ajouter si le script est retouché.
+- source_spec: `_bmad-output/implementation-artifacts/5-4-validation-des-citations.md`
+  summary: Story 5.5 — reformuler l'exemple de la consigne de contradiction (`CHAT_SYSTEM_PROMPT`) en « Les Documents ne concordent pas : X[P1], Y[P3]. », sans « selon » devant un renvoi ; la 5.5 redéploie `chat` de toute façon (décision de l'utilisateur du 2026-11-17).
+  evidence: `test:chat:live` réussi sur `0c32162` (`docs/mesures/assistant-live.md`) : les 3 réponses c1 écrivent « 15 jours … selon[S1] » (affiché « selon¹ », l'espace avant un renvoi étant retiré) et répètent les deux valeurs dans la phrase d'écart, en copiant l'exemple « X selon [P1], Y selon [P3] ».

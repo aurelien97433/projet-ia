@@ -1700,3 +1700,21 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 **Déploiement et production (sur `2120dfd`).** `deploy:supabase` par l'utilisateur : aucune migration, `chat` (38 kB), `process-document` et `semantic-search` redéployées ; `test:search:live` vert ; Note de test passée à « Prêt » puis supprimée. `npm run test:chat:live` : **12 sur 12** (q1 réponse avec « Procédure de facturation », p1 réponse, h1 `refusal_info_absente`, o1 `refusal_hors_cadre`), aucun terme du piège, compteur du jour 0 → 12, cohérent ; rapport `docs/mesures/assistant-live.md`. Aucun marqueur mal formé par le modèle réel. Vérification sur le site par l'utilisateur : bloc « information absente » avec ses trois boutons, « Reformuler » et « Rechercher » conformes ; bloc « hors cadre » avec « Reformuler » seul ; q1 sans marqueur visible ; tour du site après Next.js 16.4.5 (connexion, Bibliothèque, Document, Recherche) conforme.
 
 **Statut.** Story 5.3 `done`. Prochaine : 5.4 (validation des citations).
+
+## Story 5.4 : validation des citations (2026-11-17)
+
+**Commits.** `3e2826b` (story), `0c32162` (correction des consignes après le premier test réel).
+
+**Décisions de l'utilisateur.** Renvois enregistrés sous la forme canonique `[S{n}]` (numéro de la Source), sans migration ; écart avec la lettre d'AD-11 consigné (Q1 = A). Puces numérotées, non interactives jusqu'à la 5.7 (Q2 = A). Mesure du classement de la question c1 avant tout autre code : FAQ comptabilité 0,594, Note de réunion finance 0,486, les deux transmises au modèle ; seuil 0,40 gardé.
+
+**Revue.** Trois relecteurs, 18 causes triées dans la spec : 8 corrigées (repères bruts retirés, espace avant un renvoi, espaces insécables, compteur des `[S…]` du modèle, séparateur entre renvois pour les lecteurs d'écran, deux contrôles bloquants de `test:chat:live`, contexte de l'Epic 5, commentaire) ; 2 reportées (`[P{n}]` bruts des réponses enregistrées avant la 5.4, pour la 5.6 ; test de la section c1 de `measure:search`). Vérification complète verte : 1 655 Vitest, 345 e2e.
+
+**Premier test réel : échec sur c1 (14 sur 15).** Sur `3e2826b`, après `deploy:supabase` : c1 #1 et #2 ne citent que la FAQ comptabilité et ignorent « 21 jours » ; la réponse directe ne donne qu'une valeur, puis la répète en liste numérotée. c1 #3 cite les deux, mais ne signale l'écart qu'en fin de réponse. Le journal `chat_done` ne nomme pas les Documents transmis ; la mesure du jour (Note finance à 0,486, transmise) et l'essai 3 indiquent que la Note était bien transmise : défaut des consignes, pas de la recherche. Compteur 12 → 27, cohérent. Rapport conservé : `docs/mesures/assistant-live-5-4-passage-1.md`.
+
+**Correction (formulations validées par l'utilisateur, `0c32162`).** La consigne « Si deux Passages se contredisent, signalez la contradiction… » est remplacée par : comparer les Passages avant de répondre, donner chaque valeur différente avec la citation de son Passage dès la réponse directe, puis signaler l'écart en une phrase. La règle de numérotation interdit de répéter la réponse sous forme de liste : une liste numérotée n'est permise que pour une procédure d'au moins deux étapes distinctes.
+
+**Rejeu unique : 15 sur 15.** Sur `0c32162`, après `deploy:supabase` : c1 3 sur 3 avec les deux Sources et les deux délais dès la réponse directe, écart signalé ; aucune réponse en liste ; aucun repère `[P` brut ; compteur 27 → 42, cohérent. Vérification sur le site par l'utilisateur : q1 avec renvoi ¹, sans « 1. » ni repère brut, puce « 1 · Procédure de facturation » ; c1 conforme, deux puces numérotées.
+
+**Reste à reformuler en 5.5.** L'exemple de la consigne (« X selon [P1], Y selon [P3] ») est copié par le modèle : « 15 jours selon¹ », et la phrase d'écart répète les deux valeurs. Exemple à remplacer par « Les Documents ne concordent pas : X[P1], Y[P3]. » (deferred-work).
+
+**Statut.** Story 5.4 `done`. Prochaine : 5.5 (réponse progressive).

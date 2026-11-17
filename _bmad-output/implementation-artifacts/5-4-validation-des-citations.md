@@ -2,7 +2,7 @@
 title: 'Story 5.4 : Validation des citations'
 type: 'feature'
 created: '2026-11-17'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '758386e9ea6331e010ab764bfdef490a6aea2d8f'
