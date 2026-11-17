@@ -19,7 +19,7 @@ import {
 } from "../../scripts/test-chat-live";
 import { CHAT_TIMEOUT_MS } from "../../supabase/functions/_shared/config.ts";
 
-// Décision de l'utilisateur du 2026-11-18 (3 = A) : le script attend plus longtemps que l'échéance du
+// Décision de l'utilisateur du 2026-11-17 (3 = A) : le script attend plus longtemps que l'échéance du
 // mode flux de chat.
 describe("test:chat:live — délai d'une question", () => {
   it("chaîne : chat 85 s < script 95 s", () => {

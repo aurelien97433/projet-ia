@@ -1718,3 +1718,28 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 **Reste à reformuler en 5.5.** L'exemple de la consigne (« X selon [P1], Y selon [P3] ») est copié par le modèle : « 15 jours selon¹ », et la phrase d'écart répète les deux valeurs. Exemple à remplacer par « Les Documents ne concordent pas : X[P1], Y[P3]. » (deferred-work).
 
 **Statut.** Story 5.4 `done`. Prochaine : 5.5 (réponse progressive).
+
+## Story 5.5 : réponse progressive sur Vercel (2026-11-17)
+
+**Commits.** `fa490c1` (spec), `07b8ebc` (story).
+
+**Décisions de l'utilisateur.** Spec gardée entière ; mesure par un instrument `?mesure=1` en production plutôt qu'en prévisualisation (même offre Vercel Hobby, même région, même fonction distante), résultat copié sans identifiant, jeton ni e-mail ; un relecteur séparé, avec la règle « rien de ce qui part en `delta` n'est pire que le texte final » ; termes du piège cherchés aussi dans le texte progressif de `test:chat:live`.
+
+**Choix de conception.** `chat` garde le mode JSON de la 5.4 à côté du flux : `deploy:supabase` précède le push, et la page en ligne doit continuer de fonctionner entre les deux (vérifié : q1 normale en mode JSON avant le push).
+
+**Panne de l'environnement.** Les tests d'intégration et e2e du flux n'ont pas pu tourner le matin : le moteur Docker répondait « 500 Internal Server Error », puis « Windows hypervisor is not running ». L'utilisateur a remis l'hyperviseur Windows en démarrage automatique et redémarré. Point d'arrêt consigné dans la spec avant le redémarrage ; reprise sans perte.
+
+**Décisions en cours de route.**
+- 2 = A : une demande rejouée (même `clientRequestId`) reste un 409 `REQUEST_IN_PROGRESS` en JSON ; la ligne « Rejoué » de la matrice, écrite par l'IA, était fausse (le renvoi de la réponse enregistrée relève de la 5.9).
+- 3 = A : délai d'une question de `test:chat:live` porté de 75 à 95 s, au-delà de l'échéance de 85 s du mode flux (chaîne testée).
+- Option A après la revue : le navigateur comptait 20 s dès le clic, la génération 20 s seulement après la recherche ; `chat` envoie désormais son premier événement au plus 17 s après la demande, pour que l'écran et la base concordent (chaîne testée : 17 s < 20 s ; AD-16).
+
+**Revue.** Un relecteur séparé, 8 constats : 4 corrigés (repères à lettres mêlées et espaces Unicode qui fuyaient dans le texte progressif, échéance commune de la génération, usage inconnu journalisé), 1 tranché par l'utilisateur (17 s), 3 rejetés. Cas limite reporté avec la 5.9 (refus enregistré exactement à 17 s). Vérification complète verte : 1 762 Vitest, 355 e2e.
+
+**Production.** `deploy:supabase` (`chat` 55 kB, sans migration), `test:search:live` vert, Note de test prête puis supprimée. `npm run test:chat:live` en mode flux : 15 sur 15, aucun terme interdit ni repère dans le texte progressif, aucun refus avec texte progressif, premier `delta` côté fonction 1 536 ms en médiane, compteur 42 → 57. Mesure de 10 questions sur `/assistant?mesure=1` : premier affichage 2 676 ms en médiane (maximum 5 161 ms, q1 à froid), 9 réponses sur 9 en plusieurs morceaux, refus d'un coup, `fra1` ; aucun plan B. L'étalement est court (62 à 190 ms) : l'attente précède le premier morceau ; le flux profitera surtout aux réponses longues (Résumé, 6.1). Rapport : `docs/mesures/flux-vercel.md`.
+
+**Branche de l'essai 5.0.** La branche locale `probe/5-0-stream` (`b0da814`), gardée comme référence du relais, est supprimée à la clôture sur accord de l'utilisateur : la 5.5 a repris le relais dans `src/server/chat/relay.ts`, la branche n'a plus d'usage (la branche distante l'était déjà depuis le 2026-11-13).
+
+**Erreur de date corrigée.** Toute la 5.5 (implémentation, revue, déploiement, mesure) a eu lieu le 2026-11-17, le jour même de la clôture de la 5.4, et non le 18/11 comme le prévoyait le calendrier. L'IA avait daté les décisions et les notes « 2026-11-18 » d'après le plan, sans vérifier l'horloge ; l'horodatage de la mesure (`2026-11-17T14:03Z`) l'a révélé. Dates corrigées dans la spec, AD-16, ce journal, le rapport et les commentaires de code. Leçon : dater un événement d'après l'horloge, jamais d'après le calendrier prévu.
+
+**Statut.** Story 5.5 `done`, en avance d'un jour sur le calendrier.

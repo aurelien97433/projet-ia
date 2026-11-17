@@ -44,7 +44,7 @@ export const PASSAGE_TITLE_MAX_LENGTH = 200;
 // 90 s < maxDuration 120 s.
 export const CHAT_TIMEOUT_MS = 85_000;
 export const CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS = 20_000;
-// Premier affichage du serveur (story 5.5, décision de l'utilisateur du 2026-11-18, option A) : en mode
+// Premier affichage du serveur (story 5.5, décision de l'utilisateur du 2026-11-17, option A) : en mode
 // flux, chat envoie son premier événement (delta, refusal, done ou error) au plus 17 s après la
 // réception de la demande, sous les 20 s du navigateur ; la génération reçoit au plus
 // min(20 s, 17 s − temps déjà écoulé) jusqu'au premier morceau.

@@ -28,7 +28,7 @@ import { createSseParser } from "../src/lib/sse";
 import { SeedError } from "./seed-demo";
 
 export const REPORT_FILE = path.join("docs", "mesures", "assistant-live.md");
-// Délai d'une question (décision de l'utilisateur du 2026-11-18, 3 = A) : au-delà de l'échéance du
+// Délai d'une question (décision de l'utilisateur du 2026-11-17, 3 = A) : au-delà de l'échéance du
 // mode flux de chat (CHAT_TIMEOUT_MS, 85 s), pour qu'une réponse lente mais valide ne soit jamais
 // comptée comme un échec du script ; chaîne vérifiée par un test.
 export const REQUEST_TIMEOUT_MS = 95_000;

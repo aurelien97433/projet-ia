@@ -865,7 +865,7 @@ describe("chat : mode flux (story 5.5)", () => {
     expect(delays.some((ms) => ms > 16_000 && ms < 17_000)).toBe(true);
   });
 
-  describe("premier affichage du serveur (décision de l'utilisateur du 2026-11-18, option A)", () => {
+  describe("premier affichage du serveur (décision de l'utilisateur du 2026-11-17, option A)", () => {
     const delay = (ms: number, handler: () => Promise<Response>) => async () => {
       await new Promise((resolve) => setTimeout(resolve, ms));
       return handler();

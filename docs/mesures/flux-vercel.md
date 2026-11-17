@@ -70,7 +70,7 @@ Pour la story 5.5 : reprendre les réglages de la variante de base (`text/event-
 
 # Flux réel de l'Assistant (story 5.5)
 
-Mesure du vrai flux de `chat` (Recherche, génération diffusée, masquage des repères) relayé par `POST /api/chat`, **à faire par l'utilisateur après `deploy:supabase` et le push**. Section à compléter avec le résultat copié.
+Mesure du vrai flux de `chat` (Recherche, génération diffusée, masquage des repères) relayé par `POST /api/chat`, faite par l'utilisateur le 2026-11-17 en production, après `deploy:supabase` et le push de `07b8ebc`.
 
 ## Conditions prévues
 
@@ -83,8 +83,48 @@ Mesure du vrai flux de `chat` (Recherche, génération diffusée, masquage des r
 
 ## Résultats
 
-(À compléter : résultat copié depuis `/assistant?mesure=1`.)
+Relevé de l'utilisateur, page `/assistant?mesure=1`, 10 questions du mini Jeu (q1 à q7, c1, p1, h1) après une question de chauffe non comptée :
+
+- **Verdict : réussite.** Aucun plan B (ni B1, ni B3).
+- Premier affichage : **médiane 2 676 ms**, maximum 5 161 ms (q1, premier appel à froid). Critère : médiane < 5 000 ms.
+- Texte reçu en plusieurs morceaux étalés : **9 réponses sur 9**. Étalement entre la première et la dernière lecture du flux : 62 à 190 ms.
+- h1 : refus affiché d'un coup, sans texte progressif.
+- Région : `fra1` pour chaque question.
+
+Côté fonction, sans Vercel (`npm run test:chat:live` en mode flux, même jour, `docs/mesures/assistant-live.md`) : premier `delta` en 1 536 ms en médiane sur 9 réponses ; 15 sur 15.
+
+Résultat copié par l'utilisateur depuis `/assistant?mesure=1`, reproduit tel quel :
+
+## Mesure du flux — Assistant (2026-11-17T14:03:26.055Z)
+
+- Questions mesurées : 10
+- Premier affichage : médiane 2676 ms, max 5161 ms (critère : médiane < 5000 ms) : conforme
+- Texte reçu en plusieurs morceaux étalés : 9 réponses sur 9 : conforme
+- Région : fra1 (attendue : fra1) : conforme
+- Verdict : réussite
+
+| # | Envoi (UTC) | Question | Issue | Premier affichage (ms) | Premier delta (ms) | Fin (ms) | Delta | Lectures | Étalement (ms) | Région | Progressif |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 14:00:03 | q1 — Sous quel délai une facture doit-elle être émise après la livraison ? | réponse | 5161 | 5161 | 5506 | 23 | 3 | 105 | fra1 | oui |
+| 2 | 14:00:29 | q2 — À partir de quel montant une seconde validation est-elle obligatoire sur une facture ? | réponse | 3628 | 3628 | 4257 | 19 | 8 | 190 | fra1 | oui |
+| 3 | 14:00:53 | q3 — Sous quel délai les notes de frais sont-elles remboursées ? | réponse | 2389 | 2389 | 2561 | 22 | 5 | 123 | fra1 | oui |
+| 4 | 14:01:15 | q4 — Combien de jours de congés payés un collaborateur a-t-il par an ? | réponse | 1931 | 1931 | 2113 | 15 | 5 | 94 | fra1 | oui |
+| 5 | 14:01:39 | q5 — Quelle est la date de mise en ligne du projet Atelier Lumen ? | réponse | 2892 | 2892 | 3129 | 16 | 4 | 94 | fra1 | oui |
+| 6 | 14:02:04 | q6 — Quand la revue post-incident d'un incident de priorité 1 est-elle présentée ? | réponse | 2518 | 2518 | 3001 | 24 | 5 | 111 | fra1 | oui |
+| 7 | 14:02:25 | q7 — Pour un incident de priorité 1, sous quel délai est-il pris en charge, et quand sa revue post-incident est-elle présentée au comité qualité ? | réponse | 2344 | 2344 | 2626 | 43 | 6 | 94 | fra1 | oui |
+| 8 | 14:02:43 | c1 — Quel est le délai avant la première relance d'une facture impayée ? | réponse | 2934 | 2934 | 3162 | 41 | 7 | 189 | fra1 | oui |
+| 9 | 14:03:00 | p1 — Que dit le guide des relances clients sur le ton à adopter ? | réponse | 2687 | 2687 | 2886 | 46 | 3 | 62 | fra1 | oui |
+| 10 | 14:03:23 | h1 — Quel est le budget marketing de NexaWorks pour 2027 ? | refus | 2665 | — | 2665 | 0 | 0 | — | fra1 | — |
+
+Concordance vérifiée : premiers affichages triés 1 931 … 2 665, 2 687 … 5 161 ; médiane des 10 = (2 665 + 2 687) / 2 = 2 676 ms ; maximum 5 161 ms (q1) ; 9 réponses progressives sur 9 ; étalement de 62 (p1) à 190 ms (q2) ; h1 refus sans `delta` ; `fra1` partout.
+
+## Analyse
+
+- **Le relais ne met pas le flux en tampon** : chaque réponse arrive en plusieurs lectures, et le premier affichage reste sous le critère avec une marge de plus de 2 s en médiane.
+- **L'étalement est court (62 à 190 ms)** : l'essentiel de l'attente précède le premier `delta` (vectorisation de la question, recherche des Passages, relecture des Documents, puis tampon du marqueur jusqu'à la fin de la première ligne). Les réponses du mini Jeu tiennent en une ou deux phrases : une fois le premier morceau reçu, le reste arrive presque aussitôt.
+- **Le maximum de 5 161 ms (q1)** est un premier appel à froid malgré la chauffe ; il dépasse 5 s mais n'affecte pas la médiane. À surveiller en démonstration (réchauffement prévu en 7.5/7.6).
+- **Bénéfice visible du flux** : il concernera surtout les réponses longues, en particulier le Résumé (story 6.1), où l'écriture progressive remplace une longue attente.
 
 ## Conclusion
 
-(À compléter.)
+Critère de la story 5.5 atteint en production : premier affichage en médiane 2 676 ms (< 5 s), texte reçu en plusieurs morceaux pour 9 réponses sur 9, refus d'un bloc, région `fra1`. Variante de base du relais gardée ; B1 reste prêt mais inactif ; B3 non nécessaire (point de contrôle du 18/11).

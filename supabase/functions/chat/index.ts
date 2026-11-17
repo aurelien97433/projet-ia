@@ -380,7 +380,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   const controller = new AbortController();
   const signal = controller.signal;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  // Premier affichage du serveur (mode flux, décision de l'utilisateur du 2026-11-18, option A) : si
+  // Premier affichage du serveur (mode flux, décision de l'utilisateur du 2026-11-17, option A) : si
   // aucun événement n'est parti 17 s après la réception (session, recherche, appel court ou génération
   // trop lents), l'échéance commune est déclenchée : error AI_TIMEOUT, échec enregistré, règle de
   // libération inchangée (unité rendue avant tout envoi au fournisseur, consommée après). Le navigateur

@@ -79,7 +79,7 @@ describe("POST /api/chat", () => {
     expect(CHAT_FIRST_DISPLAY_TIMEOUT_MS).toBe(20_000);
   });
 
-  it("premier affichage (décision du 2026-11-18, option A) : chat 17 s < navigateur 20 s", async () => {
+  it("premier affichage (décision du 2026-11-17, option A) : chat 17 s < navigateur 20 s", async () => {
     const config = await import("../../supabase/functions/_shared/config.ts");
     const { CHAT_FIRST_DISPLAY_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
     expect([config.CHAT_FIRST_DISPLAY_MS, CHAT_FIRST_DISPLAY_TIMEOUT_MS]).toEqual([17_000, 20_000]);
