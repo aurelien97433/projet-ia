@@ -1761,3 +1761,17 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 **Production.** `deploy:supabase` (migration, `chat` 56 kB), contrôle distant en lecture seule conforme (une signature par fonction, `authenticated` seul, vue `security_invoker` sans droit pour `anon`), Note de test et q1 avant le push. `test:chat:live` : 15 sur 15, compteur 0 → 15. Vérification du site par l'utilisateur conforme (Historique, « Sans réponse », ancienne réponse sans `[P2]`, poursuite, heure, E9).
 
 **Statut.** Story 5.6 `done` le 2026-11-19, un jour après la date prévue ; la 5.7 commence le même jour.
+
+## Story 5.7 : panneau Source (2026-11-19)
+
+**Commits.** `0e13544` (story, spec comprise), clôture.
+
+**Décisions de l'utilisateur.** Spec approuvée entière : Q1 = A (positions et version du texte transmises avec chaque Source, dans l'événement `done` de `chat` et dans le fil relu, plutôt qu'une route par message), Q2 = A (texte modifié depuis la réponse : Document entier avec « Passage introuvable »), Q3 = A (même Lecteur, rendu côté client dans le panneau, texte lu par une nouvelle route `GET /api/documents/[id]`). Exigences R1 à R5 ajoutées au périmètre du relecteur pour cette route : session du Collaborateur, `no-store`, 401 sans lecture, 404 neutre identique, `check:secrets` sur le code envoyé au navigateur. Report de la 3.4 traité : les `passage_id` d'une Source dont le Document est supprimé ne sont jamais relus ni transmis.
+
+**Déroulé.** Implémentation par un agent à partir de la spec seule (workflow de build), diff relu en entier avant la revue : tâches, critères et lignes de la matrice couverts par des tests exécutés. Un relecteur séparé, seul, sur décision de l'utilisateur (au lieu des trois couches du workflow) : aucun bloquant ; 2 importants corrigés (panneau non plein écran entre 640 et 767 px, une classe de `Sheet` n'étant pas écrasée ; Échap global qui volait le focus du champ de question), 6 mineurs corrigés, 2 reportés (même largeur sur l'Historique, antérieure ; relecture de la réponse entière quand une puce passe au style supprimé, pour la 5.11), 1 rejeté. Un échec e2e isolé (`document-page`, « chargement lent ») ne s'est pas reproduit à la vérification complète.
+
+**Vérification.** Complète d'un seul tenant : 1 849 Vitest, 371 e2e, `build:ci` et `check:secrets` verts.
+
+**Production.** `deploy:supabase` (`chat` seule, sans migration) : la première tentative a échoué sur un délai de connexion au pooler, sans rien appliquer ; la seconde a réussi. Note de test et q1 avant le push. `test:chat:live` : 15 sur 15, compteur 15 → 30. Vérification du site par l'utilisateur conforme (q1, focus et Échap, Conversation du lundi, c1 avec deux panneaux, page complète, 375 px).
+
+**Statut.** Story 5.7 `done` le 2026-11-19, le jour prévu par le calendrier, après la clôture de la 5.6 le même jour.

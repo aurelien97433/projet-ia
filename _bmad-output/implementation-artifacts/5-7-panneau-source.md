@@ -2,7 +2,7 @@
 title: 'Story 5.7 : Panneau Source'
 type: 'feature'
 created: '2026-11-19'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '0fb3afebe27168e981a4902e85c6437c2647c63f'
@@ -153,3 +153,5 @@ Relecteur séparé unique (décision de l'utilisateur du 2026-11-19, à la place
 | M7 | Test « un seul panneau à la fois » annonce deux sens, n'en vérifie qu'un ; branche `if (historyOpen)` de `openSource` inatteignable (Historique modal) | low | `source-panel.test.tsx` ; l'Historique rend le fil inerte. | patch (intitulé du test ; branche gardée, défensive) |
 
 **Vérification complète d'un seul tenant (2026-11-19, 13:55-14:04), après les correctifs de revue :** `db reset`, `npm test` (PowerShell : 94 fichiers, 1 849 tests), `lint`, `tsc`, `build:ci` (`check:secrets` : aucun secret dans le dépôt ni dans le code envoyé au navigateur, R5), e2e complet (371 passés, 19 ignorés par conception, 0 échec, dont `document-page` « chargement lent », échec isolé de la première passe non reproduit) : vert.
+
+**Déploiement et vérification en production (2026-11-19) :** commit `0e13544`. `deploy:supabase` par l'utilisateur : la première tentative a échoué sur un délai de connexion au pooler, sans rien appliquer ; la seconde a réussi (`chat` redéployée, aucune migration, `process-document` et `semantic-search` inchangées). Note de test « Prête » puis supprimée, q1 normale sur la page en ligne, puis push. `npm run test:chat:live` : 15 sur 15, compteur du Compte de mesure 15 → 30 (cohérent), premier `delta` côté fonction 1 583 ms en médiane (`docs/mesures/assistant-live.md`). Site, par l'utilisateur : panneau ouvert depuis q1 avec le Passage surligné, Échap qui ferme et rend le focus à la puce ; puce d'une Conversation du lundi (positions relues en base) ; c1 avec deux panneaux qui surlignent chacun leur délai ; « Ouvrir la page complète » avec le même surlignage ; plein écran à 375 px avec « ← Retour à la Conversation ». Conforme. Story `done`.
