@@ -14,7 +14,7 @@ const { GET } = await import("@/app/api/conversations/route");
 const { listConversations: realList } = await vi.importActual<typeof import("@/server/conversations/list-conversations")>(
   "@/server/conversations/list-conversations",
 );
-const { getConversation } = await import("@/server/conversations/get-conversation");
+const { getConversation, toThreadSource } = await import("@/server/conversations/get-conversation");
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const ITEM = { id: ID, title: "Congés", lastMessageAt: "2026-11-18T09:05:00.000Z", unanswered: true };
@@ -134,8 +134,18 @@ describe("lecture serveur des Conversations", () => {
       },
       message_sources: {
         data: [
-          { message_id: "a1", ordinal: 1, document_id: null, document_title: "Ancien", passages: [{}, {}] },
-          { message_id: "a1", ordinal: 2, document_id: "d2", document_title: "FAQ", passages: [{}] },
+          {
+            message_id: "a1",
+            ordinal: 1,
+            document_id: null,
+            document_title: "Ancien",
+            text_version: 3,
+            passages: [
+              { passage_id: "p-ancien-1", start: 1, end: 9 },
+              { passage_id: "p-ancien-2", start: 20, end: 30 },
+            ],
+          },
+          { message_id: "a1", ordinal: 2, document_id: "d2", document_title: "FAQ", text_version: 2, passages: [{ passage_id: "p-faq", start: 120, end: 340 }] },
         ],
       },
     });
@@ -151,8 +161,9 @@ describe("lecture serveur des Conversations", () => {
             kind: "answer",
             content: "R [P2].",
             sources: [
+              // Story 5.7 (report de la 3.4) : Document supprimé → titre et nombre de Passages seulement.
               { documentId: null, title: "Ancien", passageCount: 2 },
-              { documentId: "d2", title: "FAQ", passageCount: 1 },
+              { documentId: "d2", title: "FAQ", passageCount: 1, passages: [{ start: 120, end: 340 }], textVersion: 2 },
             ],
           },
         },
@@ -165,5 +176,24 @@ describe("lecture serveur des Conversations", () => {
     const sources = db.calls.find((call) => call.table === "message_sources")!.steps;
     expect(sources).toContainEqual(["in", ["message_id", ["a1"]]]);
     expect(sources).toContainEqual(["order", ["ordinal", { ascending: true }]]);
+    // Report de la 3.4 : aucun passage_id transmis, aucune lecture de la table passages.
+    expect(JSON.stringify(view)).not.toContain("p-ancien");
+    expect(JSON.stringify(view)).not.toContain("p-faq");
+    expect(db.calls.map((call) => call.table)).not.toContain("passages");
+  });
+
+  it("story 5.7 : toThreadSource, positions illisibles d'un Document existant → liste vide ; Document supprimé → rien", () => {
+    expect(
+      toThreadSource({ document_id: "d1", document_title: "T", text_version: 1, passages: [{ passage_id: "x", start: "a", end: 2 }] }),
+    ).toEqual({ documentId: "d1", title: "T", passageCount: 1, passages: [], textVersion: 1 });
+    expect(toThreadSource({ document_id: "d1", document_title: "T", text_version: 1, passages: null })).toEqual({
+      documentId: "d1",
+      title: "T",
+      passageCount: 1,
+      passages: [],
+      textVersion: 1,
+    });
+    const deleted = toThreadSource({ document_id: null, document_title: "T", text_version: 4, passages: [{ passage_id: "x", start: 0, end: 5 }] });
+    expect(deleted).toEqual({ documentId: null, title: "T", passageCount: 1 });
   });
 });

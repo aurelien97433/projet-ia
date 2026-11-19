@@ -64,7 +64,8 @@ export const isDesktop = (page: Page) => (page.viewportSize()?.width ?? 0) >= 10
 
 // Pied de compte (e-mail + « Se déconnecter ») : barre latérale sur ordinateur, menu sous 1 024 px.
 export async function accountArea(page: Page) {
-  if (isDesktop(page)) return page.locator("aside");
+  // Story 5.7 : le panneau Source est aussi un aside ; seule la barre latérale contient la navigation.
+  if (isDesktop(page)) return page.locator("aside", { has: page.getByRole("navigation") });
   await page.getByRole("button", { name: texts.shell.openMenu }).click();
   return page.getByRole("dialog", { name: texts.shell.menuTitle });
 }

@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { buildThread, type MessageKind, type StoredMessage, type ThreadExchange } from "@/lib/conversation-thread";
+import { buildThread, type MessageKind, type StoredMessage, type ThreadExchange, type ThreadSource } from "@/lib/conversation-thread";
 import { logEvent } from "@/lib/errors";
 
 export type ConversationView = { id: string; title: string; exchanges: ThreadExchange[] };
@@ -23,8 +23,34 @@ type SourceRow = {
   ordinal: number;
   document_id: string | null;
   document_title: string;
+  text_version: number;
   passages: unknown;
 };
+
+const isPosition = (value: unknown): value is { start: number; end: number } => {
+  const item = value as { start?: unknown; end?: unknown } | null;
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    Number.isInteger(item.start) &&
+    Number.isInteger(item.end) &&
+    (item.start as number) >= 0 &&
+    (item.end as number) >= 0
+  );
+};
+
+// Source affichée sous une réponse. Story 5.7 (report de la 3.4) : pour un Document supprimé
+// (document_id nul), seuls le titre et le nombre de Passages sont transmis, jamais de passage_id, de
+// position ni de version. Pour un Document existant : positions { start, end } seulement (passage_id
+// retiré), et version du texte ; positions illisibles → aucune (le panneau affiche alors le Document en
+// entier avec le message « Passage introuvable »).
+export function toThreadSource(row: Pick<SourceRow, "document_id" | "document_title" | "text_version" | "passages">): ThreadSource {
+  const list = Array.isArray(row.passages) ? row.passages : null;
+  const base = { documentId: row.document_id, title: row.document_title, passageCount: list ? list.length : 1 };
+  if (row.document_id === null) return base;
+  const positions = list && list.length > 0 && list.every(isPosition) ? list.map(({ start, end }) => ({ start, end })) : [];
+  return { ...base, passages: positions, textVersion: row.text_version };
+}
 
 // Conversation pour la page /assistant/[id] (story 5.6), lue avec le jeton du Collaborateur (RLS),
 // jamais avec service_role. Identifiant invalide, Conversation absente ou d'un autre Compte : null, et
@@ -55,7 +81,7 @@ export async function getConversation(id: string, db: Db, nowMs: number = Date.n
   if (answerIds.length > 0) {
     const sources = await db
       .from("message_sources")
-      .select("message_id, ordinal, document_id, document_title, passages")
+      .select("message_id, ordinal, document_id, document_title, text_version, passages")
       .in("message_id", answerIds)
       .order("ordinal", { ascending: true });
     if (sources.error) {
@@ -77,11 +103,7 @@ export async function getConversation(id: string, db: Db, nowMs: number = Date.n
     errorCode: row.error_code,
     createdAt: row.created_at,
     clientRequestId: row.client_request_id,
-    sources: (sourcesByMessage.get(row.id) ?? []).map((source) => ({
-      documentId: source.document_id,
-      title: source.document_title,
-      passageCount: Array.isArray(source.passages) ? source.passages.length : 1,
-    })),
+    sources: (sourcesByMessage.get(row.id) ?? []).map(toThreadSource),
   }));
 
   return { id: conversation.data.id, title: conversation.data.title, exchanges: buildThread(stored, nowMs) };

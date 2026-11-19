@@ -20,8 +20,10 @@ const labels = {
   relevant: { active: t.relevantPassageLabel, position: t.relevantPassagePosition },
 } as const;
 
-// Lecteur de Document (AD-8), partagé avec le panneau Source. Composant serveur : le texte n'est pas
-// transmis à un composant client. Tout le contenu est rendu en nœuds texte, jamais interprété.
+// Lecteur de Document (AD-8), un seul composant pour la page Document (E7) et le panneau Source (E4a).
+// Rendu côté serveur sur la page Document ; rendu côté client dans le panneau Source (story 5.7,
+// Q3 = A), avec le texte lu par GET /api/documents/[id]. Dans les deux cas, tout le contenu est rendu
+// en nœuds texte React, jamais interprété (ni Markdown ni HTML brut).
 export function DocumentReader({
   text,
   passages = [],

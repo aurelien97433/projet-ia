@@ -4,7 +4,8 @@ export type PassagePosition = { start: number; end: number };
 
 export type ReaderSegment =
   | { kind: "text"; start: number; text: string }
-  | { kind: "passage"; start: number; text: string; position: number; active: boolean };
+  // index : rang dans la liste reçue (navigation « Précédent » / « Suivant » du panneau Source, story 5.7).
+  | { kind: "passage"; start: number; text: string; position: number; active: boolean; index: number };
 
 // « all » : aucun Passage retrouvé ; « some » : au moins un retrouvé, au moins un perdu.
 export type MissingPassages = "none" | "some" | "all";
@@ -104,6 +105,7 @@ export function layoutPassages(text: string, passages: PassagePosition[], active
       text: text.slice(passage.start, passage.end),
       position: rank + 1,
       active: passage === active,
+      index: passage.index,
     });
     cursor = passage.end;
   });
@@ -114,4 +116,22 @@ export function layoutPassages(text: string, passages: PassagePosition[], active
   else if (found.length < passages.length) missing = "some";
 
   return { segments, total: found.length, missing };
+}
+
+const DOCUMENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// « Ouvrir la page complète » du panneau Source (story 5.7) : page Document avec les mêmes Passages et
+// le même Passage actif, au format lu par parsePassageParams (`?passages=120-340,900-1100&actif=1`).
+// Seules des positions entières ordonnées sont reprises ; sans Passage valide (Passage introuvable,
+// texte modifié), la page Document s'ouvre sans paramètre. Null si l'identifiant n'est pas un UUID.
+export function documentPassagesHref(documentId: string, passages: PassagePosition[], activeIndex: number): string | null {
+  if (!DOCUMENT_ID_PATTERN.test(documentId)) return null;
+  const path = `/documents/${documentId}`;
+  const valid = passages.every(
+    ({ start, end }) => Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && end > start,
+  );
+  if (passages.length === 0 || passages.length > MAX_PASSAGES || !valid) return path;
+  const actif = Number.isInteger(activeIndex) && activeIndex >= 0 && activeIndex < passages.length ? activeIndex : 0;
+  const params = new URLSearchParams({ passages: passages.map(({ start, end }) => `${start}-${end}`).join(","), actif: String(actif) });
+  return `${path}?${params}`;
 }

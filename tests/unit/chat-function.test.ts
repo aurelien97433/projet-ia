@@ -40,13 +40,13 @@ const fetchMock = vi.fn();
 const order: string[] = [];
 
 const vector = () => Array.from({ length: EMBEDDING_DIMENSION }, (_, index) => (index === 0 ? 1 : 0));
-const row = (documentId: string, passageId: string, title = "Titre du modèle") => ({
+const row = (documentId: string, passageId: string, title = "Titre du modèle", start = 0, end = 40) => ({
   document_id: documentId,
   title,
   category: "procedure",
   passage_id: passageId,
-  start_offset: 0,
-  end_offset: 40,
+  start_offset: start,
+  end_offset: end,
   content: PASSAGE_SECRET,
   similarity: 0.8,
 });
@@ -168,8 +168,17 @@ describe("chat : parcours nominal", () => {
         kind: "answer",
         content: `${ANSWER_SECRET}[S1]. Voir aussi[S2] et.`,
         sources: [
-          { documentId: DOC_2, title: "FAQ comptabilité", passageNumbers: [2] },
-          { documentId: DOC_1, title: "Procédure de facturation", passageNumbers: [1, 3] },
+          { documentId: DOC_2, title: "FAQ comptabilité", passageNumbers: [2], passages: [{ start: 0, end: 40 }], textVersion: 1 },
+          {
+            documentId: DOC_1,
+            title: "Procédure de facturation",
+            passageNumbers: [1, 3],
+            passages: [
+              { start: 0, end: 40 },
+              { start: 0, end: 40 },
+            ],
+            textVersion: 2,
+          },
         ],
       },
     });
@@ -248,7 +257,32 @@ describe("chat : parcours nominal", () => {
         ],
       });
     const body = await (await ask()).json();
+    // Story 5.7 (report de la 3.4) : ni positions, ni version, ni passage_id pour un Document supprimé.
     expect(body.message.sources[0]).toEqual({ documentId: null, title: "FAQ comptabilité", passageNumbers: [2] });
+    expect(body.message.sources[1]).toMatchObject({ documentId: DOC_1, textVersion: 2 });
+    expect(JSON.stringify(body)).not.toContain(P2);
+  });
+
+  it("story 5.7 : positions des Passages cités (ordre de citation) et version du texte, sans passage_id", async () => {
+    routes.match = async () =>
+      Response.json([row(DOC_1, P1, undefined, 120, 340), row(DOC_2, P2, undefined, 5, 60), row(DOC_1, P3, undefined, 900, 1100)]);
+    routes.generate = async () => completion("REPONSE\nA [P3][P1]. B [P2].");
+    const body = await (await ask()).json();
+    expect(body.message.sources).toEqual([
+      {
+        documentId: DOC_1,
+        title: "Procédure de facturation",
+        passageNumbers: [3, 1],
+        passages: [
+          { start: 900, end: 1100 },
+          { start: 120, end: 340 },
+        ],
+        textVersion: 2,
+      },
+      { documentId: DOC_2, title: "FAQ comptabilité", passageNumbers: [2], passages: [{ start: 5, end: 60 }], textVersion: 1 },
+    ]);
+    const text = JSON.stringify(body);
+    for (const id of [P1, P2, P3]) expect(text).not.toContain(id);
   });
 
   it("aucune libération après une réponse enregistrée (unité consommée)", async () => {
@@ -683,8 +717,8 @@ describe("chat : mode flux (story 5.5)", () => {
         kind: "answer",
         content: "A[S1]. B[S2].",
         sources: [
-          { documentId: DOC_1, title: "Procédure de facturation", passageNumbers: [1] },
-          { documentId: DOC_2, title: "FAQ comptabilité", passageNumbers: [2] },
+          { documentId: DOC_1, title: "Procédure de facturation", passageNumbers: [1], passages: [{ start: 0, end: 40 }], textVersion: 2 },
+          { documentId: DOC_2, title: "FAQ comptabilité", passageNumbers: [2], passages: [{ start: 0, end: 40 }], textVersion: 1 },
         ],
       },
     };

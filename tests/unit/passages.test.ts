@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutPassages, parsePassageOrigin, parsePassageParams, type ReaderSegment } from "@/lib/passages";
+import { documentPassagesHref, layoutPassages, parsePassageOrigin, parsePassageParams, type ReaderSegment } from "@/lib/passages";
 
 const text = "0123456789abcdefghij";
 const passagesOf = (segments: ReaderSegment[]) => segments.flatMap((s) => (s.kind === "passage" ? [s] : []));
@@ -140,7 +140,7 @@ describe("layoutPassages", () => {
     expect(layoutPassages(text, [{ start: 2, end: 5 }], 0)).toEqual({
       segments: [
         { kind: "text", start: 0, text: "01" },
-        { kind: "passage", start: 2, text: "234", position: 1, active: true },
+        { kind: "passage", start: 2, text: "234", position: 1, active: true, index: 0 },
         { kind: "text", start: 5, text: "56789abcdefghij" },
       ],
       total: 1,
@@ -158,10 +158,10 @@ describe("layoutPassages", () => {
       ],
       1,
     );
-    expect(passagesOf(segments).map((s) => [s.text, s.position, s.active])).toEqual([
-      ["01", 1, true],
-      ["ab", 2, false],
-      ["fg", 3, false],
+    expect(passagesOf(segments).map((s) => [s.text, s.position, s.active, s.index])).toEqual([
+      ["01", 1, true, 1],
+      ["ab", 2, false, 0],
+      ["fg", 3, false, 2],
     ]);
     expect(total).toBe(3);
     expect(missing).toBe("none");
@@ -170,7 +170,7 @@ describe("layoutPassages", () => {
 
   it("bord : texte entier surligné, sans segment vide", () => {
     expect(layoutPassages(text, [{ start: 0, end: text.length }], 0).segments).toEqual([
-      { kind: "passage", start: 0, text, position: 1, active: true },
+      { kind: "passage", start: 0, text, position: 1, active: true, index: 0 },
     ]);
   });
 
@@ -327,4 +327,31 @@ describe("parsePassageOrigin (story 4.1b)", () => {
       expect(parsePassageOrigin(value)).toBe("used");
     },
   );
+});
+
+// Story 5.7 : « Ouvrir la page complète » du panneau Source, relu par la page Document.
+describe("documentPassagesHref", () => {
+  const ID = "11111111-1111-4111-8111-111111111111";
+
+  it("mêmes Passages et Passage actif, au format de parsePassageParams (aller-retour)", () => {
+    const passages = [
+      { start: 900, end: 1100 },
+      { start: 120, end: 340 },
+    ];
+    const href = documentPassagesHref(ID, passages, 1)!;
+    expect(href).toBe(`/documents/${ID}?passages=900-1100%2C120-340&actif=1`);
+    const query = Object.fromEntries(new URL(href, "http://localhost").searchParams);
+    expect(parsePassageParams(query, 2_000)).toEqual({ passages, activeIndex: 1 });
+  });
+
+  it("aucun Passage ou positions invalides : page Document sans paramètre ; actif hors liste → 0", () => {
+    expect(documentPassagesHref(ID, [], 0)).toBe(`/documents/${ID}`);
+    expect(documentPassagesHref(ID, [{ start: -1, end: -1 }], 0)).toBe(`/documents/${ID}`);
+    expect(documentPassagesHref(ID, [{ start: 5, end: 5 }], 0)).toBe(`/documents/${ID}`);
+    expect(documentPassagesHref(ID, [{ start: 1, end: 5 }], 7)).toBe(`/documents/${ID}?passages=1-5&actif=0`);
+  });
+
+  it("identifiant non UUID : null", () => {
+    expect(documentPassagesHref("../admin", [{ start: 1, end: 5 }], 0)).toBeNull();
+  });
 });

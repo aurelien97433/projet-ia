@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DOCUMENT_CATEGORIES } from "@/lib/documents";
 import { ERROR_CODES } from "@/lib/errors";
 
 // Assistant (story 5.2a-2). Mêmes règles que supabase/functions/_shared/chat.ts et _shared/config.ts
@@ -42,7 +43,15 @@ export function parseChatRequest(body: unknown): ChatRequestParse {
   return { ok: false, reason: issue ?? "invalid" };
 }
 
-// Réponse relayée au navigateur. Les objets zod retirent toute clé non déclarée.
+// Position d'un Passage cité dans le texte du Document (unités de code JavaScript, AD-8).
+export const passagePositionSchema = z.object({
+  start: z.number().int().min(0),
+  end: z.number().int().min(0),
+});
+
+// Réponse relayée au navigateur. Les objets zod retirent toute clé non déclarée (passage_id compris).
+// Story 5.7 (Q1 = A) : positions des Passages cités et version du texte de la Source, facultatives
+// (absentes pour un Document supprimé, et dans une réponse de chat d'avant la 5.7).
 export const chatResponseSchema = z.object({
   conversationId: z.uuid(),
   message: z.object({
@@ -54,6 +63,8 @@ export const chatResponseSchema = z.object({
           documentId: z.uuid().nullable(),
           title: z.string().min(1),
           passageNumbers: z.array(z.number().int().min(1).max(8)).min(1),
+          passages: z.array(passagePositionSchema).min(1).max(8).optional(),
+          textVersion: z.number().int().min(1).optional(),
         }),
       )
       .max(8),
@@ -95,6 +106,20 @@ export type ConversationListItem = z.infer<typeof conversationListItemSchema>;
 
 export const conversationsResponseSchema = z.object({ conversations: z.array(conversationListItemSchema) });
 export type ConversationsResponse = z.infer<typeof conversationsResponseSchema>;
+
+// Document lu à l'ouverture du panneau Source (story 5.7) : GET /api/documents/[id]. Texte brut,
+// jamais interprété (AD-8).
+export const sourceDocumentSchema = z.object({
+  id: z.uuid(),
+  title: z.string().min(1),
+  category: z.enum(DOCUMENT_CATEGORIES),
+  authorName: z.string(),
+  createdAt: z.string().min(1),
+  status: z.enum(["processing", "ready", "error"]),
+  textVersion: z.number().int().min(1),
+  content: z.string(),
+});
+export type SourceDocument = z.infer<typeof sourceDocumentSchema>;
 
 // ?limit= de GET /api/conversations : entier de 1 à 100, 100 par défaut ; null si invalide.
 export function parseConversationsLimit(value: string | null): number | null {

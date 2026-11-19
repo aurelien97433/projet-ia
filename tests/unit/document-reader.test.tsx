@@ -215,6 +215,8 @@ describe("DocumentReader", () => {
     expect(container.textContent).toContain("**Ces astérisques restent visibles**");
   });
 
+  // Story 5.7 (Q3 = A) : sans directive client, le Lecteur est rendu côté serveur sur la page Document et
+  // côté client dans le panneau Source, sans HTML brut dans les deux cas.
   it("le Lecteur reste un composant serveur et le code ne contient aucun HTML brut", () => {
     const source = (...parts: string[]) => readFileSync(path.join(root, "src", ...parts), "utf8");
     expect(source("components", "documents", "document-reader.tsx")).not.toContain("use client");

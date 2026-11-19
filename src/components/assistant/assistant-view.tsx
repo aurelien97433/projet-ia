@@ -3,7 +3,7 @@
 import { Info } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { z } from "zod";
 import { ErrorAlert } from "@/components/forms/error-alert";
@@ -35,6 +35,7 @@ import { functionRegion, type Measure, measureMarkdown } from "@/lib/stream-meas
 import { texts } from "@/lib/texts";
 import { ASSISTANT_FIELD_ID, ASSISTANT_HREF, conversationHref } from "./constants";
 import { HistorySheet } from "./history-sheet";
+import { SOURCE_PANEL_ID, SourcePanel, type SourceSelection, useWideLayout } from "./source-panel";
 
 const t = texts.assistant;
 
@@ -106,11 +107,12 @@ function toReply(data: ChatResponse): Reply {
       return {
         kind: "answer",
         content: data.message.content,
-        sources: data.message.sources.map(({ documentId, title, passageNumbers }) => ({
-          documentId,
-          title,
-          passageCount: passageNumbers.length,
-        })),
+        // Story 5.7 : positions et version transmises par chat pour un Document existant seulement.
+        sources: data.message.sources.map(({ documentId, title, passageNumbers, passages, textVersion }) =>
+          documentId === null
+            ? { documentId, title, passageCount: passageNumbers.length }
+            : { documentId, title, passageCount: passageNumbers.length, passages, textVersion },
+        ),
       };
   }
 }
@@ -245,6 +247,14 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     if (historyParam) setHistoryOpen(true);
   }
   const [historyContainer, setHistoryContainer] = useState<HTMLDivElement | null>(null);
+
+  // Panneau Source (story 5.7) : puce montrée (une seule à la fois), Documents découverts supprimés
+  // pendant la visite (404 à l'ouverture : leurs puces passent au style supprimé).
+  const wide = useWideLayout();
+  const [sourceSelection, setSourceSelection] = useState<SourceSelection | null>(null);
+  const [deletedDocuments, setDeletedDocuments] = useState<ReadonlySet<string>>(() => new Set());
+  // Puce d'origine du panneau ouvert ou en cours de fermeture : cible du retour du focus.
+  const sourceChipRef = useRef<string | null>(null);
 
   const [conversationId, setConversationId] = useState<string | null>(conversation?.id ?? null);
   const conversationIdRef = useRef<string | null>(conversation?.id ?? null);
@@ -471,6 +481,7 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     setConversationId(null);
     setExchanges([]);
     setEmptyRefused(false);
+    setSourceSelection(null);
     window.history.pushState(null, "", addressOf(null, measuring));
     // Revue de la story 5.6 (constat 4) : les 5 dernières Conversations, rendues au chargement, sont
     // relues pour inclure celle qui vient d'être commencée.
@@ -478,7 +489,40 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     fieldRef.current?.focus();
   }
 
+  // Retour du focus à la puce d'origine ; puce devenue non cliquable (Document supprimé) : champ.
+  const focusSourceChip = useCallback(() => {
+    const key = sourceChipRef.current;
+    const chip = key ? document.getElementById(key) : null;
+    if (chip instanceof HTMLButtonElement) chip.focus();
+    else fieldRef.current?.focus();
+  }, []);
+
+  // Une puce ouvre le panneau, ou remplace son contenu ; l'Historique se ferme (un seul panneau à la fois).
+  function openSource(selection: SourceSelection) {
+    if (historyOpen) changeHistoryOpen(false);
+    sourceChipRef.current = selection.key;
+    setSourceSelection(selection);
+  }
+
+  // ✕, Échap, « ← Retour à la Conversation ». Aside : focus rendu aussitôt à la puce ; Sheet : à la fin
+  // de sa fermeture (onSheetClosed).
+  // Échap avec le focus hors de l'aside (restoreFocus faux) : fermé sans déplacer le focus.
+  const closeSource = useCallback((restoreFocus = true) => {
+    if (wide) {
+      flushSync(() => setSourceSelection(null));
+      if (restoreFocus) focusSourceChip();
+    } else {
+      setSourceSelection(null);
+    }
+  }, [wide, focusSourceChip]);
+
+  const markDeleted = useCallback((documentId: string) => {
+    setDeletedDocuments((current) => (current.has(documentId) ? current : new Set(current).add(documentId)));
+  }, []);
+
   function changeHistoryOpen(open: boolean) {
+    // Ouvrir l'Historique ferme le panneau Source (un seul panneau à la fois, EXPERIENCE.md).
+    if (open) setSourceSelection(null);
     setHistoryOpen(open);
     // Panneau ouvert par ?historique=1 puis fermé : l'adresse n'ouvre plus le panneau au rechargement.
     if (!open && historyParam) window.history.replaceState(null, "", addressOf(conversationIdRef.current, measuring));
@@ -509,105 +553,122 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     send();
   }
 
+  const sourceProps: SourceChipsProps = {
+    selectedKey: sourceSelection?.key ?? null,
+    deleted: deletedDocuments,
+    onOpen: openSource,
+  };
+
   const helpId = `${ASSISTANT_FIELD_ID}-aide`;
   const counterId = `${ASSISTANT_FIELD_ID}-compteur`;
   const errorId = `${ASSISTANT_FIELD_ID}-erreur`;
 
   return (
-    <div ref={containerRef} className="flex min-w-0 flex-col gap-6">
-      {/* En-tête de l'Assistant (EXPERIENCE.md, E4) : titre, « Historique », « + Nouvelle Conversation ». */}
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 [overflow-wrap:anywhere]">{title}</div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <HistorySheet
-            open={historyOpen}
-            onOpenChange={changeHistoryOpen}
-            activeId={conversationId}
-            container={historyContainer}
-            onFieldFocus={() => fieldRef.current?.focus()}
-            onAskFirst={askFirst}
-          />
-          <Button asChild variant="outline">
-            <Link href={ASSISTANT_HREF} onClick={startNewConversation}>
-              {texts.history.newConversation}
-            </Link>
-          </Button>
+    // ≥ 1024 px : panneau Source à droite du fil, la Conversation reste visible et utilisable.
+    <div className="flex min-w-0 items-start gap-6">
+      <div ref={containerRef} className="flex min-w-0 flex-1 flex-col gap-6">
+        {/* En-tête de l'Assistant (EXPERIENCE.md, E4) : titre, « Historique », « + Nouvelle Conversation ». */}
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 [overflow-wrap:anywhere]">{title}</div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <HistorySheet
+              open={historyOpen}
+              onOpenChange={changeHistoryOpen}
+              activeId={conversationId}
+              container={historyContainer}
+              onFieldFocus={() => fieldRef.current?.focus()}
+              onAskFirst={askFirst}
+            />
+            <Button asChild variant="outline">
+              <Link href={ASSISTANT_HREF} onClick={startNewConversation}>
+                {texts.history.newConversation}
+              </Link>
+            </Button>
+          </div>
         </div>
+        {/* Accueil du panneau Historique : avant le fil dans le DOM (E4b). */}
+        <div ref={setHistoryContainer} data-history-container />
+
+        {exchanges.length === 0 ? <p className="text-sm text-foreground">{t.intro}</p> : null}
+
+        {exchanges.length > 0 ? (
+          <ol aria-label={t.threadLabel} className="flex min-w-0 flex-col gap-4">
+            {exchanges.map((exchange, index) => {
+              const isLast = index === exchanges.length - 1;
+              return (
+                <ExchangeItems
+                  key={exchange.id}
+                  exchange={exchange}
+                  isLast={isLast}
+                  alertRef={isLast ? alertRef : undefined}
+                  sources={sourceProps}
+                  onRetry={retry}
+                  onReformulate={() => reformulate(exchange.question)}
+                />
+              );
+            })}
+          </ol>
+        ) : null}
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            send();
+          }}
+          className="flex min-w-0 flex-col gap-1.5"
+        >
+          <label htmlFor={ASSISTANT_FIELD_ID} className="sr-only">
+            {t.fieldLabel}
+          </label>
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
+            <textarea
+              ref={fieldRef}
+              id={ASSISTANT_FIELD_ID}
+              name="question"
+              value={value}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setEmptyRefused(false);
+              }}
+              onKeyDown={onKeyDown}
+              placeholder={t.placeholder}
+              rows={2}
+              aria-invalid={fieldIssue !== null || undefined}
+              aria-describedby={`${helpId} ${counterId}${fieldIssue ? ` ${errorId}` : ""}`}
+              enterKeyHint="send"
+              className={`field-sizing-content max-h-[7.5rem] min-h-16 w-full min-w-0 resize-none rounded-md border bg-background px-3 py-2 text-[15px] text-foreground sm:max-h-[10.5rem] ${
+                tooLong ? "border-destructive" : "border-input"
+              }`}
+            />
+            <Button type="submit" aria-disabled={busy || undefined} className="h-10 w-full aria-disabled:opacity-80 sm:w-auto">
+              {t.submit}
+            </Button>
+          </div>
+          <div className="flex min-w-0 flex-wrap justify-between gap-x-4 gap-y-1 text-xs">
+            <p id={helpId} className="text-muted-foreground">
+              {t.keyboardHelp}
+            </p>
+            <p id={counterId} data-counter className={tooLong ? "font-medium text-destructive" : "text-muted-foreground"}>
+              {t.counter(questionLength, CHAT_MAX_QUESTION_LENGTH)}
+            </p>
+          </div>
+          {/* Toujours présent : le message de saisie est annoncé quand il apparaît. */}
+          <p id={errorId} aria-live="polite" className="text-sm text-destructive">
+            {fieldIssue === "tooLong" ? t.questionTooLong : fieldIssue === "empty" ? t.questionEmpty : null}
+          </p>
+        </form>
+
+        {conversationId === null ? recent : null}
+
+        {measuring ? <MeasurePanel measures={measures} /> : null}
       </div>
-      {/* Accueil du panneau Historique : avant le fil dans le DOM (E4b). */}
-      <div ref={setHistoryContainer} data-history-container />
-
-      {exchanges.length === 0 ? <p className="text-sm text-foreground">{t.intro}</p> : null}
-
-      {exchanges.length > 0 ? (
-        <ol aria-label={t.threadLabel} className="flex min-w-0 flex-col gap-4">
-          {exchanges.map((exchange, index) => {
-            const isLast = index === exchanges.length - 1;
-            return (
-              <ExchangeItems
-                key={exchange.id}
-                exchange={exchange}
-                isLast={isLast}
-                alertRef={isLast ? alertRef : undefined}
-                onRetry={retry}
-                onReformulate={() => reformulate(exchange.question)}
-              />
-            );
-          })}
-        </ol>
-      ) : null}
-
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          send();
-        }}
-        className="flex min-w-0 flex-col gap-1.5"
-      >
-        <label htmlFor={ASSISTANT_FIELD_ID} className="sr-only">
-          {t.fieldLabel}
-        </label>
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
-          <textarea
-            ref={fieldRef}
-            id={ASSISTANT_FIELD_ID}
-            name="question"
-            value={value}
-            onChange={(event) => {
-              setValue(event.target.value);
-              setEmptyRefused(false);
-            }}
-            onKeyDown={onKeyDown}
-            placeholder={t.placeholder}
-            rows={2}
-            aria-invalid={fieldIssue !== null || undefined}
-            aria-describedby={`${helpId} ${counterId}${fieldIssue ? ` ${errorId}` : ""}`}
-            enterKeyHint="send"
-            className={`field-sizing-content max-h-[7.5rem] min-h-16 w-full min-w-0 resize-none rounded-md border bg-background px-3 py-2 text-[15px] text-foreground sm:max-h-[10.5rem] ${
-              tooLong ? "border-destructive" : "border-input"
-            }`}
-          />
-          <Button type="submit" aria-disabled={busy || undefined} className="h-10 w-full aria-disabled:opacity-80 sm:w-auto">
-            {t.submit}
-          </Button>
-        </div>
-        <div className="flex min-w-0 flex-wrap justify-between gap-x-4 gap-y-1 text-xs">
-          <p id={helpId} className="text-muted-foreground">
-            {t.keyboardHelp}
-          </p>
-          <p id={counterId} data-counter className={tooLong ? "font-medium text-destructive" : "text-muted-foreground"}>
-            {t.counter(questionLength, CHAT_MAX_QUESTION_LENGTH)}
-          </p>
-        </div>
-        {/* Toujours présent : le message de saisie est annoncé quand il apparaît. */}
-        <p id={errorId} aria-live="polite" className="text-sm text-destructive">
-          {fieldIssue === "tooLong" ? t.questionTooLong : fieldIssue === "empty" ? t.questionEmpty : null}
-        </p>
-      </form>
-
-      {conversationId === null ? recent : null}
-
-      {measuring ? <MeasurePanel measures={measures} /> : null}
+      <SourcePanel
+        selection={sourceSelection}
+        wide={wide}
+        onClose={closeSource}
+        onSheetClosed={focusSourceChip}
+        onDeleted={markDeleted}
+      />
     </div>
   );
 }
@@ -617,13 +678,21 @@ type ExchangeItemsProps = {
   // Dernier échange du fil : seul à porter la région d'annonce, l'alerte annoncée et « Réessayer ».
   isLast: boolean;
   alertRef?: React.Ref<HTMLDivElement>;
+  sources: SourceChipsProps;
   onRetry: () => void;
   onReformulate: () => void;
 };
 
+// Puces de Source (story 5.7) : puce montrée par le panneau, Documents supprimés pendant la visite, ouverture.
+type SourceChipsProps = {
+  selectedKey: string | null;
+  deleted: ReadonlySet<string>;
+  onOpen: (selection: SourceSelection) => void;
+};
+
 // Un échange du fil : « Vous » (bulle de question à droite), puis « Assistant » (réponse, refus, état
 // neutre, texte provisoire ou alerte de panne).
-function ExchangeItems({ exchange, isLast, alertRef, onRetry, onReformulate }: ExchangeItemsProps) {
+function ExchangeItems({ exchange, isLast, alertRef, sources, onRetry, onReformulate }: ExchangeItemsProps) {
   const { reply } = exchange;
   const body = (
     <>
@@ -633,7 +702,7 @@ function ExchangeItems({ exchange, isLast, alertRef, onRetry, onReformulate }: E
           {t.pending}
         </p>
       ) : null}
-      {reply.kind === "answer" ? <Answer content={reply.content} sources={reply.sources} /> : null}
+      {reply.kind === "answer" ? <Answer exchangeId={exchange.id} content={reply.content} sources={reply.sources} chips={sources} /> : null}
       {reply.kind === "refusal" ? <RefusalText variant={reply.variant} /> : null}
     </>
   );
@@ -752,9 +821,10 @@ export function answerSegments(raw: string, sourceCount: number): AnswerSegment[
 }
 
 // Réponse sourcée, d'un bloc, en texte brut avec ses renvois ¹ ² (non cliquables, précédés du texte
-// masqué « Source ») ; puces de Source numérotées, non interactives jusqu'à la 5.7 (décision de
-// l'utilisateur du 2026-11-17, Q2 = A).
-function Answer({ content, sources }: { content: string; sources: ThreadSource[] }) {
+// masqué « Source ») ; puces de Source numérotées, qui ouvrent le panneau Source (story 5.7).
+type AnswerProps = { exchangeId: string; content: string; sources: ThreadSource[]; chips: SourceChipsProps };
+
+function Answer({ exchangeId, content, sources, chips }: AnswerProps) {
   return (
     <div data-answer className="flex min-w-0 flex-col gap-3">
       <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
@@ -780,7 +850,13 @@ function Answer({ content, sources }: { content: string; sources: ThreadSource[]
       {sources.length > 0 ? (
         <ul aria-label={t.sourcesLabel} className="flex min-w-0 flex-wrap gap-2">
           {sources.map((source, index) => (
-            <SourceChip key={`${source.documentId ?? "supprime"}-${index}`} source={source} ordinal={index + 1} />
+            <SourceChip
+              key={`${source.documentId ?? "supprime"}-${index}`}
+              chipId={sourceChipId(exchangeId, index + 1)}
+              source={source}
+              ordinal={index + 1}
+              chips={chips}
+            />
           ))}
         </ul>
       ) : null}
@@ -788,27 +864,59 @@ function Answer({ content, sources }: { content: string; sources: ThreadSource[]
   );
 }
 
+// Identifiant d'une puce : cible de la fermeture du panneau (retour du focus).
+const sourceChipId = (exchangeId: string, ordinal: number) => `source-${exchangeId}-${ordinal}`;
+
+type SourceChipProps = { chipId: string; source: ThreadSource; ordinal: number; chips: SourceChipsProps };
+
 // Puce « {n} · {titre} » (« · {k} Passages » si plusieurs) ; points médians masqués, nom accessible
-// « Source {n} : {titre}, {k} Passages ». Source supprimée : style barré, numéro gardé.
-function SourceChip({ source, ordinal }: { source: ThreadSource; ordinal: number }) {
-  const deleted = source.documentId === null;
+// « Source {n} : {titre}, {k} Passages ». Story 5.7 (UX-DR10) : button (Entrée, Espace, clic) avec
+// aria-expanded et aria-controls vers le panneau Source, « sélectionnée » (fond accent-mark) tant que le
+// panneau la montre. Source supprimée (documentId nul, ou 404 à l'ouverture pendant la visite) : texte
+// simple, non focalisable, style barré, numéro gardé.
+function SourceChip({ chipId, source, ordinal, chips }: SourceChipProps) {
+  const { documentId } = source;
+  const deleted = documentId === null || chips.deleted.has(documentId);
   const label = deleted ? t.sourceDeleted(source.title) : source.title;
   const count = source.passageCount;
-  return (
-    <li
-      data-source-chip
-      data-deleted={deleted || undefined}
-      className={
-        deleted
-          ? "max-w-full rounded-full border border-border bg-surface px-3 py-1 text-sm text-muted-foreground line-through [overflow-wrap:anywhere]"
-          : "max-w-full rounded-full border border-accent-line bg-accent-soft px-3 py-1 text-sm font-medium text-accent-text [overflow-wrap:anywhere]"
-      }
-    >
+  const content = (
+    <>
       <span aria-hidden="true">
         {ordinal} · {label}
         {count > 1 ? <span className="font-normal"> · {t.passagesCount(count)}</span> : null}
       </span>
       <span className="sr-only">{t.sourceName(ordinal, label, count)}</span>
+    </>
+  );
+  if (documentId === null || deleted) {
+    return (
+      <li
+        data-source-chip
+        data-deleted
+        className="max-w-full rounded-full border border-border bg-surface px-3 py-1 text-sm text-muted-foreground line-through [overflow-wrap:anywhere]"
+      >
+        {content}
+      </li>
+    );
+  }
+  const selected = chips.selectedKey === chipId;
+  return (
+    <li data-source-chip className="max-w-full">
+      <button
+        type="button"
+        id={chipId}
+        aria-expanded={selected}
+        aria-controls={SOURCE_PANEL_ID}
+        data-selected={selected || undefined}
+        onClick={() =>
+          chips.onOpen({ key: chipId, documentId, title: source.title, passages: source.passages, textVersion: source.textVersion })
+        }
+        className={`max-w-full rounded-full border px-3 py-1 text-left text-sm font-medium text-accent-text [overflow-wrap:anywhere] hover:bg-accent-mark ${
+          selected ? "border-accent-text bg-accent-mark" : "border-accent-line bg-accent-soft"
+        }`}
+      >
+        {content}
+      </button>
     </li>
   );
 }

@@ -159,7 +159,9 @@ test("nominal (génération simulée) : question, état neutre, réponse d'un bl
   const chips = answerStatus(page).getByRole("list", { name: t.sourcesLabel }).getByRole("listitem");
   await expect(chips.filter({ hasText: seeded.title })).toHaveCount(1);
   expect(await spokenText(chips.first())).toBe(`Source 1 : ${seeded.title}`);
-  await expect(answerStatus(page).getByRole("button")).toHaveCount(0);
+  // Story 5.7 : les puces sont les seuls boutons de la réponse ; elles ouvrent le panneau Source (fermé ici).
+  await expect(answerStatus(page).getByRole("button")).toHaveCount(await chips.count());
+  await expect(answerStatus(page).getByRole("button", { name: `Source 1 : ${seeded.title}` })).toHaveAttribute("aria-expanded", "false");
   await expect(answerStatus(page).getByRole("link")).toHaveCount(0);
   await expect(sendButton(page)).not.toHaveAttribute("aria-disabled", "true");
   await expect(field(page)).toBeFocused();

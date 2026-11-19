@@ -347,8 +347,19 @@ type ChatBody = {
   message: {
     kind: "answer" | RefusalKind;
     content: string;
-    sources: { documentId: string | null; title: string; passageNumbers: number[] }[];
+    sources: ChatSource[];
   };
+};
+
+// Source renvoyée au navigateur. Story 5.7 (Q1 = A) : positions des Passages cités et version du texte,
+// seulement pour un Document existant ; jamais de passage_id, rien pour un Document supprimé (report
+// de la 3.4).
+type ChatSource = {
+  documentId: string | null;
+  title: string;
+  passageNumbers: number[];
+  passages?: { start: number; end: number }[];
+  textVersion?: number;
 };
 
 type Outcome =
@@ -766,12 +777,14 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
           message: {
             kind: "answer",
             content,
-            sources: sources.map((source, index) => ({
+            sources: sources.map((source, index): ChatSource => {
               // Null si le Document a été supprimé entre la Recherche et l'enregistrement (FR-12).
-              documentId: typeof savedSources[index].document_id === "string" ? savedSources[index].document_id : null,
-              title: source.document_title,
-              passageNumbers: source.passageNumbers,
-            })),
+              const documentId = typeof savedSources[index].document_id === "string" ? savedSources[index].document_id : null;
+              const base = { documentId, title: source.document_title, passageNumbers: source.passageNumbers };
+              // Story 5.7 : positions et version pour le panneau Source, jamais pour un Document supprimé.
+              if (documentId === null) return base;
+              return { ...base, passages: source.passages.map(({ start, end }) => ({ start, end })), textVersion: source.text_version };
+            }),
           },
         },
       };

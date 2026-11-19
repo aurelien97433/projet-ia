@@ -11,7 +11,16 @@ export const PENDING_REFRESH_MS = 5_000;
 export type MessageKind = "question" | "answer" | "refusal_info_absente" | "refusal_hors_cadre" | "failure";
 
 // Source enregistrée d'une réponse, dans l'ordre (ordinal) ; documentId null : Document supprimé.
-export type ThreadSource = { documentId: string | null; title: string; passageCount: number };
+// Story 5.7 (Q1 = A) : positions des Passages cités et version du texte, pour le panneau Source,
+// seulement pour un Document existant (report de la 3.4 : rien de plus que le titre et le nombre de
+// Passages pour un Document supprimé, jamais de passage_id).
+export type ThreadSource = {
+  documentId: string | null;
+  title: string;
+  passageCount: number;
+  passages?: { start: number; end: number }[];
+  textVersion?: number;
+};
 
 // Message tel qu'il est lu en base (messages et message_sources), dans l'ordre de created_at.
 export type StoredMessage = {

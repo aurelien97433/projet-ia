@@ -118,7 +118,7 @@ Ce catalogue fait référence : les écrans reprennent ces textes tels quels. `{
 | En-tête de l'Assistant | « Historique » · « + Nouvelle Conversation » (à 375 px, sur une ligne sous la barre du haut) |
 | Puce de Source | « {n} · {titre} » ; si plusieurs Passages du Document sont utilisés : « {n} · {titre} · {k} Passages » ; nom accessible « Source {n} : {titre}, {k} Passages » (points médians masqués) |
 | Renvoi | numéro en exposant précédé du texte masqué « Source » (lu « Source 1 ») |
-| Panneau Source | « Ouvrir la page complète » · ✕ « Fermer » · « ← Retour à la Conversation » (375 px) · étiquette « Passage utilisé » · texte masqué « Passage utilisé {j} sur {k} » devant chaque Passage surligné · « Passage {i} sur {k} » · « Précédent » / « Suivant » (si plusieurs Passages) |
+| Panneau Source | « Ouvrir la page complète » · ✕ « Fermer » · « ← Retour à la Conversation » (375 px) · étiquette « Passage utilisé » · texte masqué « Passage utilisé {j} sur {k} » devant chaque Passage surligné · « Passage {i} sur {k} » · « Précédent » / « Suivant » (si plusieurs Passages), dans un groupe de nom accessible « Passages utilisés » (ajouté le 2026-11-19, story 5.7) |
 | Résultat de Recherche | étiquette « Passage pertinent » |
 | Titres d'écran | « Connexion » · « Créer votre Compte » · « Tableau de bord » · « Que voulez-vous savoir ? » (Assistant vide) · « Recherche » · « Bibliothèque » · « Ajouter un Document » · « Page introuvable » |
 
@@ -209,6 +209,7 @@ Une contradiction entre Passages n'a pas de texte d'interface : c'est une répon
 | Panne de la Recherche | « La Recherche n'a pas pu aboutir. » · « Réessayer » |
 | Liste non chargée (Tableau de bord, Bibliothèque) | « Cette liste n'a pas pu être chargée. » · « Réessayer » |
 | Historique non chargé | « L'Historique n'a pas pu être chargé. » · « Réessayer » |
+| Document non chargé dans le panneau Source (E4a) | « Ce Document n'a pas pu être chargé. » · « Réessayer » (ajouté le 2026-11-19, story 5.7) |
 | Chargement long | « Le chargement prend plus de temps que prévu. » · « Réessayer » |
 | Erreur temporaire de traitement | Auteur : « Le traitement n'a pas pu aboutir, le service d'IA étant momentanément indisponible. » + « Relancer le traitement » ; autres Collaborateurs : même phrase + « Seul l'Auteur de ce Document peut relancer le traitement. » |
 | Traitement bloqué plus de 3 min | Auteur : « Le traitement n'a pas pu aboutir. Vous pouvez le relancer. » + « Relancer le traitement » ; autres Collaborateurs : « Le traitement n'a pas pu aboutir. Seul l'Auteur de ce Document peut relancer le traitement. » |

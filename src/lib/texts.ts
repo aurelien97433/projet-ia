@@ -319,6 +319,25 @@ export const texts = {
     // Questions du mini Jeu de démonstration : préremplissent le champ (?question=), jamais envoyées d'office.
     examples: ["Comment poser mes congés ?", "Comment relancer un client qui n'a pas payé ?"],
   },
+  // Panneau Source (story 5.7, EXPERIENCE.md, E4a et « Textes clés de l'interface »).
+  sourcePanel: {
+    openFullPage: "Ouvrir la page complète",
+    close: "Fermer",
+    back: "← Retour à la Conversation",
+    // « Passage {i} sur {k} », « Précédent » / « Suivant » (plusieurs Passages).
+    position: (index: number, total: number) => `Passage ${index} sur ${total}`,
+    previous: "Précédent",
+    next: "Suivant",
+    // Nom accessible du groupe de navigation (absent d'EXPERIENCE.md, ajouté le 2026-11-19, story 5.7).
+    navigationLabel: "Passages utilisés",
+    // EXPERIENCE.md, « Document supprimé pendant la consultation » : sans « Réessayer ».
+    deleted: "Ce Document a été supprimé.",
+    // Lecture en panne (absent d'EXPERIENCE.md, ajouté le 2026-11-19, story 5.7) : avec « Réessayer ».
+    loadFailed: "Ce Document n'a pas pu être chargé.",
+    retry: "Réessayer",
+    // Nom accessible du Lecteur dans le panneau.
+    textLabel: "Texte du Document",
+  },
   dashboard: {
     recentDocuments: "Derniers Documents",
     seeLibrary: "Voir la Bibliothèque",

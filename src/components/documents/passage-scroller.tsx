@@ -22,7 +22,8 @@ type PassageScrollerProps = {
   noticeId?: string;
 };
 
-// Seul morceau client du Lecteur : il ne reçoit que des identifiants, jamais le texte du Document.
+// Seul morceau client du Lecteur sur la page Document : il ne reçoit que des identifiants, jamais le
+// texte du Document (dans le panneau Source, story 5.7, le Lecteur entier est rendu côté client).
 // `scrollKey` change avec le Passage actif ; un rafraîchissement de la page ne déplace ni le
 // défilement ni le focus. `noticeId` : message collant dont la hauteur est réservée au-dessus du Passage.
 export function PassageScroller({ targetId, scrollKey, focusTarget = false, noticeId }: PassageScrollerProps) {

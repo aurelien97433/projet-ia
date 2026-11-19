@@ -141,8 +141,8 @@ describe("envoi", () => {
     const chips = within(within(status).getByRole("list", { name: t.sourcesLabel })).getAllByRole("listitem");
     expect(chips.map(chipView)).toEqual([["1 · Procédure de facturation", "Source 1 : Procédure de facturation"]]);
     expect(status.textContent).not.toMatch(/\[[PS]/);
-    // Puces non cliquables (5.7).
-    expect(within(status).queryByRole("button")).toBeNull();
+    // Story 5.7 : la puce est un bouton qui ouvre le panneau Source (fermé tant qu'elle n'est pas activée).
+    expect(within(status).getByRole("button", { name: "Source 1 : Procédure de facturation" }).getAttribute("aria-expanded")).toBe("false");
     expect(within(status).queryByRole("link")).toBeNull();
     expect(send().getAttribute("aria-disabled")).toBeNull();
     expect(document.activeElement).toBe(field());

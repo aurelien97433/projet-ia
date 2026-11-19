@@ -16,6 +16,9 @@ export type DocumentView = {
   effectiveErrorKind: DocumentErrorKind | null;
   effectiveErrorMessage: string | null;
   processingElapsedMs: number;
+  // Version du texte (story 5.7), lue dans la même ligne que le texte : le panneau Source n'applique les
+  // positions d'une Source que si elle correspond à la version enregistrée avec elle (Q2 = A).
+  textVersion: number;
   content: string;
 };
 
@@ -34,7 +37,7 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
       )
       .eq("id", id)
       .maybeSingle(),
-    db.from("documents").select("content_text").eq("id", id).maybeSingle(),
+    db.from("documents").select("content_text, text_version").eq("id", id).maybeSingle(),
   ]);
   if (meta.error || body.error) {
     logEvent("get_document_failed", { document_id: id, code: meta.error?.code ?? body.error?.code });
@@ -53,6 +56,7 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
     effectiveErrorKind: meta.data.effective_error_kind,
     effectiveErrorMessage: meta.data.effective_error_message,
     processingElapsedMs: processingElapsedMs(meta.data.server_now, meta.data.processing_started_at),
+    textVersion: body.data.text_version,
     content: body.data.content_text ?? "",
   };
 }

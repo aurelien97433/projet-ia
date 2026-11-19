@@ -12,6 +12,7 @@ import {
   FAKE_SLOW_STREAM_MARKER,
 } from "../../supabase/functions/_shared/fake-generation.ts";
 import { localProcessSecret, localSqlRows, localSupabase, uniqueEmail } from "../support/local-supabase";
+import { getConversation } from "../../src/server/conversations/get-conversation";
 
 // Garde-fou du crédit d'IA et fonction chat (story 5.2a-2) sur Supabase local, avec la vectorisation et
 // la génération simulées (aucun appel à OpenAI) : réservation atomique, quota personnel, plafond
@@ -30,7 +31,11 @@ vi.setConfig({ testTimeout: 240_000 });
 type User = { id: string; client: SupabaseClient; token: string };
 type ChatBody = {
   conversationId: string;
-  message: { kind: string; content: string; sources: { documentId: string | null; title: string }[] };
+  message: {
+    kind: string;
+    content: string;
+    sources: { documentId: string | null; title: string; passages?: { start: number; end: number }[]; textVersion?: number }[];
+  };
   error: { code: string; retryable: boolean; resetAt: string };
 };
 
@@ -272,6 +277,18 @@ describe("enregistrement atomique", () => {
       { ordinal: 1, document_id: null, document_title: "Procédure supprimée", text_version: 3 },
       { ordinal: 2, document_id: kept!.id, document_title: "Procédure gardée", text_version: 1 },
     ]);
+
+    // Story 5.7 (report de la 3.4) : le fil relu ne transmet, pour la Source du Document supprimé, que
+    // son titre et son nombre de Passages (ni passage_id, ni position, ni version) ; positions et version
+    // pour le Document existant.
+    const view = await getConversation(conversationId, a.client);
+    const reply = view!.exchanges[0].reply;
+    expect(reply.kind).toBe("answer");
+    expect(reply.kind === "answer" && reply.sources).toEqual([
+      { documentId: null, title: "Procédure supprimée", passageCount: 1 },
+      { documentId: kept!.id, title: "Procédure gardée", passageCount: 1, passages: [{ start: 0, end: 5 }], textVersion: 1 },
+    ]);
+    expect(JSON.stringify(view)).not.toContain(passages[0].passage_id);
   });
 });
 
@@ -307,6 +324,24 @@ describe("fonction chat (vectorisation et génération simulées)", () => {
     expect(sources).toHaveLength(body.message.sources.length);
     sources!.forEach((source, index) => expect([body.message.sources[index].documentId, null]).toContain(source.document_id));
     expect(sources!.map((source) => source.document_title)).toEqual(body.message.sources.map((source) => source.title));
+    // Story 5.7 (Q1 = A) : chaque Source d'un Document existant porte les positions enregistrées (sans
+    // passage_id) et la version du texte ; rien pour un Document supprimé.
+    const { data: stored } = await measure.client
+      .from("message_sources")
+      .select("document_id, text_version, passages")
+      .eq("message_id", messages![1].id)
+      .order("ordinal");
+    body.message.sources.forEach((source, index) => {
+      const row = stored![index] as { text_version: number; passages: { passage_id: string; start: number; end: number }[] };
+      if (source.documentId === null) {
+        expect(source.passages).toBeUndefined();
+        expect(source.textVersion).toBeUndefined();
+        return;
+      }
+      expect(source.textVersion).toBe(row.text_version);
+      expect(source.passages).toEqual(row.passages.map(({ start, end }) => ({ start, end })));
+      for (const passage of row.passages) expect(JSON.stringify(body)).not.toContain(passage.passage_id);
+    });
     // Titre et version relus dans documents (Sources dont le Document existe encore).
     for (const source of sources!.filter((item) => item.document_id !== null)) {
       const { data: document } = await measure.client.from("documents").select("title, text_version").eq("id", source.document_id).maybeSingle();
