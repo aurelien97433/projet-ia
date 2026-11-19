@@ -2,7 +2,7 @@
 title: 'Story 5.6 : Conversations et Historique'
 type: 'feature'
 created: '2026-11-18'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '1aeaf13148ed54cc907c7b039c5aba8fc55f6082'
@@ -103,7 +103,7 @@ Spec approuvée en entier : **Q1 = A**, **Q2 = A** (« Sans réponse » ajouté 
 - [x] Fil dans `assistant-view.tsx`, poursuite, `replaceState`, rechargement des questions en cours.
 - [x] Panneau Historique, 5 dernières (Assistant, Tableau de bord), états.
 - [x] Textes, EXPERIENCE.md, e2e (périmètre réduit le 2026-11-19, voir Implementation Notes).
-- [~] AD-17 et `epics.md` faits le 2026-11-19 ; deferred-work (report `[P{n}]` traité) au commit de clôture.
+- [x] AD-17 et `epics.md` (2026-11-19, commit `7249b38`) ; deferred-work : report `[P{n}]` marqué traité au commit de clôture.
 
 **Acceptance Criteria:**
 - Given des Conversations, when j'ouvre « Historique », then elles sont listées de la plus récente à la plus ancienne (titre, date), focus sur l'active ; en choisir une l'ouvre avec ses messages et Sources, focus dans le champ.
@@ -156,3 +156,7 @@ Aucun bloquant ; 2 importants, 4 mineurs. Axes 1 à 3 (FR-22 et S1 à S4, règle
 6. **Mineur, corrigé** — chaque ouverture de l'Historique (bouton ou `?historique=1`) repart des squelettes.
 
 **Vérification complète d'un seul tenant (2026-11-19, 12:41-12:49) :** `db reset`, `npm test` (PowerShell : 92 fichiers, 1 822 tests), `lint`, `tsc`, `build:ci` (`check:secrets` dépôt et code envoyé au navigateur), e2e (363 passés, 19 ignorés par conception, 0 échec) : vert. Test du constat 6 contrôlé : il échoue sans le correctif, passe avec.
+
+**Déploiement (2026-11-19) :** commit `7249b38` ; `deploy:supabase` par l'utilisateur (migration `20261118090000_conversations_history.sql`, `chat` 56 kB, `process-document`, `semantic-search`). **Contrôle distant en lecture seule** (`supabase db query --remote --read-only`) : `save_assistant_answer`, `record_assistant_failure` et `add_question` ont chacune **une seule signature** (avec `p_client_request_id`), `security invoker`, `search_path` vide, `EXECUTE` à `authenticated` seul (ni `anon`, ni `service_role`, ni `public`) ; `conversation_list` en `security_invoker=true`, `SELECT` à `authenticated` seul, aucun droit pour `anon` ni `public`, aucune écriture pour `authenticated`. Conforme.
+
+**Vérification en production (2026-11-19, par l'utilisateur, `7249b38` poussé) :** avant le push, Note de test « Prête » puis supprimée, q1 normale sur la page en ligne. `npm run test:chat:live` : 15 sur 15, compteur du Compte de mesure 0 → 15 (cohérent), flux et contradiction c1 sans régression (premier `delta` côté fonction : 1 339 ms en médiane ; `docs/mesures/assistant-live.md`). Site : Historique avec « Sans réponse », ancienne Conversation sans `[P2]` (puce présente), poursuite dans la même Conversation, heure des 5 dernières correcte (constat 2 vérifié là où il se produisait), E9 pour le Compte de mesure 2 sur une Conversation du Compte 1. Conforme. Story `done`.

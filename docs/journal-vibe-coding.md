@@ -1743,3 +1743,21 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 **Erreur de date corrigée.** Toute la 5.5 (implémentation, revue, déploiement, mesure) a eu lieu le 2026-11-17, le jour même de la clôture de la 5.4, et non le 18/11 comme le prévoyait le calendrier. L'IA avait daté les décisions et les notes « 2026-11-18 » d'après le plan, sans vérifier l'horloge ; l'horodatage de la mesure (`2026-11-17T14:03Z`) l'a révélé. Dates corrigées dans la spec, AD-16, ce journal, le rapport et les commentaires de code. Leçon : dater un événement d'après l'horloge, jamais d'après le calendrier prévu.
 
 **Statut.** Story 5.5 `done`, en avance d'un jour sur le calendrier.
+
+## Story 5.6 : Conversations et Historique (2026-11-18 et 2026-11-19)
+
+**Commits.** `7249b38` (story, spec comprise), clôture.
+
+**Décisions de l'utilisateur.** Spec approuvée entière le 2026-11-18 : Q1 = A (repères `[P{n}]` des réponses d'avant la 5.4 retirés à l'affichage, aucune ligne modifiée), Q2 = A (Conversations sans réponse listées avec la mention « Sans réponse »), Q3 = A (« Réessayer » dans la même Conversation) ; exemples de l'état vide qui préremplissent le champ au lieu de partir d'office (aucune unité consommée sans envoi), écart consigné dans EXPERIENCE.md et `epics.md`. Exigences de sécurité S1 à S4 ajoutées par l'utilisateur (vue `security_invoker`, `add_question` en `security invoker`, 404 identique dans `chat`, E9 identique). Le 2026-11-19, « mode essentiel » : e2e limités à 4 parcours sur les deux largeurs, documents minimum avant le commit.
+
+**Reprise.** Le code avait été écrit le 2026-11-18 en une demi-heure, puis laissé sans aucun test exécuté ni relecture ; la note de mémoire disait encore « rien codé ». La reprise a commencé par un état des lieux mesuré (dates des fichiers, tests lancés) plutôt que par la note. Le conteneur edge runtime local était de nouveau arrêté (relancé).
+
+**S4 : 200 au lieu de 404.** Avec Cache Components, la coquille statique de la page part avant la lecture de la Conversation : `notFound()` ne peut plus changer le statut, qui reste 200 avec `noindex` (constaté même sans `loading.tsx`). Les trois cas (Conversation d'un autre Compte, inexistante, identifiant invalide) restent indiscernables (même statut, même page, rien de révélé), ce que l'utilisateur a accepté ; la page E9 des Documents se comporte de même (mesuré). Consigné dans AD-17.
+
+**Revue.** Un relecteur séparé, qui a relu tout le code de la veille : aucun bloquant, 2 importants, 4 mineurs. Le plus sérieux : une réponse pouvait s'afficher sous une autre question, le rattachement se faisant par date alors que deux questions d'une Conversation peuvent désormais être traitées en même temps ; corrigé en enregistrant l'identifiant de la question sur la réponse et l'échec. Précaution de l'utilisateur : supprimer les anciennes signatures des fonctions SQL plutôt que les surcharger (sinon « function is not unique » pour le `chat` encore en production), vérifié en local puis sur le projet distant. Le second : l'heure des 5 dernières Conversations serait restée en UTC (serveur Vercel), `suppressHydrationWarning` empêchant la correction ; invisible en local et en e2e, vérifié en production. Constat 3 reporté à la 5.9. Le test d'un correctif a été contrôlé en retirant le correctif (il échoue, puis repasse).
+
+**Vérification.** Complète d'un seul tenant : 1 822 Vitest, 363 e2e, `build:ci` et `check:secrets` verts.
+
+**Production.** `deploy:supabase` (migration, `chat` 56 kB), contrôle distant en lecture seule conforme (une signature par fonction, `authenticated` seul, vue `security_invoker` sans droit pour `anon`), Note de test et q1 avant le push. `test:chat:live` : 15 sur 15, compteur 0 → 15. Vérification du site par l'utilisateur conforme (Historique, « Sans réponse », ancienne réponse sans `[P2]`, poursuite, heure, E9).
+
+**Statut.** Story 5.6 `done` le 2026-11-19, un jour après la date prévue ; la 5.7 commence le même jour.
