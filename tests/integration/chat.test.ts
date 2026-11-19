@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type Account, type SeedConfig, seedMini } from "../../scripts/seed-demo";
-import { REFUSAL_HORS_CADRE, REFUSAL_INFO_ABSENTE } from "../../supabase/functions/chat/index.ts";
+import { NOT_FOUND_MESSAGE, REFUSAL_HORS_CADRE, REFUSAL_INFO_ABSENTE } from "../../supabase/functions/chat/index.ts";
 import {
   FAKE_HORS_CADRE_MARKER,
   FAKE_IGNORED_TEXT,
@@ -290,10 +290,12 @@ describe("fonction chat (vectorisation et génération simulées)", () => {
     expect(conversation!.title).toBe(question);
     const { data: messages } = await measure.client
       .from("messages")
-      .select("id, role, kind, content")
+      .select("id, role, kind, content, client_request_id")
       .eq("conversation_id", body.conversationId)
       .order("created_at");
     expect(messages!.map((message) => message.kind)).toEqual(["question", "answer"]);
+    // Story 5.6 (revue, constat 1) : la réponse porte l'identifiant de sa question.
+    expect(messages![1].client_request_id).toBe(messages![0].client_request_id);
     expect(messages![1].content).toBe(body.message.content);
     const { data: sources } = await measure.client
       .from("message_sources")
@@ -333,12 +335,20 @@ describe("fonction chat (vectorisation et génération simulées)", () => {
     expect(globalCount()).toBe(before.global + 1);
     const { data: failure } = await measure.client
       .from("messages")
-      .select("kind, content, error_code")
+      .select("kind, content, error_code, client_request_id, conversation_id")
       .eq("kind", "failure")
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
-    expect(failure).toEqual({ kind: "failure", content: null, error_code: "AI_CITATIONS_INVALID" });
+    expect(failure).toMatchObject({ kind: "failure", content: null, error_code: "AI_CITATIONS_INVALID" });
+    // Story 5.6 : l'échec porte l'identifiant de sa question.
+    const { data: asked } = await measure.client
+      .from("messages")
+      .select("client_request_id")
+      .eq("conversation_id", failure!.conversation_id)
+      .eq("kind", "question")
+      .single();
+    expect(failure!.client_request_id).toBe(asked!.client_request_id);
   });
 
   // Story 5.3 : tout refus consomme l'unité, appel court compris (décision du 2026-11-16).
@@ -510,13 +520,13 @@ describe("fonction chat en flux (story 5.5)", () => {
   it("refus avec Passages : un seul refusal, aucun delta, message standard enregistré", async () => {
     const { deltas, final } = await streamChat(measure, `Combien de jours de congés payés par an ? ${FAKE_INFO_ABSENTE_MARKER}`);
     expect(deltas).toEqual([]);
-    expect(final).toEqual([{ event: "refusal", data: { kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE } }]);
+    expect(final).toEqual([{ event: "refusal", data: { conversationId: expect.any(String), kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE } }]);
   });
 
   it("sans Passage (appel court) : refusal", async () => {
     const { deltas, final } = await streamChat(measure, `xyzzy plugh quux frobnicate ${FAKE_HORS_CADRE_MARKER}`);
     expect(deltas).toEqual([]);
-    expect(final).toEqual([{ event: "refusal", data: { kind: "refusal_hors_cadre", content: REFUSAL_HORS_CADRE } }]);
+    expect(final).toEqual([{ event: "refusal", data: { conversationId: expect.any(String), kind: "refusal_hors_cadre", content: REFUSAL_HORS_CADRE } }]);
   });
 
   it("aucune citation valide : delta, puis error AI_CITATIONS_INVALID ; échec enregistré, unité consommée", async () => {
@@ -561,5 +571,78 @@ describe("fonction chat en flux (story 5.5)", () => {
     }
     expect(saved).toMatchObject({ kind: "answer", error_code: null });
     expect(saved!.content).toMatch(/\[S1\]/);
+  });
+});
+
+// Story 5.6 : poursuivre une Conversation (conversationId), FR-22 à deux Comptes (exigence S3).
+describe("fonction chat : Conversation poursuivie (story 5.6)", () => {
+  async function follow(user: User, question: string, conversationId: string, stream = false) {
+    const response = await fetch(`${localSupabase().url}/functions/v1/chat`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${user.token}`,
+        apikey: localSupabase().publishableKey,
+        "Content-Type": "application/json",
+        ...(stream ? { Accept: "text/event-stream" } : {}),
+      },
+      body: JSON.stringify({ question, clientRequestId: crypto.randomUUID(), conversationId }),
+    });
+    return { status: response.status, text: await response.text() };
+  }
+
+  it("question suivante ajoutée à la même Conversation, last_message_at avancé ; aucune nouvelle Conversation", async () => {
+    const first = await chat(measure, "Combien de jours de congés payés un collaborateur a-t-il par an ?");
+    expect(first.status).toBe(200);
+    const conversationId = first.body.conversationId;
+    const before = (await measure.client.from("conversations").select("last_message_at").eq("id", conversationId).single()).data!;
+    const count = (await measure.client.from("conversations").select("id")).data!.length;
+
+    const next = await follow(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", conversationId);
+    expect(next.status).toBe(200);
+    expect((JSON.parse(next.text) as ChatBody).conversationId).toBe(conversationId);
+    const { data: messages } = await measure.client.from("messages").select("kind").eq("conversation_id", conversationId).order("created_at");
+    expect(messages!.map((message) => message.kind)).toEqual(["question", "answer", "question", "answer"]);
+    const after = (await measure.client.from("conversations").select("last_message_at").eq("id", conversationId).single()).data!;
+    expect(new Date(after.last_message_at).getTime()).toBeGreaterThan(new Date(before.last_message_at).getTime());
+    expect((await measure.client.from("conversations").select("id")).data).toHaveLength(count);
+    // Titre inchangé : celui de la première question.
+    const { data: conversation } = await measure.client.from("conversations").select("title").eq("id", conversationId).single();
+    expect(conversation!.title).toBe("Combien de jours de congés payés un collaborateur a-t-il par an ?");
+  });
+
+  it("S3 : conversationId de A envoyé par B → 404 NOT_FOUND identique à un identifiant inexistant ; ni réservation, ni question, ni appel", async () => {
+    const owner = await signUp("chat-suivi-a");
+    const intruder = await signUp("chat-suivi-b");
+    const started = await chat(owner, "Combien de jours de congés payés par an ?");
+    const conversationId = started.body.conversationId;
+    const before = { usage: await userCount(intruder), global: globalCount() };
+
+    const foreign = await follow(intruder, "Question de B", conversationId);
+    const missing = await follow(intruder, "Question de B", crypto.randomUUID());
+    const foreignStream = await follow(intruder, "Question de B", conversationId, true);
+    expect(foreign.status).toBe(404);
+    expect(missing.status).toBe(404);
+    expect(foreignStream.status).toBe(404);
+    expect(foreign.text).toBe(missing.text);
+    expect(foreignStream.text).toBe(missing.text);
+    expect(JSON.parse(foreign.text)).toEqual({ error: { code: "NOT_FOUND", message: NOT_FOUND_MESSAGE, retryable: false } });
+
+    expect(await userCount(intruder)).toBe(before.usage);
+    expect(globalCount()).toBe(before.global);
+    expect((await intruder.client.from("messages").select("id")).data).toEqual([]);
+    expect((await intruder.client.from("conversations").select("id")).data).toEqual([]);
+    const { data: messages } = await owner.client.from("messages").select("kind").eq("conversation_id", conversationId);
+    expect(messages).toHaveLength(2);
+  });
+
+  it("flux : refusal et error portent la Conversation (Q3 = A)", async () => {
+    const start = await chat(measure, "xyzzy plugh quux frobnicate");
+    const conversationId = start.body.conversationId;
+    const refusal = await follow(measure, `xyzzy plugh ${FAKE_HORS_CADRE_MARKER}`, conversationId, true);
+    expect(refusal.text).toContain(`"conversationId":"${conversationId}"`);
+    expect(refusal.text).toContain("event: refusal");
+    const failure = await follow(measure, `Combien de jours de congés payés par an ? ${FAKE_NO_CITATION_MARKER} suivi`, conversationId, true);
+    expect(failure.text).toContain("event: error");
+    expect(failure.text).toMatch(new RegExp(`event: error\\ndata: .*"conversationId":"${conversationId}"`));
   });
 });

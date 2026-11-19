@@ -52,6 +52,9 @@ export function chatMessage(code: ErrorCode, resetAt?: string): string {
       return texts.assistant.budgetExhausted;
     case "REQUEST_IN_PROGRESS":
       return texts.assistant.inProgress;
+    // Conversation absente ou d'un autre Compte (story 5.6, S3) : même texte neutre que la page E9.
+    case "NOT_FOUND":
+      return texts.notFound.text;
     // Demande refusée par chat (corps illisible, identifiant invalide, 405) : saisie invalide, pas une
     // panne (story 5.2b, report g). La route a déjà refusé une question vide ou trop longue.
     case "VALIDATION_FAILED":
@@ -60,6 +63,10 @@ export function chatMessage(code: ErrorCode, resetAt?: string): string {
       return texts.assistant.failed;
   }
 }
+
+// Corps envoyé à chat : la Conversation poursuivie seulement si elle est fournie (story 5.6).
+const requestBody = ({ question, clientRequestId, conversationId }: ChatRequest) =>
+  JSON.stringify(conversationId ? { question, clientRequestId, conversationId } : { question, clientRequestId });
 
 const failed = (code: ErrorCode, retryable: boolean, status: number, resetAt?: string): ChatRelayResult => ({
   status,
@@ -98,7 +105,7 @@ export async function relayChat(
     response = await fetch(target.url, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, apikey: target.apikey, "Content-Type": "application/json" },
-      body: JSON.stringify({ question: request.question, clientRequestId: request.clientRequestId }),
+      body: requestBody(request),
       cache: "no-store",
       signal,
     });
@@ -194,7 +201,7 @@ export async function relayChatStream(
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       },
-      body: JSON.stringify({ question: request.question, clientRequestId: request.clientRequestId }),
+      body: requestBody(request),
       cache: "no-store",
       signal: controller.signal,
     });

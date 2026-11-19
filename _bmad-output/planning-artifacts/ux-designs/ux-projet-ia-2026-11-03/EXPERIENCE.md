@@ -343,7 +343,7 @@ Pour chaque écran : objectif, composants, actions, états, comportement à 375 
 | État | Traitement |
 |---|---|
 | Chargement | Squelettes de 5 lignes dans chaque liste ; la bande d'actions est utilisable tout de suite. |
-| Vide : Conversations | « Vous n'avez pas encore posé de question. » + deux exemples cliquables tirés du Jeu de démonstration (ex. « Comment poser mes congés ? », « Comment relancer un client qui n'a pas payé ? »), qui ouvrent une nouvelle Conversation avec la question déjà envoyée. |
+| Vide : Conversations | « Vous n'avez pas encore posé de question. » + deux exemples cliquables tirés du Jeu de démonstration (ex. « Comment poser mes congés ? », « Comment relancer un client qui n'a pas payé ? »), qui ouvrent une nouvelle Conversation avec la question déjà envoyée. *Écart accepté le 2026-11-18 (story 5.6) : les exemples préremplissent le champ (`?question=`, comme en story 3.5) sans l'envoyer, pour ne consommer aucune unité de quota sans action du Collaborateur ; nom accessible de la liste : « Exemples de questions ».* |
 | Vide : Documents | « La Base commune est encore vide. » + « Ajouter un Document ». |
 | Erreur | Erreur dans une liste : l'alerte s'affiche dans cette liste, avec « Réessayer » ; l'autre liste et les actions restent utilisables. |
 | Succès | Un Document ajouté par n'importe quel Collaborateur apparaît en tête de liste ; son badge de Statut se met à jour. |
@@ -399,7 +399,7 @@ Pour chaque écran : objectif, composants, actions, états, comportement à 375 
 |---|---|
 | Chargement | Squelette de 6 lignes. |
 | Vide | « Aucune Conversation pour le moment. » + « Poser une première question » (place le focus dans le champ). |
-| Succès | Liste complète, du plus récent au plus ancien. Conversations du Collaborateur connecté uniquement (FR-22). |
+| Succès | Liste complète, du plus récent au plus ancien. Conversations du Collaborateur connecté uniquement (FR-22). Une Conversation dont le dernier échange n'a ni réponse ni refus (échec, ou question sans réponse depuis plus de 90 s) porte la mention en texte « Sans réponse » après la date, jamais une couleur seule ; de même dans les 5 dernières Conversations (story 5.6, décision Q2 = A du 2026-11-18). |
 | Erreur | « L'Historique n'a pas pu être chargé. » + « Réessayer ». |
 
 ### E5 · Recherche

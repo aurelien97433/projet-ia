@@ -520,3 +520,192 @@ describe("privilèges SQL réels", () => {
     );
   });
 });
+
+// Story 5.6 : question ajoutée à une Conversation (add_question) et vue des listes (conversation_list),
+// à deux Comptes (FR-22, exigences S1 et S2).
+describe("story 5.6 : add_question et conversation_list", () => {
+  const addQuestion = (owner: Account, conversationId: string, requestId: string = crypto.randomUUID()) =>
+    owner.client.rpc("add_question", { p_conversation_id: conversationId, p_question: "Et pour un avoir ?", p_client_request_id: requestId });
+  const lastMessageAt = async (owner: Account, id: string) =>
+    (await owner.client.from("conversations").select("last_message_at").eq("id", id).single()).data!.last_message_at as string;
+  const usage = (owner: Account) =>
+    localSqlRows(`select coalesce(sum(count), 0) as total from public.ai_usage where user_id = '${owner.id}'`)[0].total;
+
+  it("A ajoute une question à sa Conversation : enregistrée, last_message_at avancé, en tête de la liste", async () => {
+    const older = await conversation(a, "Plus ancienne");
+    const conv = await conversation(a, "À poursuivre");
+    await question(a, conv.id);
+    await question(a, older.id);
+    // L'autre Conversation a eu le dernier échange : elle est en tête avant la poursuite.
+    localSqlRows(`update public.conversations set last_message_at = now() where id = '${older.id}'`);
+    const before = await lastMessageAt(a, conv.id);
+    const { data, error } = await addQuestion(a, conv.id);
+    expect(error).toBeNull();
+    expect(data).toMatchObject({ conversation_id: conv.id, message_id: expect.any(String) });
+    expect(new Date(await lastMessageAt(a, conv.id)).getTime()).toBeGreaterThan(new Date(before).getTime());
+    const kinds = await a.client.from("messages").select("kind").eq("conversation_id", conv.id).order("created_at");
+    expect(kinds.data).toEqual([{ kind: "question" }, { kind: "question" }]);
+    // La Conversation poursuivie passe devant celle dont la question est plus récente (un test précédent
+    // date une autre Conversation de A dans le futur : comparaison limitée aux deux de ce test).
+    const list = await a.client
+      .from("conversation_list")
+      .select("id")
+      .in("id", [older.id, conv.id])
+      .order("last_message_at", { ascending: false });
+    expect(list.data).toEqual([{ id: conv.id }, { id: older.id }]);
+  });
+
+  it("FR-22 : B n'ajoute pas de question à la Conversation de A (refusé, rien d'écrit, aucune réservation consommée)", async () => {
+    const conv = await conversation(a);
+    await question(a, conv.id);
+    const before = { usageB: usage(b), date: await lastMessageAt(a, conv.id) };
+    const { error } = await addQuestion(b, conv.id);
+    expect(error?.code).toBe(FK);
+    expect((await readAsAdmin("conversations", conv.id))!.last_message_at).toBe(before.date);
+    const { data } = await admin.from("messages").select("id").eq("conversation_id", conv.id);
+    expect(data).toHaveLength(1);
+    expect(usage(b)).toBe(before.usageB);
+    // REST direct avec le jeton de B : même refus.
+    const response = await rest(b.token, "/rest/v1/rpc/add_question", {
+      method: "POST",
+      body: JSON.stringify({ p_conversation_id: conv.id, p_question: "Q", p_client_request_id: crypto.randomUUID() }),
+    });
+    expect(response.ok).toBe(false);
+  });
+
+  it("add_question : même client_request_id → 23505 ; anon : refusé", async () => {
+    const conv = await conversation(a);
+    const id = crypto.randomUUID();
+    await question(a, conv.id, id);
+    expect((await addQuestion(a, conv.id, id)).error?.code).toBe(UNIQUE);
+    const denied = await anon.rpc("add_question", { p_conversation_id: conv.id, p_question: "Q", p_client_request_id: crypto.randomUUID() });
+    expect(denied.error).not.toBeNull();
+  });
+
+  it("S1 : B ne voit aucune Conversation de A dans la vue ; anon : rien", async () => {
+    const conv = await conversation(a, "Secrète");
+    await question(a, conv.id);
+    expect((await a.client.from("conversation_list").select("id").eq("id", conv.id)).data).toEqual([{ id: conv.id }]);
+    const seenByB = await b.client.from("conversation_list").select("id");
+    expect((seenByB.data ?? []).some((row) => row.id === conv.id)).toBe(false);
+    const allIdsOfA = (await a.client.from("conversation_list").select("id")).data!.map((row) => row.id);
+    expect((seenByB.data ?? []).filter((row) => allIdsOfA.includes(row.id))).toEqual([]);
+    const restB = await rest(b.token, `/rest/v1/conversation_list?id=eq.${conv.id}`);
+    expect(await restB.json()).toEqual([]);
+    const byAnon = await anon.from("conversation_list").select("id").limit(1);
+    expect(byAnon.error?.code ?? (byAnon.data?.length === 0 ? "vide" : "lisible")).not.toBe("lisible");
+  });
+
+  it("unanswered : réponse (même après un échec) → false ; échec seul → true ; question récente sans réponse → false, ancienne → true", async () => {
+    const answered = await conversation(a, "Répondue");
+    await question(a, answered.id);
+    await assistant(a, answered.id, "failure");
+    await assistant(a, answered.id, "refusal_info_absente");
+    const failed = await conversation(a, "En échec");
+    await question(a, failed.id);
+    await assistant(a, failed.id, "failure");
+    const pending = await conversation(a, "En cours");
+    await question(a, pending.id);
+    const abandoned = await conversation(a, "Abandonnée");
+    const old = await question(a, abandoned.id);
+    // Question vieillie de 10 min (seul l'administrateur peut modifier created_at).
+    localSqlRows(`update public.messages set created_at = now() - interval '10 minutes' where id = '${old.id}'`);
+    const empty = await conversation(a, "Sans message");
+    // Dernier échange seulement : une question suivante sans réponse, ancienne, après un échange répondu.
+    const followed = await conversation(a, "Poursuivie");
+    await question(a, followed.id);
+    await assistant(a, followed.id, "answer");
+    await addQuestion(a, followed.id);
+
+    const ids = [answered, failed, pending, abandoned, empty, followed].map((row) => row.id);
+    const { data } = await a.client.from("conversation_list").select("id, unanswered").in("id", ids);
+    const byId = Object.fromEntries((data ?? []).map((row) => [row.id, row.unanswered]));
+    expect(byId).toEqual({
+      [answered.id]: false,
+      [failed.id]: true,
+      [pending.id]: false,
+      [abandoned.id]: true,
+      [empty.id]: false,
+      [followed.id]: false,
+    });
+  });
+
+  it("S1 et S2 en base : vue security_invoker, droits ; add_question security invoker, search_path vide, EXECUTE à authenticated seul", () => {
+    const [view] = localSqlRows(
+      "select c.reloptions::text as options, has_table_privilege('authenticated', c.oid, 'SELECT') as auth_select, has_table_privilege('anon', c.oid, 'SELECT') as anon_select, has_table_privilege('authenticated', c.oid, 'INSERT') as auth_insert from pg_class c where c.oid = 'public.conversation_list'::regclass",
+    );
+    expect(view).toEqual({ options: "{security_invoker=true}", auth_select: true, anon_select: false, auth_insert: false });
+    const [fn] = localSqlRows(
+      "select p.prosecdef as definer, p.proconfig::text as config, has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec, has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec, not exists (select 1 from aclexplode(p.proacl) x where x.grantee = 0) as no_public from pg_proc p where p.proname = 'add_question' and p.pronamespace = 'public'::regnamespace",
+    );
+    expect(fn).toEqual({ definer: false, config: '{"search_path=\\"\\""}', auth_exec: true, anon_exec: false, no_public: true });
+  });
+
+  it("save_assistant_answer et record_assistant_failure : UNE seule signature chacune (avec p_client_request_id), security invoker, search_path vide, EXECUTE à authenticated seul", () => {
+    const rows = localSqlRows(
+      "select p.proname as name, pg_get_function_identity_arguments(p.oid) as args, p.prosecdef as definer, p.proconfig::text as config, has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec, has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec, not exists (select 1 from aclexplode(p.proacl) x where x.grantee = 0) as no_public from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('save_assistant_answer', 'record_assistant_failure') order by p.proname",
+    );
+    const common = { definer: false, config: '{"search_path=\\"\\""}', auth_exec: true, anon_exec: false, no_public: true };
+    expect(rows).toEqual([
+      { name: "record_assistant_failure", args: "p_conversation_id uuid, p_error_code text, p_client_request_id uuid", ...common },
+      {
+        name: "save_assistant_answer",
+        args: "p_conversation_id uuid, p_kind message_kind, p_content text, p_sources jsonb, p_client_request_id uuid",
+        ...common,
+      },
+    ]);
+  });
+
+  it("appel sans p_client_request_id (chat en production avant son déploiement) : accepté, sans ambiguïté, identifiant nul ; avec : enregistré", async () => {
+    const conv = await conversation(a, "Appels des deux formes");
+    const requestId = crypto.randomUUID();
+    await question(a, conv.id, requestId);
+    const legacyRefusal = await a.client.rpc("save_assistant_answer", {
+      p_conversation_id: conv.id,
+      p_kind: "refusal_info_absente",
+      p_content: "Refus.",
+      p_sources: [],
+    });
+    expect(legacyRefusal.error).toBeNull();
+    const legacyFailure = await a.client.rpc("record_assistant_failure", { p_conversation_id: conv.id, p_error_code: "AI_TIMEOUT" });
+    expect(legacyFailure.error).toBeNull();
+    const linked = await a.client.rpc("record_assistant_failure", {
+      p_conversation_id: conv.id,
+      p_error_code: "AI_UNAVAILABLE",
+      p_client_request_id: requestId,
+    });
+    expect(linked.error).toBeNull();
+    const { data } = await a.client
+      .from("messages")
+      .select("kind, error_code, client_request_id")
+      .eq("conversation_id", conv.id)
+      .eq("role", "assistant")
+      .order("created_at");
+    expect(data).toEqual([
+      { kind: "refusal_info_absente", error_code: null, client_request_id: null },
+      { kind: "failure", error_code: "AI_TIMEOUT", client_request_id: null },
+      { kind: "failure", error_code: "AI_UNAVAILABLE", client_request_id: requestId },
+    ]);
+  });
+
+  it("revue, constat 1 : issues de deux questions dans le désordre → unanswered selon la question à laquelle elles répondent", async () => {
+    // Réponse de Q1 arrivée après Q2, puis échec de Q2 : le dernier échange (Q2) est sans réponse.
+    const crossed = await conversation(a, "Issues croisées");
+    const [r1, r2] = [crypto.randomUUID(), crypto.randomUUID()];
+    await question(a, crossed.id, r1);
+    expect((await addQuestion(a, crossed.id, r2)).error).toBeNull();
+    await assistant(a, crossed.id, "refusal_info_absente", { client_request_id: r1 });
+    await assistant(a, crossed.id, "failure", { client_request_id: r2 });
+    // Inverse : échec de Q1 après Q2, puis réponse de Q2 : le dernier échange est répondu.
+    const reversed = await conversation(a, "Issues croisées inverses");
+    const [s1, s2] = [crypto.randomUUID(), crypto.randomUUID()];
+    await question(a, reversed.id, s1);
+    expect((await addQuestion(a, reversed.id, s2)).error).toBeNull();
+    await assistant(a, reversed.id, "failure", { client_request_id: s1 });
+    await assistant(a, reversed.id, "refusal_info_absente", { client_request_id: s2 });
+
+    const { data } = await a.client.from("conversation_list").select("id, unanswered").in("id", [crossed.id, reversed.id]);
+    const byId = Object.fromEntries((data ?? []).map((row) => [row.id, row.unanswered]));
+    expect(byId).toEqual({ [crossed.id]: true, [reversed.id]: false });
+  });
+});

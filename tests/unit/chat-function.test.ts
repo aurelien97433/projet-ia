@@ -7,6 +7,7 @@ import {
   IN_PROGRESS_MESSAGE,
   REFUSAL_HORS_CADRE,
   REFUSAL_INFO_ABSENTE,
+  NOT_FOUND_MESSAGE,
   SESSION_MESSAGE,
   UNVERIFIABLE_MESSAGE,
 } from "../../supabase/functions/chat/index.ts";
@@ -77,6 +78,9 @@ beforeEach(() => {
     replay: async () => Response.json([]),
     reserve: async () => Response.json({ ok: true, reservation_id: RESERVATION, reset_at: "2026-11-17T00:00:00+00:00" }),
     start: async () => Response.json({ conversation_id: CONVERSATION, message_id: "m1" }),
+    // Story 5.6 : Conversation poursuivie, lue avec le jeton (RLS), puis question ajoutée.
+    conversation: async () => Response.json([{ id: CONVERSATION }]),
+    add: async () => Response.json({ conversation_id: CONVERSATION, message_id: "m1" }),
     embed: async () => Response.json({ data: [{ index: 0, embedding: vector() }] }),
     match: async () => Response.json([row(DOC_1, P1), row(DOC_2, P2), row(DOC_1, P3)]),
     documents: async () =>
@@ -109,6 +113,8 @@ beforeEach(() => {
     };
     if (url.endsWith("/auth/v1/user")) return route("auth");
     if (url.includes("/rest/v1/messages?")) return route("replay");
+    if (url.includes("/rest/v1/conversations?")) return route("conversation");
+    if (url.endsWith("/rpc/add_question")) return route("add");
     if (url.endsWith("/rpc/reserve_ai_call")) return route("reserve");
     if (url.endsWith("/rpc/start_conversation")) return route("start");
     if (url.endsWith("/embeddings")) return route("embed");
@@ -214,6 +220,7 @@ describe("chat : parcours nominal", () => {
           ],
         },
       ],
+      p_client_request_id: REQUEST_ID,
     });
     // Consignes : titres relus, jamais le titre renvoyé par match_passages.
     const prompt = JSON.stringify(bodyOf("/chat/completions").messages);
@@ -331,7 +338,7 @@ describe("chat : marqueur de la génération (story 5.3)", () => {
     const text = await response.text();
     expect(JSON.parse(text)).toEqual({ conversationId: CONVERSATION, message: { kind, content, sources: [] } });
     expect(text).not.toContain(ANSWER_SECRET);
-    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [] });
+    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [], p_client_request_id: REQUEST_ID });
     expect(calls("release") + calls("failure") + calls("classify")).toBe(0);
   });
 
@@ -348,7 +355,7 @@ describe("chat : marqueur de la génération (story 5.3)", () => {
     const text = await response.text();
     expect(JSON.parse(text).error).toMatchObject({ code: "AI_OUTPUT_INVALID", retryable: true, message: FAILURE_MESSAGE });
     expect(text).not.toContain(ANSWER_SECRET);
-    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID" });
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID", p_client_request_id: REQUEST_ID });
     expect(calls("save") + calls("release")).toBe(0);
   });
 });
@@ -368,7 +375,7 @@ describe("chat : aucun Passage, appel court (story 5.3)", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ conversationId: CONVERSATION, message: { kind, content, sources: [] } });
     expect(order).toEqual(["auth", "replay", "reserve", "start", "embed", "match", "classify", "save"]);
-    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [] });
+    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [], p_client_request_id: REQUEST_ID });
     expect(calls("release")).toBe(0);
   });
 
@@ -391,7 +398,7 @@ describe("chat : aucun Passage, appel court (story 5.3)", () => {
       const text = await response.text();
       expect(JSON.parse(text).error).toMatchObject({ code: "AI_OUTPUT_INVALID", retryable: true });
       expect(text).not.toContain("Canberra");
-      expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID" });
+      expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID", p_client_request_id: REQUEST_ID });
       expect(calls("save") + calls("release")).toBe(0);
     },
   );
@@ -408,6 +415,7 @@ describe("chat : aucun Passage, appel court (story 5.3)", () => {
       p_kind: "refusal_hors_cadre",
       p_content: REFUSAL_HORS_CADRE,
       p_sources: [],
+      p_client_request_id: REQUEST_ID,
     });
     expect(calls("release")).toBe(0);
   });
@@ -416,7 +424,7 @@ describe("chat : aucun Passage, appel court (story 5.3)", () => {
     routes.classify = async () => completion("REFUS_HORS_CADRE la capitale", "length");
     const response = await ask();
     expect((await response.json()).error.code).toBe("AI_OUTPUT_INVALID");
-    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID" });
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID", p_client_request_id: REQUEST_ID });
     expect(calls("save") + calls("release")).toBe(0);
   });
 
@@ -425,7 +433,7 @@ describe("chat : aucun Passage, appel court (story 5.3)", () => {
     const response = await ask({ timeoutMs: 2_000, generationTimeoutMs: 200 });
     expect((await response.json()).error.code).toBe("AI_UNAVAILABLE");
     expect(calls("classify")).toBe(2);
-    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_UNAVAILABLE" });
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_UNAVAILABLE", p_client_request_id: REQUEST_ID });
     expect(calls("release")).toBe(1);
   });
 
@@ -468,7 +476,7 @@ describe("chat : règle de libération", () => {
     const response = await ask({ timeoutMs: 2_000, generationTimeoutMs: 200 });
     const { error } = await response.json();
     expect(error.code).toBe(code);
-    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: code });
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: code, p_client_request_id: REQUEST_ID });
     return response;
   };
 
@@ -720,10 +728,10 @@ describe("chat : mode flux (story 5.5)", () => {
     routes.generate = provider([`${marker}\n`, "PERROQUET : délai de 99 jours [P1].", " Suite ignorée."]);
     const { deltas, final, text } = await stream();
     expect(deltas).toEqual([]);
-    expect(final).toEqual([{ event: "refusal", data: { kind, content } }]);
+    expect(final).toEqual([{ event: "refusal", data: { conversationId: CONVERSATION, kind, content } }]);
     expect(text).not.toContain("PERROQUET");
     expect(text).not.toContain("99 jours");
-    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [] });
+    expect(bodyOf("/rpc/save_assistant_answer")).toEqual({ p_conversation_id: CONVERSATION, p_kind: kind, p_content: content, p_sources: [], p_client_request_id: REQUEST_ID });
     expect(calls("release")).toBe(0);
   });
 
@@ -748,8 +756,8 @@ describe("chat : mode flux (story 5.5)", () => {
     routes.generate = provider(["Voici la réponse que vous attendez, avec un délai ", "de 15 jours [P1]."]);
     const { deltas, final } = await stream();
     expect(deltas).toEqual([]);
-    expect(final).toEqual([{ event: "error", data: { code: "AI_OUTPUT_INVALID", message: FAILURE_MESSAGE, retryable: true } }]);
-    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID" });
+    expect(final).toEqual([{ event: "error", data: { code: "AI_OUTPUT_INVALID", message: FAILURE_MESSAGE, retryable: true, conversationId: CONVERSATION } }]);
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({ p_conversation_id: CONVERSATION, p_error_code: "AI_OUTPUT_INVALID", p_client_request_id: REQUEST_ID });
     expect(calls("save")).toBe(0);
     expect(calls("release")).toBe(0);
   });
@@ -758,7 +766,7 @@ describe("chat : mode flux (story 5.5)", () => {
     routes.generate = provider(["REPONSE\nRéponse ", "sans citation."]);
     const { deltas, final } = await stream();
     expect(deltas.join("")).toBe("Réponse sans citation.");
-    expect(final).toEqual([{ event: "error", data: { code: "AI_CITATIONS_INVALID", message: UNVERIFIABLE_MESSAGE, retryable: true } }]);
+    expect(final).toEqual([{ event: "error", data: { code: "AI_CITATIONS_INVALID", message: UNVERIFIABLE_MESSAGE, retryable: true, conversationId: CONVERSATION } }]);
     expect(bodyOf("/rpc/record_assistant_failure").p_error_code).toBe("AI_CITATIONS_INVALID");
     expect(calls("release")).toBe(0);
   });
@@ -767,7 +775,7 @@ describe("chat : mode flux (story 5.5)", () => {
     routes.match = async () => Response.json([]);
     const { deltas, final } = await stream();
     expect(deltas).toEqual([]);
-    expect(final).toEqual([{ event: "refusal", data: { kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE } }]);
+    expect(final).toEqual([{ event: "refusal", data: { conversationId: CONVERSATION, kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE } }]);
     expect(calls("generate")).toBe(0);
     expect(bodyOf("/chat/completions").stream).toBeUndefined();
   });
@@ -837,7 +845,7 @@ describe("chat : mode flux (story 5.5)", () => {
       );
     const { deltas, final } = await stream({ firstChunkTimeoutMs: 50 });
     expect(deltas).toEqual([]);
-    expect(final).toEqual([{ event: "error", data: { code: "AI_TIMEOUT", message: FAILURE_MESSAGE, retryable: true } }]);
+    expect(final).toEqual([{ event: "error", data: { code: "AI_TIMEOUT", message: FAILURE_MESSAGE, retryable: true, conversationId: CONVERSATION } }]);
     expect(bodyOf("/rpc/record_assistant_failure").p_error_code).toBe("AI_TIMEOUT");
     expect(calls("release")).toBe(0);
   });
@@ -879,7 +887,7 @@ describe("chat : mode flux (story 5.5)", () => {
       const started = Date.now();
       const { deltas, final } = await stream({ firstDisplayMs: 400 });
       expect(deltas).toEqual([]);
-      expect(final).toEqual([{ event: "error", data: { code: "AI_TIMEOUT", message: FAILURE_MESSAGE, retryable: true } }]);
+      expect(final).toEqual([{ event: "error", data: { code: "AI_TIMEOUT", message: FAILURE_MESSAGE, retryable: true, conversationId: CONVERSATION } }]);
       // Événement envoyé au plus tard à l'échéance du premier affichage (marge d'exécution).
       expect(Date.now() - started).toBeLessThan(400 + 200);
       // Délai du premier morceau : au plus 400 − 250 ms.
@@ -901,7 +909,7 @@ describe("chat : mode flux (story 5.5)", () => {
     it("recherche plus lente que l'échéance : error AI_TIMEOUT, aucune génération, échec enregistré, unité rendue", async () => {
       routes.match = hang;
       const { final } = await stream({ firstDisplayMs: 150 });
-      expect(final).toEqual([{ event: "error", data: { code: "AI_TIMEOUT", message: FAILURE_MESSAGE, retryable: true } }]);
+      expect(final).toEqual([{ event: "error", data: { code: "AI_TIMEOUT", message: FAILURE_MESSAGE, retryable: true, conversationId: CONVERSATION } }]);
       expect(calls("generate")).toBe(0);
       expect(calls("failure")).toBe(1);
       expect(calls("release")).toBe(1);
@@ -984,5 +992,79 @@ describe("chat : mode flux (story 5.5)", () => {
     expect(output).not.toContain(PASSAGE_SECRET);
     expect(output).not.toContain(ANSWER_SECRET);
     expect(output).not.toContain(TOKEN);
+  });
+});
+
+// Story 5.6 : question ajoutée à une Conversation existante (conversationId), vérifiée par lecture RLS
+// avant toute réservation ; Conversation absente ou d'un autre Compte → 404 NOT_FOUND neutre (S3).
+describe("chat : Conversation poursuivie (story 5.6)", () => {
+  const OTHER = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+  const follow = (conversationId: unknown, headers?: Record<string, string>) =>
+    handle(
+      request(
+        { question: QUESTION, clientRequestId: REQUEST_ID, conversationId },
+        { Authorization: `Bearer ${TOKEN}`, apikey: PUBLISHABLE, ...headers },
+      ),
+      { waitUntil: () => {} },
+    );
+
+  it("conversationId fourni : lecture RLS, rejeu, réservation, add_question (jamais start_conversation), réponse dans la même Conversation", async () => {
+    const response = await follow(CONVERSATION.toUpperCase());
+    expect(response.status).toBe(200);
+    expect(order).toEqual(["auth", "conversation", "replay", "reserve", "add", "embed", "match", "documents", "generate", "save"]);
+    const lookup = fetchMock.mock.calls.find(([url]) => String(url).includes("/rest/v1/conversations?"))!;
+    expect(String(lookup[0])).toContain(`id=eq.${CONVERSATION}`);
+    expect((lookup[1] as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${TOKEN}` });
+    expect(bodyOf("/rpc/add_question")).toEqual({ p_conversation_id: CONVERSATION, p_question: QUESTION, p_client_request_id: REQUEST_ID });
+    expect((await response.json()).conversationId).toBe(CONVERSATION);
+    expect(bodyOf("/rpc/save_assistant_answer").p_conversation_id).toBe(CONVERSATION);
+  });
+
+  it("sans conversationId (ou null) : comportement actuel, start_conversation, aucune lecture de Conversation", async () => {
+    await follow(null);
+    expect(calls("conversation")).toBe(0);
+    expect(calls("add")).toBe(0);
+    expect(calls("start")).toBe(1);
+  });
+
+  it("S3 : Conversation absente ou d'un autre Compte (RLS : 0 ligne) → 404 NOT_FOUND identique, sans réservation, question ni appel au fournisseur", async () => {
+    routes.conversation = async () => Response.json([]);
+    const absent = await follow(OTHER);
+    const absentBody = await absent.json();
+    const foreign = await follow(CONVERSATION, { Accept: "text/event-stream" });
+    const foreignBody = await foreign.json();
+    expect(absent.status).toBe(404);
+    expect(foreign.status).toBe(404);
+    expect(absentBody).toEqual({ error: { code: "NOT_FOUND", message: NOT_FOUND_MESSAGE, retryable: false } });
+    expect(foreignBody).toEqual(absentBody);
+    expect(foreign.headers.get("content-type")).toBe(absent.headers.get("content-type"));
+    for (const step of ["replay", "reserve", "add", "start", "embed", "generate", "classify", "failure", "release"]) expect(calls(step)).toBe(0);
+    expect(NOT_FOUND_MESSAGE).toBe(texts.notFound.text);
+  });
+
+  it("conversationId invalide (non UUID, nombre) : 400 VALIDATION_FAILED, aucune lecture ni réservation", async () => {
+    for (const value of ["abc", 42, ""]) {
+      const response = await follow(value);
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe("VALIDATION_FAILED");
+    }
+    expect(calls("conversation")).toBe(0);
+    expect(calls("reserve")).toBe(0);
+  });
+
+  it("add_question 23505 (même identifiant en concurrence) : 409 REQUEST_IN_PROGRESS, unité rendue", async () => {
+    routes.add = async () => Response.json({ code: "23505" }, { status: 409 });
+    const response = await follow(CONVERSATION);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("REQUEST_IN_PROGRESS");
+    expect(calls("release")).toBe(1);
+    expect(calls("embed")).toBe(0);
+  });
+
+  it("lecture de la Conversation en échec : 500, sans réservation", async () => {
+    routes.conversation = async () => Response.json({ code: "XX000" }, { status: 500 });
+    const response = await follow(CONVERSATION);
+    expect(response.status).toBe(500);
+    expect(calls("reserve")).toBe(0);
   });
 });

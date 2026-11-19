@@ -7,8 +7,10 @@
 // d'un bloc (story 5.4), même logique, même enregistrement. Les refus avant la génération (session,
 // validation, rejeu, quota, plafond) sont des réponses JSON avec leur statut HTTP dans les deux modes.
 //
-// Ordre : validation ; rejeu (même clientRequestId, avant toute réservation) ; réservation du quota
-// du Compte et du plafond global (avant tout appel à OpenAI) ; Conversation et question ;
+// Ordre : validation ; Conversation à poursuivre (story 5.6 : lue avec le jeton, RLS ; absente ou d'un
+// autre Compte → 404 NOT_FOUND, sans réservation) ; rejeu (même clientRequestId, avant toute
+// réservation) ; réservation du quota du Compte et du plafond global (avant tout appel à OpenAI) ;
+// Conversation et question (start_conversation, ou add_question pour une Conversation poursuivie) ;
 // vectorisation, match_passages, relecture des Documents ; aucun Passage → appel court qui départage
 // les deux refus (story 5.3) ; sinon consignes et génération (diffusée en mode flux), marqueur en première ligne (AD-10) ;
 // citations validées, texte réécrit avec les renvois [S{n}] (story 5.4) ; enregistrement atomique.
@@ -74,6 +76,9 @@ export const BUDGET_MESSAGE = "Le service d'IA est momentanément indisponible. 
 export const QUOTA_MESSAGE = "Vous avez atteint votre limite quotidienne de questions et de Résumés. La Recherche reste disponible.";
 export const CAP_MESSAGE = "L'Assistant a atteint sa limite d'utilisation pour aujourd'hui. La Recherche reste disponible.";
 export const IN_PROGRESS_MESSAGE = "Cette question est déjà en cours de traitement.";
+// Conversation absente ou d'un autre Compte (story 5.6, exigence S3) : même réponse neutre dans les deux
+// cas, texte « Accès refusé / introuvable » du catalogue.
+export const NOT_FOUND_MESSAGE = "Cette page n'existe pas ou ne vous est pas accessible.";
 // EXPERIENCE.md, « Information absente » et « Hors cadre » : messages standard enregistrés pour un
 // refus (story 5.3), à la place du texte du modèle.
 export const REFUSAL_INFO_ABSENTE =
@@ -177,6 +182,14 @@ async function questionExists(target: Target, clientRequestId: string, signal: A
   return rows.length > 0;
 }
 
+// Conversation à poursuivre (story 5.6) : lue avec le jeton du Collaborateur, la RLS ne renvoie que les
+// siennes. Absente ou d'un autre Compte : false, sans distinction (exigence S3).
+async function conversationExists(target: Target, conversationId: string, signal: AbortSignal): Promise<boolean> {
+  const rows = await get(target, `conversations?select=id&id=eq.${conversationId}&limit=1`, "conversation_check", signal);
+  if (!Array.isArray(rows)) throw new ChatError("INTERNAL", 500, true, "conversation_check_invalid_rows");
+  return rows.length > 0;
+}
+
 async function matchPassages(target: Target, vector: number[], minSimilarity: number, signal: AbortSignal): Promise<MatchRow[]> {
   const rows = await rpc(
     target,
@@ -259,6 +272,8 @@ function messageFor(code: ErrorCode): string {
       return BUDGET_MESSAGE;
     case "REQUEST_IN_PROGRESS":
       return IN_PROGRESS_MESSAGE;
+    case "NOT_FOUND":
+      return NOT_FOUND_MESSAGE;
     default:
       return FAILURE_MESSAGE;
   }
@@ -404,6 +419,9 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   let stage = "session";
   let reservationId: string | null = null;
   let conversationId: string | null = null;
+  // Question acceptée (story 5.6) : rattache la réponse, le refus ou l'échec à sa question, même quand
+  // deux questions de la même Conversation sont traitées en même temps.
+  let questionRequestId: string | null = null;
   let generation: GenerationState = "not_sent";
   // Texte provisoire (mode flux) : délai du premier delta depuis la demande, nombre de delta envoyés.
   let firstDeltaMs: number | null = null;
@@ -431,7 +449,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     if (conversationId) {
       try {
         const cleanup = AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS);
-        await rpc(target, "record_assistant_failure", { p_conversation_id: conversationId, p_error_code: code }, cleanup);
+        await rpc(target, "record_assistant_failure", { p_conversation_id: conversationId, p_error_code: code, p_client_request_id: questionRequestId }, cleanup);
         recorded = true;
       } catch (recordError) {
         logEvent("chat_failure_not_recorded", { cause: recordError instanceof ChatError ? recordError.reason : "network" });
@@ -465,6 +483,14 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     const input = parseChatRequest(await request.json().catch(() => undefined));
     if (!input) return errorResponse("VALIDATION_FAILED", FAILURE_MESSAGE, false, 400);
 
+    if (input.conversationId) {
+      stage = "conversation_check";
+      if (!(await within(conversationExists(target, input.conversationId, signal)))) {
+        logInfo("chat_conversation_not_found", {});
+        return errorResponse("NOT_FOUND", NOT_FOUND_MESSAGE, false, 404);
+      }
+    }
+
     stage = "replay";
     if (await within(questionExists(target, input.clientRequestId, signal))) {
       logInfo("chat_replay_refused", {});
@@ -482,16 +508,25 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     }
     reservationId = reservation.reservationId;
 
+    // Nouvelle Conversation (titre = première question), ou question ajoutée à la Conversation poursuivie
+    // (story 5.6, add_question : security invoker, date du dernier échange avancée).
     stage = "conversation";
     let startedConversation: unknown;
     try {
       startedConversation = await within(
-        rpc(
-          target,
-          "start_conversation",
-          { p_title: conversationTitle(input.question), p_question: input.question, p_client_request_id: input.clientRequestId },
-          signal,
-        ),
+        input.conversationId
+          ? rpc(
+              target,
+              "add_question",
+              { p_conversation_id: input.conversationId, p_question: input.question, p_client_request_id: input.clientRequestId },
+              signal,
+            )
+          : rpc(
+              target,
+              "start_conversation",
+              { p_title: conversationTitle(input.question), p_question: input.question, p_client_request_id: input.clientRequestId },
+              signal,
+            ),
       );
     } catch (error) {
       if (error instanceof ChatError && error.pgCode === "23505") {
@@ -505,6 +540,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     const conversation = (startedConversation as { conversation_id?: unknown } | null)?.conversation_id;
     if (typeof conversation !== "string") throw new ChatError("INTERNAL", 500, true, "conversation_invalid_body");
     conversationId = conversation;
+    questionRequestId = input.clientRequestId;
     return input;
   };
 
@@ -608,7 +644,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
         const { kind, content } = REFUSALS[marker];
         stage = "refusal";
         await within(
-          rpc(target, "save_assistant_answer", { p_conversation_id: conversationId, p_kind: kind, p_content: content, p_sources: [] }, signal),
+          rpc(target, "save_assistant_answer", { p_conversation_id: conversationId, p_kind: kind, p_content: content, p_sources: [], p_client_request_id: questionRequestId }, signal),
         );
         logInfo("chat_done", {
           kind,
@@ -703,6 +739,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
               text_version,
               passages,
             })),
+            p_client_request_id: questionRequestId,
           },
           signal,
         ),
@@ -776,10 +813,23 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     try {
       const outcome = await answer(input, (text) => events.send("delta", { text }));
       displayed();
+      // Story 5.6 (Q3 = A) : refusal et error portent aussi la Conversation, pour que la page prenne son
+      // adresse et que « Réessayer » ou la question suivante y restent.
       if (outcome.type === "answer") events.send("done", outcome.body);
       else if (outcome.type === "refusal") {
-        events.send("refusal", { kind: outcome.body.message.kind, content: outcome.body.message.content });
-      } else events.send("error", { code: outcome.code, message: messageFor(outcome.code), retryable: outcome.retryable });
+        events.send("refusal", {
+          conversationId: outcome.body.conversationId,
+          kind: outcome.body.message.kind,
+          content: outcome.body.message.content,
+        });
+      } else {
+        events.send("error", {
+          code: outcome.code,
+          message: messageFor(outcome.code),
+          retryable: outcome.retryable,
+          ...(conversationId ? { conversationId } : {}),
+        });
+      }
       if (events.disconnected()) logInfo("chat_stream_disconnected", { outcome: outcome.type, duration_ms: Date.now() - started });
     } finally {
       clearTimeout(timer);

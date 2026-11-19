@@ -5,18 +5,20 @@ type ErrorAlertProps = {
   children?: React.ReactNode;
   // Bouton « Réessayer » ou autre action, quand l'écran en prévoit une.
   action?: React.ReactNode;
+  // false : alerte affichée sans être annoncée (sans role="alert"), ex. panne ancienne d'un fil.
+  live?: boolean;
 };
 
 // Alerte d'erreur (DESIGN.md, error-alert) : fond destructive-soft, titre en destructive,
 // texte courant en foreground, role="alert" pour être annoncée immédiatement.
 export const ErrorAlert = forwardRef<HTMLDivElement, ErrorAlertProps>(function ErrorAlert(
-  { title, children, action },
+  { title, children, action, live = true },
   ref,
 ) {
   return (
     <div
       ref={ref}
-      role="alert"
+      role={live ? "alert" : undefined}
       tabIndex={-1}
       className="rounded-lg border border-destructive-line bg-destructive-soft p-4 text-sm text-foreground"
     >

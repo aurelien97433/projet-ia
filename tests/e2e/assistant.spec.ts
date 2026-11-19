@@ -171,7 +171,7 @@ test("nominal (génération simulée) : question, état neutre, réponse d'un bl
   expectBoundary(requests);
 });
 
-test("hors base : bloc de refus distinct, sans zone Sources ; une seconde question remplace l'échange", async ({ page, account }) => {
+test("hors base : bloc de refus distinct, sans zone Sources ; une seconde question s'ajoute au fil, dans la même Conversation (story 5.6)", async ({ page, account }) => {
   const seeded = await seedDocument(account);
   const requests = collectRequests(page);
   await openAssistant(page);
@@ -204,18 +204,22 @@ test("hors base : bloc de refus distinct, sans zone Sources ; une seconde questi
   const results = await new AxeBuilder({ page }).exclude("nextjs-portal").analyze();
   expect(results.violations.map((v) => `${v.id} : ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 
-  // Seconde question : seul le nouvel échange est affiché.
+  // Story 5.6 : l'adresse est celle de la Conversation ; la seconde question s'ajoute au fil.
+  await expect(page).toHaveURL(/\/assistant\/[0-9a-f-]{36}$/);
   await field(page).fill(seeded.question);
   await field(page).press("Enter");
   await expect(answerStatus(page).locator("[data-answer]")).toBeVisible();
-  await expect(page.locator("[data-question-bubble]")).toHaveCount(1);
-  await expect(page.locator("[data-question-bubble]")).toContainText(seeded.question);
-  await expect(page.getByText(question)).toHaveCount(0);
-  await expect(page.locator("[data-refusal]")).toHaveCount(0);
+  await expect(page.locator("[data-question-bubble]")).toHaveCount(2);
+  await expect(page.locator("[data-question-bubble]").nth(1)).toContainText(seeded.question);
+  await expect(page.locator("[data-question-bubble]").nth(0)).toContainText(question);
+  await expect(page.locator("[data-refusal]")).toHaveCount(1);
+  await expect(page.locator('[role="status"]').filter({ has: page.locator("[data-answer]") })).toHaveCount(1);
 
-  const ids = chatCalls(requests).map((request) => (request.postDataJSON() as { clientRequestId: string }).clientRequestId);
-  expect(ids).toHaveLength(2);
-  expect(new Set(ids).size).toBe(2);
+  const bodies = chatCalls(requests).map((request) => request.postDataJSON() as { clientRequestId: string; conversationId?: string });
+  expect(bodies).toHaveLength(2);
+  expect(new Set(bodies.map((body) => body.clientRequestId)).size).toBe(2);
+  expect(bodies[0].conversationId).toBeUndefined();
+  expect(page.url()).toContain(`/assistant/${bodies[1].conversationId}`);
   expectBoundary(requests);
 });
 

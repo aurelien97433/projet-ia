@@ -1446,6 +1446,8 @@ afin de reprendre un échange le lendemain.
 **Quand** je les ouvre
 **Alors** mes 5 dernières Conversations s'affichent, avec « Voir tout l'Historique » ; pour un nouveau Collaborateur, « Vous n'avez pas encore posé de question. » avec deux exemples
 
+*Note du 2026-11-18 (décision de l'utilisateur, story 5.6) : les deux exemples préremplissent le champ de l'Assistant sans l'envoyer (comportement de la story 3.5), au lieu d'une question « déjà envoyée » (EXPERIENCE.md) : aucune unité de quota consommée sans envoi.*
+
 **Étant donné** une question restée sans réponse (navigateur fermé pendant la génération)
 **Quand** je rouvre la Conversation
 **Alors** la réponse enregistrée par le serveur s'affiche, ou l'alerte avec « Réessayer » si elle a échoué

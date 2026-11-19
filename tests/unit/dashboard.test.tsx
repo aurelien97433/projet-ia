@@ -202,6 +202,8 @@ describe("page du Tableau de bord", () => {
       // Lecture qui ne se termine jamais : la frontière reste sur son squelette.
       RecentDocuments: () => use(NEVER),
     }));
+    // Story 5.6 : « Mes dernières Conversations », lecture qui ne se termine jamais elle aussi.
+    vi.doMock("@/server/conversations/list-conversations", () => ({ listConversations: () => NEVER }));
     vi.resetModules();
     const { default: DashboardPage } = await import("@/app/(app)/page");
     const { container } = render(<DashboardPage />);
@@ -211,7 +213,11 @@ describe("page du Tableau de bord", () => {
     expect(add.getAttribute("href")).toBe("/ajouter");
     expect(screen.getByRole("heading", { level: 2, name: texts.dashboard.recentDocuments })).toBeTruthy();
     expect(screen.getByRole("link", { name: texts.dashboard.seeLibrary }).getAttribute("href")).toBe("/bibliotheque");
-    expect(container.querySelectorAll("[data-skeleton-rows] > div")).toHaveLength(5);
+    // Deux listes de 5 squelettes ; Conversations d'abord (H10), « Voir tout l'Historique » ouvre le panneau.
+    expect(container.querySelectorAll("[data-skeleton-rows] > div")).toHaveLength(10);
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+    expect(headings).toEqual([texts.history.recentTitle, texts.dashboard.recentDocuments]);
+    expect(screen.getByRole("link", { name: texts.history.seeAll }).getAttribute("href")).toBe("/assistant?historique=1");
     // Story 5.2b : l'Assistant est utilisable, le bouton est affiché pendant le chargement de la liste.
     const ask = screen.getByRole("link", { name: texts.assistant.askQuestion });
     expect(ask.getAttribute("href")).toBe("/assistant");
@@ -225,5 +231,6 @@ describe("page du Tableau de bord", () => {
     // Champ de Recherche ajouté par la story 4.1b, en tête de la bande d'actions.
     expect(screen.getByRole("searchbox", { name: texts.dashboard.searchLabel })).toBeTruthy();
     vi.doUnmock("@/components/dashboard/recent-documents");
+    vi.doUnmock("@/server/conversations/list-conversations");
   });
 });

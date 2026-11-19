@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { texts } from "@/lib/texts";
@@ -61,7 +61,9 @@ async function ask(value: string) {
 
 beforeEach(() => {
   refresh.mockReset();
+  router.push.mockReset();
   params = new URLSearchParams();
+  window.history.replaceState(null, "", "/assistant");
   vi.stubGlobal("fetch", vi.fn());
 });
 
@@ -220,7 +222,8 @@ describe("envoi", () => {
       { kind: "renvoi", ordinal: 2 },
       { kind: "renvoi", ordinal: 1 },
     ]);
-    expect(answerSegments("A [S3] [S0] fin [P1]", 2)).toEqual([{ kind: "text", text: "A   fin [P1]" }]);
+    // Story 5.6 : repère brut [P{n}] d'une réponse d'avant la 5.4 retiré avec l'espace qui le précède.
+    expect(answerSegments("A [S3] [S0] fin [P1]", 2)).toEqual([{ kind: "text", text: "A   fin" }]);
     expect(answerSegments("", 1)).toEqual([]);
   });
 
@@ -293,18 +296,21 @@ describe("envoi", () => {
     ]);
   });
 
-  it("seconde question : l'échange précédent disparaît de l'écran, nouveau clientRequestId", async () => {
+  it("story 5.6 : seconde question ajoutée au fil, dans la même Conversation (conversationId), nouveau clientRequestId", async () => {
     fetchMock().mockResolvedValueOnce(answer("Première réponse[S1].")).mockResolvedValueOnce(refusal());
     render(<AssistantView />);
     await ask("Première question");
     expect(screen.getByText(answerText("Première réponse Source 1."))).toBeTruthy();
     await ask("Seconde question");
-    expect(screen.queryByText("Première question")).toBeNull();
-    expect(screen.queryByText(answerText("Première réponse Source 1."))).toBeNull();
-    expect(bubbles()).toHaveLength(1);
-    expect(bubbles()[0].textContent).toContain("Seconde question");
-    expect(screen.getAllByRole("listitem").length).toBe(2);
+    expect(screen.getByText("Première question")).toBeTruthy();
+    expect(screen.getByText(answerText("Première réponse Source 1."))).toBeTruthy();
+    expect(Array.from(bubbles()).map((bubble) => bubble.textContent)).toEqual([`${t.you} : Première question`, `${t.you} : Seconde question`]);
+    // Une seule région d'annonce : celle du dernier échange.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toBe(t.refusalInfoAbsente);
     const [first, second] = bodies();
+    expect(first.conversationId).toBeUndefined();
+    expect(second.conversationId).toBe(CONVERSATION);
     expect(first.clientRequestId).not.toBe(second.clientRequestId);
   });
 });
@@ -733,5 +739,232 @@ describe("mesure du flux (?mesure=1, story 5.5)", () => {
     expect(copied).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(copied).not.toContain("@");
     expect(screen.getByText(t.measureCopied)).toBeTruthy();
+  });
+});
+
+// Story 5.6 : Conversation rouverte (/assistant/[id]), fil, poursuite, adresse, Historique.
+describe("Conversation enregistrée et Historique (story 5.6)", () => {
+  type Thread = import("@/lib/conversation-thread").ThreadExchange[];
+  const SOURCE = { documentId: DOC, title: "Procédure de facturation", passageCount: 1 };
+  const conversation = (exchanges: Thread) => ({ id: CONVERSATION, title: "Congés", exchanges });
+  const OLD: Thread = [
+    {
+      id: "q1",
+      question: "Sous quel délai une facture doit-elle être émise ?",
+      reply: { kind: "answer", content: "Une facture est émise sous 5 jours ouvrés [P2].", sources: [SOURCE] },
+    },
+    { id: "q2", question: "Et pour un avoir ?", reply: { kind: "failure", code: "AI_TIMEOUT" } },
+  ];
+  const OTHER = "55555555-5555-4555-8555-555555555555";
+  const list = (conversations: unknown[]) => json({ conversations });
+  const row = (id: string, title: string, unanswered = false) => ({ id, title, lastMessageAt: "2026-11-18T09:05:00.000Z", unanswered });
+
+  it("rouverte : tous les échanges, repère [P2] retiré à l'affichage, puce gardée ; focus dans le champ ; « Réessayer » sur le dernier échange seulement", async () => {
+    const exchanges: Thread = [OLD[0], { ...OLD[1], id: "q0" }, OLD[1]];
+    render(<AssistantView title={<h1>Congés</h1>} conversation={conversation(exchanges)} />);
+    await flush();
+    expect(bubbles()).toHaveLength(3);
+    const answerParagraph = document.querySelector("[data-answer] p")!;
+    expect(answerParagraph.textContent).toBe("Une facture est émise sous 5 jours ouvrés.");
+    expect(document.body.textContent).not.toContain("[P");
+    expect(document.querySelectorAll("[data-source-chip]")).toHaveLength(1);
+    // Deux pannes : seule la dernière est annoncée et propose « Réessayer ».
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: t.retry })).toHaveLength(1);
+    expect(document.querySelectorAll("[data-exchange-reply='error']")).toHaveLength(2);
+    expect(document.activeElement).toBe(field());
+    expect(screen.queryByText(t.intro)).toBeNull();
+    expect(fetchMock()).not.toHaveBeenCalled();
+  });
+
+  it("« Réessayer » sur un échec enregistré : même question, dans la même Conversation (Q3 = A)", async () => {
+    fetchMock().mockResolvedValue(answer());
+    render(<AssistantView conversation={conversation(OLD)} />);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: t.retry }));
+    await flush();
+    expect(bodies()[0]).toMatchObject({ question: "Et pour un avoir ?", conversationId: CONVERSATION });
+    expect(bubbles()).toHaveLength(2);
+    expect(screen.getByRole("status").textContent).toContain("Source 1");
+  });
+
+  it("poursuivre : la question part avec le conversationId de la page", async () => {
+    fetchMock().mockResolvedValue(answer());
+    render(<AssistantView conversation={conversation(OLD.slice(0, 1))} />);
+    await ask("Et pour un avoir ?");
+    expect(bodies()[0]).toMatchObject({ question: "Et pour un avoir ?", conversationId: CONVERSATION });
+    expect(bubbles()).toHaveLength(2);
+  });
+
+  it("question enregistrée en cours : état neutre, « Envoyer » inactif, rechargement toutes les 5 s, puis l'issue reçue du serveur", async () => {
+    vi.useFakeTimers();
+    const pending: Thread = [{ id: "q1", question: "Question en cours", reply: { kind: "pending" } }];
+    const { rerender } = render(<AssistantView conversation={conversation(pending)} />);
+    expect(screen.getByRole("status").textContent).toBe(t.pending);
+    expect(send().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    rerender(<AssistantView conversation={conversation([{ ...pending[0], reply: { kind: "failure", code: "AI_TIMEOUT" } }])} />);
+    expect(screen.getByRole("alert").textContent).toContain(t.failed);
+    await act(async () => vi.advanceTimersByTime(15_000));
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("première question sur /assistant : l'adresse devient /assistant/{id} sans rechargement ; une erreur qui porte la Conversation aussi", async () => {
+    fetchMock().mockResolvedValue(answer());
+    render(<AssistantView />);
+    await ask("Première question");
+    expect(window.location.pathname).toBe(`/assistant/${CONVERSATION}`);
+    expect(router.push).not.toHaveBeenCalled();
+    expect(screen.getByText("Première question")).toBeTruthy();
+
+    cleanup();
+    window.history.replaceState(null, "", "/assistant");
+    const stream = controlledStream();
+    fetchMock().mockReset();
+    fetchMock().mockResolvedValue(stream.response);
+    render(<AssistantView />);
+    await ask("Question en panne");
+    stream.send("error", { code: "AI_TIMEOUT", message: t.failed, retryable: true, conversationId: OTHER });
+    await tick();
+    expect(window.location.pathname).toBe(`/assistant/${OTHER}`);
+  });
+
+  it("?mesure=1 gardé dans la nouvelle adresse", async () => {
+    params = new URLSearchParams({ mesure: "1" });
+    fetchMock().mockResolvedValue(answer());
+    render(<AssistantView />);
+    await ask("Question mesurée");
+    expect(`${window.location.pathname}${window.location.search}`).toBe(`/assistant/${CONVERSATION}?mesure=1`);
+  });
+
+  it("5 dernières Conversations sous le champ tant qu'aucune Conversation n'est active", async () => {
+    fetchMock().mockResolvedValue(answer());
+    render(<AssistantView recent={<p>Liste récente</p>} />);
+    expect(screen.getByText("Liste récente")).toBeTruthy();
+    await ask("Première question");
+    expect(screen.queryByText("Liste récente")).toBeNull();
+  });
+
+  it("« + Nouvelle Conversation » sur /assistant : retour à l'état vide sans rechargement, adresse /assistant", async () => {
+    fetchMock().mockResolvedValue(answer());
+    render(<AssistantView recent={<p>Liste récente</p>} />);
+    await ask("Première question");
+    refresh.mockClear();
+    fireEvent.click(screen.getByRole("link", { name: texts.history.newConversation }));
+    await flush();
+    // Revue, constat 4 : les 5 dernières sont relues (la Conversation commencée y figure).
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getByText(t.intro)).toBeTruthy();
+    expect(screen.getByText("Liste récente")).toBeTruthy();
+    expect(window.location.pathname).toBe("/assistant");
+    expect(document.activeElement).toBe(field());
+    await ask("Nouvelle question");
+    expect(bodies()[1].conversationId).toBeUndefined();
+  });
+
+  it("Historique : liste lue à l'ouverture (100 au plus), plus récente d'abord, focus sur la Conversation active, « Sans réponse » en texte", async () => {
+    fetchMock().mockResolvedValue(list([row(OTHER, "Autre", true), row(CONVERSATION, "Congés")]));
+    render(<AssistantView conversation={conversation(OLD.slice(0, 1))} />);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: texts.history.open }));
+    await flush();
+    expect(fetchMock().mock.calls[0][0]).toBe("/api/conversations?limit=100");
+    const panel = screen.getByRole("dialog", { name: texts.history.title });
+    const links = within(panel).getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([`/assistant/${OTHER}`, `/assistant/${CONVERSATION}`]);
+    expect(links[1].getAttribute("aria-current")).toBe("page");
+    expect(links[0].getAttribute("aria-current")).toBeNull();
+    expect(document.activeElement).toBe(links[1]);
+    expect(links[0].textContent).toContain(texts.history.unanswered);
+    expect(links[1].textContent).not.toContain(texts.history.unanswered);
+    // Panneau placé avant le fil dans le DOM.
+    const container = document.querySelector("[data-history-container]")!;
+    expect(container.contains(panel)).toBe(true);
+    expect(container.compareDocumentPosition(document.querySelector("ol")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("Historique : choisir une ligne ferme le panneau et place le focus dans le champ ; Échap rend le focus à « Historique »", async () => {
+    fetchMock().mockResolvedValue(list([row(CONVERSATION, "Congés")]));
+    render(<AssistantView />);
+    const trigger = screen.getByRole("button", { name: texts.history.open });
+    fireEvent.click(trigger);
+    await flush();
+    const link = within(screen.getByRole("dialog")).getByRole("link");
+    expect(document.activeElement).toBe(link);
+    fireEvent.click(link);
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(field());
+
+    fireEvent.click(trigger);
+    await flush();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("Historique vide : « Aucune Conversation pour le moment. » et « Poser une première question » (focus dans le champ)", async () => {
+    fetchMock().mockResolvedValue(list([]));
+    render(<AssistantView />);
+    fireEvent.click(screen.getByRole("button", { name: texts.history.open }));
+    await flush();
+    const panel = screen.getByRole("dialog");
+    expect(within(panel).getByText(texts.history.empty)).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: texts.history.firstQuestion }));
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("Historique en panne : « L'Historique n'a pas pu être chargé. » et « Réessayer », qui relit la liste", async () => {
+    fetchMock()
+      .mockResolvedValueOnce(json({ error: { code: "INTERNAL", message: texts.history.loadFailed, retryable: true } }, 500))
+      .mockResolvedValueOnce(list([row(CONVERSATION, "Congés")]));
+    render(<AssistantView />);
+    fireEvent.click(screen.getByRole("button", { name: texts.history.open }));
+    await flush();
+    const panel = screen.getByRole("dialog");
+    expect(within(panel).getByRole("alert").textContent).toContain(texts.history.loadFailed);
+    fireEvent.click(within(panel).getByRole("button", { name: texts.history.retry }));
+    await flush();
+    expect(within(panel).getAllByRole("link")).toHaveLength(1);
+    expect(fetchMock()).toHaveBeenCalledTimes(2);
+  });
+
+  it("revue, constat 6 : rouvert par ?historique=1 après une première ouverture, le panneau repart des squelettes, sans l'ancienne liste", async () => {
+    let resolveSecond!: (response: Response) => void;
+    fetchMock()
+      .mockResolvedValueOnce(list([row(CONVERSATION, "Congés")]))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (resolveSecond = resolve)));
+    const view = render(<AssistantView />);
+    fireEvent.click(screen.getByRole("button", { name: texts.history.open }));
+    await flush();
+    expect(within(screen.getByRole("dialog")).getAllByRole("link")).toHaveLength(1);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    params = new URLSearchParams({ historique: "1" });
+    view.rerender(<AssistantView />);
+    await flush();
+    const panel = screen.getByRole("dialog", { name: texts.history.title });
+    expect(panel.querySelector("[data-skeleton-rows]")).not.toBeNull();
+    expect(within(panel).queryAllByRole("link")).toHaveLength(0);
+    resolveSecond(list([row(OTHER, "Autre"), row(CONVERSATION, "Congés")]));
+    await flush();
+    expect(within(panel).getAllByRole("link")).toHaveLength(2);
+  });
+
+  it("?historique=1 : panneau ouvert d'emblée", async () => {
+    params = new URLSearchParams({ historique: "1" });
+    fetchMock().mockResolvedValue(list([]));
+    render(<AssistantView />);
+    await flush();
+    expect(screen.getByRole("dialog", { name: texts.history.title })).toBeTruthy();
   });
 });

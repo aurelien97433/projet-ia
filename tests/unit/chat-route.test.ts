@@ -536,3 +536,41 @@ describe("génération simulée (pile locale)", () => {
     expect(generationDeps()).toBeUndefined();
   });
 });
+
+// Story 5.6 : Conversation poursuivie (conversationId) relayée à chat ; « introuvable » neutre (S3).
+describe("POST /api/chat avec conversationId (story 5.6)", () => {
+  const streamPost = (body: unknown) =>
+    new Request("http://localhost/api/chat", { method: "POST", headers: { Accept: "text/event-stream" }, body: JSON.stringify(body) });
+
+  it("conversationId transmis à chat (flux et JSON), en minuscules ; absent ou null : non transmis", async () => {
+    fetchMock.mockImplementation(async () => Response.json(ANSWER));
+    await POST(streamPost({ question: QUESTION, clientRequestId: REQUEST_ID, conversationId: CONVERSATION.toUpperCase() }));
+    await POST(post({ question: QUESTION, clientRequestId: REQUEST_ID, conversationId: CONVERSATION }));
+    await POST(post({ question: QUESTION, clientRequestId: REQUEST_ID, conversationId: null }));
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(bodies).toEqual([
+      { question: QUESTION, clientRequestId: REQUEST_ID, conversationId: CONVERSATION },
+      { question: QUESTION, clientRequestId: REQUEST_ID, conversationId: CONVERSATION },
+      { question: QUESTION, clientRequestId: REQUEST_ID },
+    ]);
+  });
+
+  it("conversationId invalide : 400 VALIDATION_FAILED, aucun relais", async () => {
+    const response = await POST(post({ question: QUESTION, clientRequestId: REQUEST_ID, conversationId: "abc" }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatchObject({ code: "VALIDATION_FAILED", message: texts.assistant.invalidRequest });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("404 NOT_FOUND de chat (Conversation absente ou d'un autre Compte) : relayé avec le texte « introuvable » du catalogue, sans réessai", async () => {
+    const notFound = () => Response.json({ error: { code: "NOT_FOUND", message: "x", retryable: false } }, { status: 404 });
+    fetchMock.mockImplementation(async () => notFound());
+    const streamed = await POST(streamPost({ question: QUESTION, clientRequestId: REQUEST_ID, conversationId: CONVERSATION }));
+    const json = await POST(post({ question: QUESTION, clientRequestId: REQUEST_ID, conversationId: CONVERSATION }));
+    const expected = { error: { code: "NOT_FOUND", message: texts.notFound.text, retryable: false } };
+    expect(streamed.status).toBe(404);
+    expect(json.status).toBe(404);
+    expect(await streamed.json()).toEqual(expected);
+    expect(await json.json()).toEqual(expected);
+  });
+});

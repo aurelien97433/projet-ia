@@ -7,19 +7,28 @@ import type { MatchRow } from "./search.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type ChatRequest = { question: string; clientRequestId: string };
+// conversationId (story 5.6) : Conversation à poursuivre ; absent, une nouvelle Conversation est créée.
+export type ChatRequest = { question: string; clientRequestId: string; conversationId?: string };
 
-// Demande reçue dans { question, clientRequestId } : question de 1 à 2 000 caractères (unités de code
-// JavaScript, plus strict que le décompte de la base) après suppression des espaces de début et de
-// fin, non vide ; identifiant de demande UUID. Null si la demande est invalide.
+// Demande reçue dans { question, clientRequestId, conversationId? } : question de 1 à 2 000 caractères
+// (unités de code JavaScript, plus strict que le décompte de la base) après suppression des espaces de
+// début et de fin, non vide ; identifiant de demande UUID ; Conversation facultative, UUID si elle est
+// fournie (null ou absente : nouvelle Conversation). Null si la demande est invalide.
 export function parseChatRequest(body: unknown): ChatRequest | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
-  const { question, clientRequestId } = body as { question?: unknown; clientRequestId?: unknown };
+  const { question, clientRequestId, conversationId } = body as {
+    question?: unknown;
+    clientRequestId?: unknown;
+    conversationId?: unknown;
+  };
   if (typeof question !== "string" || typeof clientRequestId !== "string") return null;
   const trimmed = question.trim();
   if (trimmed.length < 1 || trimmed.length > CHAT_MAX_QUESTION_LENGTH) return null;
   if (!UUID.test(clientRequestId)) return null;
-  return { question: trimmed, clientRequestId: clientRequestId.toLowerCase() };
+  const request: ChatRequest = { question: trimmed, clientRequestId: clientRequestId.toLowerCase() };
+  if (conversationId === undefined || conversationId === null) return request;
+  if (typeof conversationId !== "string" || !UUID.test(conversationId)) return null;
+  return { ...request, conversationId: conversationId.toLowerCase() };
 }
 
 // Titre de la Conversation : la question sur une ligne, 120 caractères au plus (sans couper un

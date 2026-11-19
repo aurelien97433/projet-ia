@@ -9,10 +9,20 @@ import { z } from "zod";
 import { ErrorAlert } from "@/components/forms/error-alert";
 import { ADD_HREF } from "@/components/shell/nav-items";
 import { Button } from "@/components/ui/button";
+import {
+  failureMessage,
+  failureRetryable,
+  PENDING_REFRESH_MS,
+  type RefusalVariant,
+  stripRawCitations,
+  type ThreadExchange,
+  type ThreadSource,
+} from "@/lib/conversation-thread";
 import { ERROR_CODES, type ErrorCode } from "@/lib/errors";
 import {
   CHAT_MAX_QUESTION_LENGTH,
   chatDeltaSchema,
+  chatErrorEventSchema,
   type ChatQuestionIssue,
   chatRefusalEventSchema,
   type ChatResponse,
@@ -23,7 +33,8 @@ import { searchHref, SEARCH_PATH } from "@/lib/search-links";
 import { createSseParser, type SseEvent } from "@/lib/sse";
 import { functionRegion, type Measure, measureMarkdown } from "@/lib/stream-measure";
 import { texts } from "@/lib/texts";
-import { ASSISTANT_FIELD_ID } from "./constants";
+import { ASSISTANT_FIELD_ID, ASSISTANT_HREF, conversationHref } from "./constants";
+import { HistorySheet } from "./history-sheet";
 
 const t = texts.assistant;
 
@@ -34,18 +45,33 @@ const t = texts.assistant;
 export const CHAT_FIRST_DISPLAY_TIMEOUT_MS = 20_000;
 export const CHAT_CLIENT_TIMEOUT_MS = 90_000;
 
-type ChatSource = ChatResponse["message"]["sources"][number];
-type RefusalVariant = "info_absente" | "hors_cadre";
 type ChatError = { code: ErrorCode; message: string; retryable: boolean };
 type Reply =
   | { kind: "pending" }
   // Texte provisoire (story 5.5) : sans marqueur ni repère, remplacé par la réponse validée.
   | { kind: "streaming"; text: string }
-  | { kind: "answer"; content: string; sources: ChatSource[] }
+  | { kind: "answer"; content: string; sources: ThreadSource[] }
   | { kind: "refusal"; variant: RefusalVariant }
   | { kind: "error"; error: ChatError };
-// Un seul échange à l'écran (décision du 2026-11-16) : une nouvelle question remplace le précédent.
-type Exchange = { id: number; question: string; reply: Reply };
+// Fil de la Conversation (story 5.6) : tous les échanges, dans l'ordre. stored : échange lu en base à
+// l'ouverture (/assistant/[id]), par opposition à une question envoyée depuis cette page.
+type Exchange = { id: string; question: string; reply: Reply; stored: boolean };
+// Issue d'une demande : la réponse affichée et la Conversation créée ou poursuivie, si chat l'a donnée.
+type Outcome = { reply: Reply; conversationId?: string };
+
+// Échanges enregistrés (règles d'affichage de conversation-thread.ts) → fil de la page. Un échec
+// enregistré devient l'alerte de panne avec le message du catalogue pour son code.
+function fromThread(exchanges: ThreadExchange[]): Exchange[] {
+  return exchanges.map(({ id, question, reply }) => ({
+    id,
+    question,
+    stored: true,
+    reply:
+      reply.kind === "failure"
+        ? { kind: "error", error: { code: reply.code, message: failureMessage(reply.code), retryable: failureRetryable(reply.code) } }
+        : reply,
+  }));
+}
 
 // Corps d'erreur AD-19 renvoyé par /api/chat ; le message vient déjà du catalogue (relais).
 const errorBodySchema = z.object({
@@ -77,7 +103,15 @@ function toReply(data: ChatResponse): Reply {
     case "refusal_hors_cadre":
       return { kind: "refusal", variant: "hors_cadre" };
     default:
-      return { kind: "answer", content: data.message.content, sources: data.message.sources };
+      return {
+        kind: "answer",
+        content: data.message.content,
+        sources: data.message.sources.map(({ documentId, title, passageNumbers }) => ({
+          documentId,
+          title,
+          passageCount: passageNumbers.length,
+        })),
+      };
   }
 }
 
@@ -91,21 +125,29 @@ function parseData(event: SseEvent): unknown {
   }
 }
 
-// Événement final du flux → issue affichée ; null pour un delta ou un événement inconnu (ignoré).
-function finalReply(event: SseEvent): Reply | null {
+const failed = (): Outcome => ({ reply: unavailable() });
+
+// Événement final du flux → issue affichée et Conversation (story 5.6 : done, refusal et error la
+// portent) ; null pour un delta ou un événement inconnu (ignoré).
+function finalOutcome(event: SseEvent): Outcome | null {
   switch (event.event) {
     case "done": {
       const parsed = chatResponseSchema.safeParse(parseData(event));
-      return parsed.success ? toReply(parsed.data) : unavailable();
+      return parsed.success ? { reply: toReply(parsed.data), conversationId: parsed.data.conversationId } : failed();
     }
     case "refusal": {
       const parsed = chatRefusalEventSchema.safeParse(parseData(event));
-      if (!parsed.success) return unavailable();
-      return { kind: "refusal", variant: parsed.data.kind === "refusal_hors_cadre" ? "hors_cadre" : "info_absente" };
+      if (!parsed.success) return failed();
+      return {
+        reply: { kind: "refusal", variant: parsed.data.kind === "refusal_hors_cadre" ? "hors_cadre" : "info_absente" },
+        conversationId: parsed.data.conversationId,
+      };
     }
     case "error": {
-      const parsed = errorBodySchema.shape.error.safeParse(parseData(event));
-      return parsed.success ? { kind: "error", error: parsed.data } : unavailable();
+      const parsed = chatErrorEventSchema.safeParse(parseData(event));
+      if (!parsed.success) return failed();
+      const { conversationId, ...error } = parsed.data;
+      return { reply: { kind: "error", error }, conversationId };
     }
     default:
       return null;
@@ -121,7 +163,7 @@ type StreamCallbacks = {
 
 // Lit le flux de /api/chat jusqu'à son événement final (done, refusal, error) ; flux fini sans
 // événement final ou illisible : panne. Abandon (délai) : lecture annulée aussitôt, panne.
-async function readChatStream(body: ReadableStream<Uint8Array>, signal: AbortSignal, callbacks: StreamCallbacks): Promise<Reply> {
+async function readChatStream(body: ReadableStream<Uint8Array>, signal: AbortSignal, callbacks: StreamCallbacks): Promise<Outcome> {
   const reader = body.getReader();
   const stop = () => void reader.cancel().catch(() => {});
   signal.addEventListener("abort", stop, { once: true });
@@ -135,16 +177,16 @@ async function readChatStream(body: ReadableStream<Uint8Array>, signal: AbortSig
       for (const event of events) {
         if (event.event === "delta") {
           const parsed = chatDeltaSchema.safeParse(parseData(event));
-          if (!parsed.success) return unavailable();
+          if (!parsed.success) return failed();
           hadDelta = true;
           callbacks.onDelta(parsed.data.text);
           continue;
         }
-        const reply = finalReply(event);
-        if (reply) return reply;
+        const outcome = finalOutcome(event);
+        if (outcome) return outcome;
       }
       if (hadDelta) callbacks.onDeltaRead();
-      if (done) return unavailable();
+      if (done) return failed();
     }
   } finally {
     signal.removeEventListener("abort", stop);
@@ -152,28 +194,61 @@ async function readChatStream(body: ReadableStream<Uint8Array>, signal: AbortSig
   }
 }
 
-// Page Assistant (E4, story 5.2b). Le navigateur n'appelle que POST /api/chat (jamais une Edge
-// Function ni le fournisseur d'IA). Chaque question crée sa Conversation et remplace l'échange affiché.
+export type AssistantConversation = { id: string; title: string; exchanges: ThreadExchange[] };
+
+type AssistantViewProps = {
+  // Titre de l'écran (h1) : « Que voulez-vous savoir ? » ou titre de la Conversation.
+  title?: React.ReactNode;
+  // Conversation enregistrée ouverte par /assistant/[id] (story 5.6) ; absente : nouvelle Conversation.
+  conversation?: AssistantConversation;
+  // 5 dernières Conversations, sous le champ tant qu'aucune Conversation n'est active (story 5.6).
+  recent?: React.ReactNode;
+};
+
+// Adresse d'une Conversation : seul ?mesure=1 est gardé (instrument de mesure de la 5.5).
+const addressOf = (conversationId: string | null, measuring: boolean) =>
+  `${conversationId ? conversationHref(conversationId) : ASSISTANT_HREF}${measuring ? "?mesure=1" : ""}`;
+
+// Page Assistant (E4, stories 5.2b et 5.6). Le navigateur n'appelle que POST /api/chat (jamais une Edge
+// Function ni le fournisseur d'IA) et GET /api/conversations (Historique). Story 5.6 : fil de tous les
+// échanges de la Conversation ; la première question crée la Conversation et l'adresse devient
+// /assistant/{id} (history.replaceState, sans rechargement) ; les questions suivantes, et « Réessayer »
+// (Q3 = A), y sont ajoutées (conversationId). Une question enregistrée encore sans réponse recharge la
+// page toutes les 5 s jusqu'à son issue (90 s au plus, AD-16).
 // Story 5.5 : la réponse s'écrit progressivement (texte provisoire, aria-busy, hors de la région
 // d'annonce), puis la réponse validée la remplace, en texte brut avec ses renvois ¹ ² et ses puces
 // numérotées (story 5.4), annoncée une seule fois ; un refus arrive d'un bloc (story 5.3) ; une panne
 // retire le texte provisoire. ?mesure=1 : instrument de mesure du flux.
-export function AssistantView() {
+export function AssistantView({ title, conversation, recent }: AssistantViewProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const raw = searchParams.get("question");
   const measuring = searchParams.get("mesure") === "1";
+  const historyParam = searchParams.get("historique") === "1";
   const prefill = (raw ?? "").slice(0, CHAT_MAX_QUESTION_LENGTH);
 
   const [value, setValue] = useState(prefill);
   const [syncedRaw, setSyncedRaw] = useState(raw);
-  // Nouvelle adresse (retour arrière, autre question pré-remplie) : le champ reprend la question.
+  // Nouvelle adresse portant une question (retour arrière, exemple de question) : le champ la reprend.
+  // Une adresse sans question (adresse de la Conversation prise après le premier envoi) ne vide pas le
+  // champ : un texte saisi entre-temps est gardé.
   if (raw !== syncedRaw) {
     setSyncedRaw(raw);
-    setValue(prefill);
+    if (raw !== null) setValue(prefill);
   }
 
-  const [exchange, setExchange] = useState<Exchange | null>(null);
+  // Panneau Historique : ouvert par « Historique », ou d'emblée par ?historique=1 (« Voir tout l'Historique »).
+  const [historyOpen, setHistoryOpen] = useState(historyParam);
+  const [syncedHistoryParam, setSyncedHistoryParam] = useState(historyParam);
+  if (historyParam !== syncedHistoryParam) {
+    setSyncedHistoryParam(historyParam);
+    if (historyParam) setHistoryOpen(true);
+  }
+  const [historyContainer, setHistoryContainer] = useState<HTMLDivElement | null>(null);
+
+  const [conversationId, setConversationId] = useState<string | null>(conversation?.id ?? null);
+  const conversationIdRef = useRef<string | null>(conversation?.id ?? null);
+  const [exchanges, setExchanges] = useState<Exchange[]>(() => fromThread(conversation?.exchanges ?? []));
   const [measures, setMeasures] = useState<Measure[]>([]);
   // Question vide refusée à l'envoi ; la longueur, elle, est contrôlée à chaque frappe.
   const [emptyRefused, setEmptyRefused] = useState(false);
@@ -185,15 +260,46 @@ export function AssistantView() {
   // Occupé dès la première activation, avant même le rendu suivant (second clic ignoré).
   const busyRef = useRef(false);
 
-  // « Envoyer » inactif jusqu'à l'issue (réponse validée, refus ou panne).
-  const busy = exchange?.reply.kind === "pending" || exchange?.reply.kind === "streaming";
+  const last = exchanges.at(-1);
+  // Question enregistrée encore sans réponse (navigateur fermé pendant la génération, ou rechargé) :
+  // la page se recharge toutes les 5 s ; le serveur la traite comme un échec au-delà de 90 s.
+  const storedPending = last?.stored === true && last.reply.kind === "pending";
+
+  // Nouvelle lecture du serveur (rechargement d'une question en cours) : le fil reprend l'état enregistré.
+  const [syncedThread, setSyncedThread] = useState(conversation?.exchanges);
+  if (conversation && conversation.exchanges !== syncedThread) {
+    setSyncedThread(conversation.exchanges);
+    if (storedPending) setExchanges(fromThread(conversation.exchanges));
+  }
+
+  useEffect(() => {
+    if (!storedPending) return;
+    const timer = setInterval(() => router.refresh(), PENDING_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [storedPending, router]);
+
+  // « Envoyer » inactif jusqu'à l'issue (réponse validée, refus ou panne), y compris pour une question
+  // enregistrée encore en cours.
+  const busy = last?.reply.kind === "pending" || last?.reply.kind === "streaming";
   // Longueur après suppression des espaces de bord, comme le schéma et la route : compteur et
   // contrôle mesurent la même chose.
   const questionLength = value.trim().length;
   const tooLong = questionLength > CHAT_MAX_QUESTION_LENGTH;
   const fieldIssue: ChatQuestionIssue | null = tooLong ? "tooLong" : emptyRefused ? "empty" : null;
 
-  async function ask(question: string, exchangeId: number) {
+  const updateExchange = (exchangeId: string, reply: Reply) =>
+    setExchanges((current) => current.map((exchange) => (exchange.id === exchangeId ? { ...exchange, reply } : exchange)));
+
+  // Conversation créée par la première question (ou confirmée) : la page en prend l'adresse, sans
+  // rechargement ni perte du texte affiché ; les questions suivantes y sont ajoutées.
+  function adoptConversation(id: string) {
+    if (conversationIdRef.current === id) return;
+    conversationIdRef.current = id;
+    setConversationId(id);
+    if (window.location.pathname !== conversationHref(id)) window.history.replaceState(null, "", addressOf(id, measuring));
+  }
+
+  async function ask(question: string, exchangeId: string) {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -215,13 +321,19 @@ export function AssistantView() {
     const deltaReadsMs: number[] = [];
     let region: string | null = null;
 
-    let reply: Reply = unavailable();
+    let outcome: Outcome = failed();
+    const currentConversation = conversationIdRef.current;
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        // Nouvel identifiant à chaque envoi, « Réessayer » compris (décision du 2026-11-16).
-        body: JSON.stringify({ question, clientRequestId: crypto.randomUUID() }),
+        // Nouvel identifiant à chaque envoi, « Réessayer » compris (décision du 2026-11-16) ; Conversation
+        // en cours, si elle existe (story 5.6).
+        body: JSON.stringify(
+          currentConversation
+            ? { question, clientRequestId: crypto.randomUUID(), conversationId: currentConversation }
+            : { question, clientRequestId: crypto.randomUUID() },
+        ),
         cache: "no-store",
         signal: controller.signal,
       });
@@ -232,32 +344,31 @@ export function AssistantView() {
       const streamed = (response.headers.get("content-type") ?? "").includes("text/event-stream");
       if (response.ok && streamed && response.body) {
         let provisional = "";
-        reply = await readChatStream(response.body, controller.signal, {
+        outcome = await readChatStream(response.body, controller.signal, {
           onDelta: (text) => {
             clearTimeout(firstDisplay);
             if (firstDeltaMs === null) firstDeltaMs = elapsed();
             deltas += 1;
             provisional += text;
             if (!isCurrent()) return;
-            const streaming: Reply = { kind: "streaming", text: provisional };
-            setExchange((current) => (current?.id === exchangeId ? { ...current, reply: streaming } : current));
+            updateExchange(exchangeId, { kind: "streaming", text: provisional });
           },
           onDeltaRead: () => deltaReadsMs.push(elapsed()),
         });
       } else {
-        // Réponse d'un bloc : refus avant le flux (saisie, session, quota, plafond, double envoi) ou
-        // réponse JSON.
+        // Réponse d'un bloc : refus avant le flux (saisie, session, quota, plafond, double envoi,
+        // Conversation introuvable) ou réponse JSON.
         clearTimeout(firstDisplay);
         const body: unknown = await response.json().catch(() => undefined);
         if (!isCurrent()) return;
         if (response.ok) {
           const parsed = chatResponseSchema.safeParse(body);
-          if (parsed.success) reply = toReply(parsed.data);
+          if (parsed.success) outcome = { reply: toReply(parsed.data), conversationId: parsed.data.conversationId };
         } else {
           const parsed = errorBodySchema.safeParse(body);
-          if (parsed.success) reply = { kind: "error", error: parsed.data.error };
+          if (parsed.success) outcome = { reply: { kind: "error", error: parsed.data.error } };
           else if (response.status === 401) {
-            reply = { kind: "error", error: { code: "UNAUTHENTICATED", message: texts.session.expired, retryable: false } };
+            outcome = { reply: { kind: "error", error: { code: "UNAUTHENTICATED", message: texts.session.expired, retryable: false } } };
           }
         }
       }
@@ -268,8 +379,11 @@ export function AssistantView() {
       clearTimeout(firstDisplay);
     }
     if (!isCurrent()) return;
-    // Délai dépassé : panne, le texte provisoire éventuel est retiré.
+    // Délai dépassé : panne, le texte provisoire éventuel est retiré. La Conversation éventuellement
+    // reçue reste adoptée.
+    let reply = outcome.reply;
     if (expired) reply = timedOut();
+    if (outcome.conversationId) adoptConversation(outcome.conversationId);
     if (measuring) {
       const measure: Measure = {
         sentAt,
@@ -289,14 +403,22 @@ export function AssistantView() {
     // Erreur sans « Réessayer » (saisie invalide, double envoi, quota, plafond, session) : la question
     // revient dans le champ s'il est resté vide, pour être corrigée ou renvoyée plus tard.
     if (reply.kind === "error" && !canRetry(reply.error)) setValue((current) => (current === "" ? question : current));
-    setExchange((current) => (current?.id === exchangeId ? { ...current, reply } : current));
+    updateExchange(exchangeId, reply);
   }
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  // Issue affichée : erreur → focus sur l'alerte ; réponse ou refus → le focus reste dans le champ
-  // (ou y revient depuis « Envoyer » ou « Réessayer »), sauf s'il a été posé ailleurs entre-temps.
-  const replyKind = exchange?.reply.kind;
+  // Conversation rouverte : focus dans le champ à l'ouverture (story 5.6).
+  const openedConversation = conversation?.id;
+  useEffect(() => {
+    if (openedConversation) fieldRef.current?.focus();
+  }, [openedConversation]);
+
+  // Issue affichée d'une question envoyée ici : erreur → focus sur l'alerte ; réponse ou refus → le
+  // focus reste dans le champ (ou y revient depuis « Envoyer » ou « Réessayer »), sauf s'il a été posé
+  // ailleurs entre-temps. Un échange lu en base ne déplace pas le focus.
+  const replyKind = last?.stored === false ? last.reply.kind : undefined;
+  const lastId = last?.id;
   useEffect(() => {
     if (replyKind === undefined || replyKind === "pending" || replyKind === "streaming") return;
     const active = document.activeElement;
@@ -304,10 +426,10 @@ export function AssistantView() {
     if (!free) return;
     if (replyKind === "error") alertRef.current?.focus();
     else if (active !== fieldRef.current) fieldRef.current?.focus();
-  }, [replyKind, exchange?.id]);
+  }, [replyKind, lastId]);
 
   function send() {
-    if (busyRef.current) return;
+    if (busyRef.current || busy) return;
     const issue = questionIssue(value);
     if (issue) {
       setEmptyRefused(issue === "empty");
@@ -317,20 +439,54 @@ export function AssistantView() {
     busyRef.current = true;
     setEmptyRefused(false);
     const question = value.trim();
-    const id = nextIdRef.current++;
-    setExchange({ id, question, reply: { kind: "pending" } });
+    const id = `local-${nextIdRef.current++}`;
+    setExchanges((current) => [...current, { id, question, reply: { kind: "pending" }, stored: false }]);
     setValue("");
     void ask(question, id);
   }
 
+  // « Réessayer » (dernier échange seulement) : la question repart dans la même Conversation (Q3 = A).
   function retry() {
-    if (busyRef.current || exchange === null) return;
+    if (busyRef.current || last === undefined) return;
     busyRef.current = true;
     // L'alerte qui a le focus disparaît : le focus va dans le champ pendant l'attente.
     fieldRef.current?.focus();
     // Même bulle de question : seul l'état de la réponse reprend.
-    setExchange({ ...exchange, reply: { kind: "pending" } });
-    void ask(exchange.question, exchange.id);
+    setExchanges((current) =>
+      current.map((exchange) => (exchange.id === last.id ? { ...exchange, reply: { kind: "pending" }, stored: false } : exchange)),
+    );
+    void ask(last.question, last.id);
+  }
+
+  // « + Nouvelle Conversation » sur /assistant, alors qu'une Conversation y a été commencée : l'écran
+  // revient à l'état vide sans rechargement (l'adresse /assistant est reprise). Sur /assistant/[id], le
+  // lien ouvre /assistant normalement.
+  function startNewConversation(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (conversation) return;
+    event.preventDefault();
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    busyRef.current = false;
+    conversationIdRef.current = null;
+    setConversationId(null);
+    setExchanges([]);
+    setEmptyRefused(false);
+    window.history.pushState(null, "", addressOf(null, measuring));
+    // Revue de la story 5.6 (constat 4) : les 5 dernières Conversations, rendues au chargement, sont
+    // relues pour inclure celle qui vient d'être commencée.
+    router.refresh();
+    fieldRef.current?.focus();
+  }
+
+  function changeHistoryOpen(open: boolean) {
+    setHistoryOpen(open);
+    // Panneau ouvert par ?historique=1 puis fermé : l'adresse n'ouvre plus le panneau au rechargement.
+    if (!open && historyParam) window.history.replaceState(null, "", addressOf(conversationIdRef.current, measuring));
+  }
+
+  // « Poser une première question » (Historique vide) : focus dans le champ d'une nouvelle Conversation.
+  function askFirst() {
+    if (conversation) router.push(ASSISTANT_HREF);
   }
 
   // « Reformuler la question » : la question revient dans le champ, focus et curseur à la fin.
@@ -359,65 +515,45 @@ export function AssistantView() {
 
   return (
     <div ref={containerRef} className="flex min-w-0 flex-col gap-6">
-      {exchange === null ? <p className="text-sm text-foreground">{t.intro}</p> : null}
+      {/* En-tête de l'Assistant (EXPERIENCE.md, E4) : titre, « Historique », « + Nouvelle Conversation ». */}
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 [overflow-wrap:anywhere]">{title}</div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <HistorySheet
+            open={historyOpen}
+            onOpenChange={changeHistoryOpen}
+            activeId={conversationId}
+            container={historyContainer}
+            onFieldFocus={() => fieldRef.current?.focus()}
+            onAskFirst={askFirst}
+          />
+          <Button asChild variant="outline">
+            <Link href={ASSISTANT_HREF} onClick={startNewConversation}>
+              {texts.history.newConversation}
+            </Link>
+          </Button>
+        </div>
+      </div>
+      {/* Accueil du panneau Historique : avant le fil dans le DOM (E4b). */}
+      <div ref={setHistoryContainer} data-history-container />
 
-      {exchange !== null ? (
-        // Sans clé : la région d'annonce reste en place d'une question à l'autre (nouvelles annonces).
+      {exchanges.length === 0 ? <p className="text-sm text-foreground">{t.intro}</p> : null}
+
+      {exchanges.length > 0 ? (
         <ol aria-label={t.threadLabel} className="flex min-w-0 flex-col gap-4">
-          <li className="flex min-w-0 justify-end">
-            <div
-              data-question-bubble
-              className="max-w-[75%] min-w-0 rounded-xl rounded-br-[2px] border border-border bg-surface px-4 py-3 text-[15px] text-foreground"
-            >
-              <span className="sr-only">{t.you} : </span>
-              <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{exchange.question}</span>
-            </div>
-          </li>
-          <li className="flex min-w-0 flex-col gap-2">
-            <p className="text-sm font-semibold text-primary">{t.assistantLabel}</p>
-            {/* Cadre toujours rendu : pour un refus, il porte la bordure et le fond du bloc de refus
-                (texte et suites forment un seul bloc à l'écran). Région d'annonce toujours rendue (jamais
-                masquée, même vide) : l'état neutre y est annoncé, puis remplacé par la réponse ou le texte du
-                refus, annoncés une seule fois. Les suites du refus restent hors de la région (décision du
-                2026-11-17) : leurs libellés ne sont jamais annoncés avec le refus. */}
-            <div
-              data-refusal={exchange.reply.kind === "refusal" ? exchange.reply.variant : undefined}
-              className={exchange.reply.kind === "refusal" ? REFUSAL_FRAME : "min-w-0"}
-            >
-              <div role="status" className="min-w-0">
-                {exchange.reply.kind === "pending" ? (
-                  <p data-pending className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none" />
-                    {t.pending}
-                  </p>
-                ) : null}
-                {exchange.reply.kind === "answer" ? <Answer content={exchange.reply.content} sources={exchange.reply.sources} /> : null}
-                {exchange.reply.kind === "refusal" ? <RefusalText variant={exchange.reply.variant} /> : null}
-              </div>
-              {/* Texte provisoire (story 5.5) : hors de la région d'annonce (jamais lu morceau par morceau),
-                  aria-busy ; la réponse validée le remplace dans la région et y est annoncée une seule fois. */}
-              {exchange.reply.kind === "streaming" ? (
-                <p
-                  data-provisional
-                  aria-busy="true"
-                  className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]"
-                >
-                  <span className="sr-only">{t.provisionalLabel} : </span>
-                  {exchange.reply.text}
-                </p>
-              ) : null}
-              {exchange.reply.kind === "refusal" ? (
-                <RefusalActions
-                  variant={exchange.reply.variant}
-                  question={exchange.question}
-                  onReformulate={() => reformulate(exchange.question)}
-                />
-              ) : null}
-            </div>
-            {exchange.reply.kind === "error" ? (
-              <FailureAlert ref={alertRef} error={exchange.reply.error} onRetry={retry} />
-            ) : null}
-          </li>
+          {exchanges.map((exchange, index) => {
+            const isLast = index === exchanges.length - 1;
+            return (
+              <ExchangeItems
+                key={exchange.id}
+                exchange={exchange}
+                isLast={isLast}
+                alertRef={isLast ? alertRef : undefined}
+                onRetry={retry}
+                onReformulate={() => reformulate(exchange.question)}
+              />
+            );
+          })}
         </ol>
       ) : null}
 
@@ -469,8 +605,81 @@ export function AssistantView() {
         </p>
       </form>
 
+      {conversationId === null ? recent : null}
+
       {measuring ? <MeasurePanel measures={measures} /> : null}
     </div>
+  );
+}
+
+type ExchangeItemsProps = {
+  exchange: Exchange;
+  // Dernier échange du fil : seul à porter la région d'annonce, l'alerte annoncée et « Réessayer ».
+  isLast: boolean;
+  alertRef?: React.Ref<HTMLDivElement>;
+  onRetry: () => void;
+  onReformulate: () => void;
+};
+
+// Un échange du fil : « Vous » (bulle de question à droite), puis « Assistant » (réponse, refus, état
+// neutre, texte provisoire ou alerte de panne).
+function ExchangeItems({ exchange, isLast, alertRef, onRetry, onReformulate }: ExchangeItemsProps) {
+  const { reply } = exchange;
+  const body = (
+    <>
+      {reply.kind === "pending" ? (
+        <p data-pending className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none" />
+          {t.pending}
+        </p>
+      ) : null}
+      {reply.kind === "answer" ? <Answer content={reply.content} sources={reply.sources} /> : null}
+      {reply.kind === "refusal" ? <RefusalText variant={reply.variant} /> : null}
+    </>
+  );
+  return (
+    <>
+      <li className="flex min-w-0 justify-end">
+        <div
+          data-question-bubble
+          className="max-w-[75%] min-w-0 rounded-xl rounded-br-[2px] border border-border bg-surface px-4 py-3 text-[15px] text-foreground"
+        >
+          <span className="sr-only">{t.you} : </span>
+          <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{exchange.question}</span>
+        </div>
+      </li>
+      <li className="flex min-w-0 flex-col gap-2" data-exchange-reply={reply.kind}>
+        <p className="text-sm font-semibold text-primary">{t.assistantLabel}</p>
+        {/* Cadre toujours rendu : pour un refus, il porte la bordure et le fond du bloc de refus
+            (texte et suites forment un seul bloc à l'écran). Région d'annonce sur le dernier échange
+            seulement, toujours rendue (jamais masquée, même vide) : l'état neutre y est annoncé, puis
+            remplacé par la réponse ou le texte du refus, annoncés une seule fois. Les suites du refus
+            restent hors de la région (décision du 2026-11-17). */}
+        <div data-refusal={reply.kind === "refusal" ? reply.variant : undefined} className={reply.kind === "refusal" ? REFUSAL_FRAME : "min-w-0"}>
+          {isLast ? (
+            <div role="status" className="min-w-0">
+              {body}
+            </div>
+          ) : (
+            <div className="min-w-0">{body}</div>
+          )}
+          {/* Texte provisoire (story 5.5) : hors de la région d'annonce (jamais lu morceau par morceau),
+              aria-busy ; la réponse validée le remplace dans la région et y est annoncée une seule fois. */}
+          {reply.kind === "streaming" ? (
+            <p
+              data-provisional
+              aria-busy="true"
+              className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]"
+            >
+              <span className="sr-only">{t.provisionalLabel} : </span>
+              {reply.text}
+            </p>
+          ) : null}
+          {reply.kind === "refusal" ? <RefusalActions variant={reply.variant} question={exchange.question} onReformulate={onReformulate} /> : null}
+        </div>
+        {reply.kind === "error" ? <FailureAlert ref={alertRef} error={reply.error} onRetry={isLast ? onRetry : undefined} live={isLast} /> : null}
+      </li>
+    </>
   );
 }
 
@@ -515,12 +724,15 @@ function MeasurePanel({ measures }: { measures: Measure[] }) {
 
 // Segments du texte de la réponse : texte brut ou renvoi vers la Source de numéro n (1 à sources).
 // Le texte enregistré par chat porte les renvois canoniques [S{n}] (story 5.4, AD-11) ; un renvoi sans
-// Source correspondante est retiré. Le texte n'est jamais interprété comme du HTML.
+// Source correspondante est retiré. Story 5.6 : les repères bruts [P{n}] des réponses enregistrées
+// avant la 5.4 sont retirés, sans renvoi (stripRawCitations). Le texte n'est jamais interprété comme du
+// HTML.
 type AnswerSegment = { kind: "text"; text: string } | { kind: "renvoi"; ordinal: number };
 
 const RENVOI = /\[S(\d+)\]/g;
 
-export function answerSegments(content: string, sourceCount: number): AnswerSegment[] {
+export function answerSegments(raw: string, sourceCount: number): AnswerSegment[] {
+  const content = stripRawCitations(raw);
   const segments: AnswerSegment[] = [];
   let last = 0;
   const pushText = (text: string) => {
@@ -542,7 +754,7 @@ export function answerSegments(content: string, sourceCount: number): AnswerSegm
 // Réponse sourcée, d'un bloc, en texte brut avec ses renvois ¹ ² (non cliquables, précédés du texte
 // masqué « Source ») ; puces de Source numérotées, non interactives jusqu'à la 5.7 (décision de
 // l'utilisateur du 2026-11-17, Q2 = A).
-function Answer({ content, sources }: { content: string; sources: ChatSource[] }) {
+function Answer({ content, sources }: { content: string; sources: ThreadSource[] }) {
   return (
     <div data-answer className="flex min-w-0 flex-col gap-3">
       <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
@@ -578,10 +790,10 @@ function Answer({ content, sources }: { content: string; sources: ChatSource[] }
 
 // Puce « {n} · {titre} » (« · {k} Passages » si plusieurs) ; points médians masqués, nom accessible
 // « Source {n} : {titre}, {k} Passages ». Source supprimée : style barré, numéro gardé.
-function SourceChip({ source, ordinal }: { source: ChatSource; ordinal: number }) {
+function SourceChip({ source, ordinal }: { source: ThreadSource; ordinal: number }) {
   const deleted = source.documentId === null;
   const label = deleted ? t.sourceDeleted(source.title) : source.title;
-  const count = source.passageNumbers.length;
+  const count = source.passageCount;
   return (
     <li
       data-source-chip
@@ -638,16 +850,19 @@ function RefusalActions({ variant, question, onReformulate }: RefusalActionsProp
   );
 }
 
-type FailureAlertProps = { error: ChatError; onRetry: () => void; ref: React.Ref<HTMLDivElement> };
+// onRetry absent : « Réessayer » n'est proposé que sur le dernier échange du fil (story 5.6). live :
+// alerte annoncée (dernier échange) ; une panne plus ancienne du fil est affichée sans être annoncée.
+type FailureAlertProps = { error: ChatError; onRetry?: () => void; live?: boolean; ref?: React.Ref<HTMLDivElement> };
 
-function FailureAlert({ error, onRetry, ref }: FailureAlertProps) {
+function FailureAlert({ error, onRetry, live = true, ref }: FailureAlertProps) {
   const failure = FAILURE_CODES.includes(error.code);
   return (
     <ErrorAlert
       ref={ref}
+      live={live}
       title={failure ? t.failedTitle : error.message}
       action={
-        canRetry(error) ? (
+        onRetry && canRetry(error) ? (
           <Button type="button" variant="outline" onClick={onRetry}>
             {t.retry}
           </Button>

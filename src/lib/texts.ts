@@ -297,6 +297,28 @@ export const texts = {
     measureCopied: "Résultat copié.",
     measureCopyFailed: "Copie impossible : sélectionnez le résultat ci-dessous.",
   },
+  // Conversations et Historique (story 5.6, EXPERIENCE.md, E3, E4 et E4b).
+  history: {
+    // En-tête de l'Assistant.
+    open: "Historique",
+    newConversation: "+ Nouvelle Conversation",
+    // Panneau Historique (E4b) : titre du panneau et nom accessible de la liste.
+    title: "Historique",
+    empty: "Aucune Conversation pour le moment.",
+    firstQuestion: "Poser une première question",
+    loadFailed: "L'Historique n'a pas pu être chargé.",
+    retry: "Réessayer",
+    seeAll: "Voir tout l'Historique",
+    // Dernier échange sans réponse (échec, ou question restée sans réponse), décision Q2 = A du 2026-11-18.
+    unanswered: "Sans réponse",
+    // Tableau de bord et état vide de l'Assistant : 5 dernières Conversations.
+    recentTitle: "Mes dernières Conversations",
+    noQuestionYet: "Vous n'avez pas encore posé de question.",
+    // Nom accessible des exemples (absent d'EXPERIENCE.md, ajouté le 2026-11-18, story 5.6).
+    examplesLabel: "Exemples de questions",
+    // Questions du mini Jeu de démonstration : préremplissent le champ (?question=), jamais envoyées d'office.
+    examples: ["Comment poser mes congés ?", "Comment relancer un client qui n'a pas payé ?"],
+  },
   dashboard: {
     recentDocuments: "Derniers Documents",
     seeLibrary: "Voir la Bibliothèque",

@@ -81,7 +81,7 @@ development_status:
   5-3-refus-honnêtes-et-marqueurs: done  # P0 · dépend de : 5.2b
   5-4-validation-des-citations: done  # P0 · dépend de : 5.3
   5-5-réponse-progressive-sur-l-environnement-vercel: done  # P0 · dépend de : 5.4, 5.0
-  5-6-conversations-et-historique: backlog  # P0 · dépend de : 5.5
+  5-6-conversations-et-historique: review  # P0 · dépend de : 5.5
   5-7-panneau-source: backlog  # P0 · dépend de : 5.6
   5-8-questions-de-suivi: backlog  # P0 · dépend de : 5.7
   5-9-idempotence-des-questions: backlog  # P0 · dépend de : 5.8
