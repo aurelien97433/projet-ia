@@ -56,8 +56,17 @@ export function errorResponse(
   retryable: boolean,
   status: number,
   resetAt?: string,
+  // Story 5.9 : Conversation de la question déjà en cours (409 REQUEST_IN_PROGRESS), pour que la page
+  // la recharge.
+  conversationId?: string,
 ): Response {
-  const error = resetAt ? { code, message, retryable, resetAt } : { code, message, retryable };
+  const error = {
+    code,
+    message,
+    retryable,
+    ...(resetAt ? { resetAt } : {}),
+    ...(conversationId ? { conversationId } : {}),
+  };
   return new Response(JSON.stringify({ error }), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" },

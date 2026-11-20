@@ -8,8 +8,11 @@
 // validation, rejeu, quota, plafond) sont des réponses JSON avec leur statut HTTP dans les deux modes.
 //
 // Ordre : validation ; Conversation à poursuivre (story 5.6 : lue avec le jeton, RLS ; absente ou d'un
-// autre Compte → 404 NOT_FOUND, sans réservation) ; rejeu (même clientRequestId, avant toute
-// réservation) ; réservation du quota du Compte et du plafond global (avant tout appel à OpenAI) ;
+// autre Compte → 404 NOT_FOUND, sans réservation) ; classement du clientRequestId (story 5.9, AD-16,
+// begin_retry, avant toute réservation) : réponse ou refus enregistré → rejeu renvoyé tel quel, sans
+// appel ni quota ; en cours depuis moins de 90 s → 409 avec la Conversation ; échec, ou sans résultat
+// depuis plus de 90 s → réessai (question existante réutilisée, échec réclamé puis remplacé par le
+// résultat) ; sinon nouvelle question ; réservation du quota du Compte et du plafond global (avant tout appel à OpenAI) ;
 // question de suivi (story 5.8, Conversation poursuivie avec au moins un échange réglé) : 3 derniers
 // échanges lus avec le jeton, reformulation en question autonome (rewriteFollowUp, 10 s pris sur le
 // premier affichage ; échec → question et échec enregistrés, unité rendue) ; Conversation et question
@@ -46,7 +49,10 @@ import {
   isReleasable,
   parseChatRequest,
   parseReservation,
+  parseRetryClassification,
+  replaySources,
   retainPassages,
+  type RetryClassification,
   sourcesToSave,
 } from "../_shared/chat.ts";
 import {
@@ -183,17 +189,50 @@ async function get(target: Target, path: string, name: string, signal: AbortSign
   });
 }
 
-// Rejeu minimal (AD-16, le rejeu complet est la 5.9) : une question de ce Compte (RLS) avec ce
-// clientRequestId existe déjà.
-async function questionExists(target: Target, clientRequestId: string, signal: AbortSignal): Promise<boolean> {
+// Rejeu complet (story 5.9, AD-16) : classement de la demande par begin_retry (security invoker, RLS,
+// verrou transactionnel sur le Compte et l'identifiant), avant toute réservation. Pour un réessai,
+// l'échec est déjà réclamé (REQUEST_IN_PROGRESS) au retour.
+async function classifyRequest(target: Target, input: ChatRequest, signal: AbortSignal): Promise<RetryClassification> {
+  const classified = parseRetryClassification(
+    await rpc(
+      target,
+      "begin_retry",
+      {
+        p_client_request_id: input.clientRequestId,
+        p_question: input.question,
+        ...(input.conversationId ? { p_conversation_id: input.conversationId } : {}),
+      },
+      signal,
+    ),
+  );
+  if (!classified) throw new ChatError("INTERNAL", 500, true, "replay_invalid_body");
+  return classified;
+}
+
+// Story 5.9 (rapport a de la 5.2a-2) : une réponse ou un refus rattaché à cette question est-il déjà
+// enregistré ? Lu avant d'enregistrer un échec quand l'enregistrement du résultat a été envoyé : un
+// enregistrement validé dont la réponse HTTP s'est perdue n'est jamais suivi d'un échec.
+async function settledExists(target: Target, clientRequestId: string, signal: AbortSignal): Promise<boolean> {
   const rows = await get(
     target,
-    `messages?select=id&role=eq.user&client_request_id=eq.${clientRequestId}&limit=1`,
-    "replay",
+    `messages?select=id&role=eq.assistant&kind=neq.failure&client_request_id=eq.${clientRequestId}&limit=1`,
+    "settled_check",
     signal,
   );
-  if (!Array.isArray(rows)) throw new ChatError("INTERNAL", 500, true, "replay_invalid_rows");
+  if (!Array.isArray(rows)) throw new ChatError("INTERNAL", 500, true, "settled_check_invalid_rows");
   return rows.length > 0;
+}
+
+// Conversation de la question déjà enregistrée avec ce clientRequestId (23505 concurrent), pour le 409.
+async function questionConversation(target: Target, clientRequestId: string, signal: AbortSignal): Promise<string | undefined> {
+  const rows = await get(
+    target,
+    `messages?select=conversation_id&role=eq.user&client_request_id=eq.${clientRequestId}&limit=1`,
+    "question_lookup",
+    signal,
+  );
+  const id = Array.isArray(rows) ? (rows[0] as { conversation_id?: unknown } | undefined)?.conversation_id : undefined;
+  return typeof id === "string" ? id : undefined;
 }
 
 // Conversation à poursuivre (story 5.6) : lue avec le jeton du Collaborateur, la RLS ne renvoie que les
@@ -205,11 +244,13 @@ async function conversationExists(target: Target, conversationId: string, signal
 }
 
 // Story 5.8 (Q2 = A) : derniers messages de la Conversation, lus avec le jeton (RLS), remis dans l'ordre
-// de created_at ; buildHistory en tire les 3 derniers échanges réglés.
-async function readHistory(target: Target, conversationId: string, signal: AbortSignal): Promise<HistoryExchange[]> {
+// de created_at ; buildHistory en tire les 3 derniers échanges réglés. Story 5.9 : pour le réessai d'une
+// question, seuls les messages antérieurs à cette question (before, sa date d'enregistrement).
+async function readHistory(target: Target, conversationId: string, signal: AbortSignal, before?: string): Promise<HistoryExchange[]> {
+  const until = before ? `&created_at=lt.${encodeURIComponent(before)}` : "";
   const rows = await get(
     target,
-    `messages?select=role,kind,content,client_request_id,created_at&conversation_id=eq.${conversationId}&order=created_at.desc&limit=${CHAT_HISTORY_READ_LIMIT}`,
+    `messages?select=role,kind,content,client_request_id,created_at&conversation_id=eq.${conversationId}${until}&order=created_at.desc&limit=${CHAT_HISTORY_READ_LIMIT}`,
     "history",
     signal,
   );
@@ -405,6 +446,21 @@ type Accepted = {
   rewriteError: unknown;
 };
 
+// Story 5.9 (Q3 = A) : réponse ou refus déjà enregistré pour ce clientRequestId, renvoyé tel quel (done
+// ou refusal en flux, JSON sinon), sans réservation ni appel au fournisseur.
+type Replayed = { replayed: Outcome & { type: "answer" | "refusal" } };
+
+const isReplayed = (value: unknown): value is Replayed =>
+  typeof value === "object" && value !== null && "replayed" in value;
+
+function replayOutcome(classified: RetryClassification & { outcome: "replay" }): Replayed {
+  const body: ChatBody = {
+    conversationId: classified.conversationId,
+    message: { kind: classified.kind, content: classified.content, sources: replaySources(classified.sources) },
+  };
+  return { replayed: { type: classified.kind === "answer" ? "answer" : "refusal", body } };
+}
+
 export type HandleOptions = {
   timeoutMs?: number;
   generationTimeoutMs?: number;
@@ -468,6 +524,9 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   expired.catch(() => {});
   const within = <T>(promise: Promise<T>): Promise<T> => Promise.race([promise, expired]);
   const remaining = () => Math.max(1, timeoutMs - (Date.now() - started));
+  const cleanupMs = options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS;
+  // Temps laissé au modèle : échéance commune moins le délai réservé à l'enregistrement du résultat.
+  const generationLeft = () => Math.max(1, timeoutMs - (Date.now() - started) - cleanupMs);
 
   let stage = "session";
   let reservationId: string | null = null;
@@ -475,6 +534,12 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   // Question acceptée (story 5.6) : rattache la réponse, le refus ou l'échec à sa question, même quand
   // deux questions de la même Conversation sont traitées en même temps.
   let questionRequestId: string | null = null;
+  // Réessai (story 5.9, Q1 = A) : ligne d'échec réclamée par begin_retry, remplacée par le résultat
+  // (réponse, refus ou nouvel échec) au lieu d'une insertion.
+  let replaceMessageId: string | null = null;
+  // Enregistrement du résultat envoyé (save_assistant_answer) : un échec n'est enregistré ensuite que si
+  // aucun résultat n'est en base pour cette question (rapport a de la 5.2a-2).
+  let saveSent = false;
   let generation: GenerationState = "not_sent";
   // Texte provisoire (mode flux) : délai du premier delta depuis la demande, nombre de delta envoyés.
   let firstDeltaMs: number | null = null;
@@ -494,15 +559,70 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     }
   };
 
+  // Réessai refusé avant tout appel (quota, plafond) : la ligne réclamée reprend le code de l'échec
+  // précédent, avec son propre délai. Jamais de levée.
+  const restoreFailure = async (code: string): Promise<void> => {
+    if (!conversationId || !replaceMessageId) return;
+    try {
+      const cleanup = AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS);
+      await rpc(
+        target,
+        "record_assistant_failure",
+        { p_conversation_id: conversationId, p_error_code: code, p_client_request_id: questionRequestId, p_replace_message_id: replaceMessageId },
+        cleanup,
+      );
+    } catch (error) {
+      logEvent("chat_failure_not_restored", { cause: error instanceof ChatError ? error.reason : "network" });
+    }
+  };
+
+  // Enregistrement du résultat (réponse ou refus), à la place de l'échec réclamé pour un réessai. Story
+  // 5.9 : avec son propre délai, hors de l'échéance commune, pour que sa réponse soit toujours lue (une
+  // échéance qui tomberait pendant l'enregistrement laisserait un résultat validé sans le savoir).
+  const saveResult = (args: Record<string, unknown>): Promise<unknown> => {
+    saveSent = true;
+    return rpc(
+      target,
+      "save_assistant_answer",
+      {
+        ...args,
+        p_conversation_id: conversationId,
+        p_client_request_id: questionRequestId,
+        ...(replaceMessageId ? { p_replace_message_id: replaceMessageId } : {}),
+      },
+      AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS),
+    );
+  };
+
   // Échec enregistré (AD-17), même si le navigateur s'est déconnecté, avec son propre délai ; unité
   // rendue selon la règle de libération. Jamais de levée.
   const fail = async (error: unknown): Promise<Outcome & { type: "error" }> => {
     const { code, status, retryable, cause } = failure(error, signal.aborted);
     let recorded = false;
-    if (conversationId) {
+    let alreadySettled = false;
+    if (conversationId && saveSent && questionRequestId) {
+      // Résultat peut-être déjà validé en base (réponse HTTP perdue, corps illisible) : jamais d'échec
+      // après un enregistrement validé ; le rejeu renverra ce résultat.
+      try {
+        alreadySettled = await settledExists(target, questionRequestId, AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS));
+      } catch (checkError) {
+        logEvent("chat_settled_check_failed", { cause: checkError instanceof ChatError ? checkError.reason : "network" });
+      }
+    }
+    if (conversationId && !alreadySettled) {
       try {
         const cleanup = AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS);
-        await rpc(target, "record_assistant_failure", { p_conversation_id: conversationId, p_error_code: code, p_client_request_id: questionRequestId }, cleanup);
+        await rpc(
+          target,
+          "record_assistant_failure",
+          {
+            p_conversation_id: conversationId,
+            p_error_code: code,
+            p_client_request_id: questionRequestId,
+            ...(replaceMessageId ? { p_replace_message_id: replaceMessageId } : {}),
+          },
+          cleanup,
+        );
         recorded = true;
       } catch (recordError) {
         logEvent("chat_failure_not_recorded", { cause: recordError instanceof ChatError ? recordError.reason : "network" });
@@ -515,6 +635,8 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       stage,
       generation,
       recorded,
+      already_settled: alreadySettled || undefined,
+      retry: replaceMessageId !== null || undefined,
       released,
       mode,
       ...streamDetails(),
@@ -530,7 +652,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   // Étapes avant toute génération : refus en JSON avec leur statut HTTP, dans les deux modes. Sinon :
   // demande acceptée, unité réservée, Conversation et question créées ; pour une question de suivi,
   // historique, question autonome ou échec de la reformulation (story 5.8).
-  const accept = async (): Promise<Response | Accepted> => {
+  const accept = async (): Promise<Response | Accepted | Replayed> => {
     await within(verifySession(target, signal));
 
     stage = "validation";
@@ -545,17 +667,40 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       }
     }
 
+    // Story 5.9 (AD-16) : classement du clientRequestId avant toute réservation. Rejeu et 409 : aucune
+    // réservation, aucun appel au fournisseur (AD-14).
     stage = "replay";
-    if (await within(questionExists(target, input.clientRequestId, signal))) {
-      logInfo("chat_replay_refused", {});
-      return errorResponse("REQUEST_IN_PROGRESS", IN_PROGRESS_MESSAGE, false, 409);
+    const classified = await within(classifyRequest(target, input, signal));
+    if (classified.outcome === "mismatch") {
+      // Même identifiant, autre question (ou autre Conversation) : refusé, rien d'enregistré (Q2).
+      logInfo("chat_replay_mismatch", {});
+      return errorResponse("VALIDATION_FAILED", FAILURE_MESSAGE, false, 400);
+    }
+    if (classified.outcome === "in_progress") {
+      logInfo("chat_replay_refused", { in_progress: true });
+      return errorResponse("REQUEST_IN_PROGRESS", IN_PROGRESS_MESSAGE, false, 409, undefined, classified.conversationId);
+    }
+    if (classified.outcome === "replay") {
+      logInfo("chat_replayed", { kind: classified.kind, sources: classified.sources.length, mode });
+      return replayOutcome(classified);
+    }
+    // Réessai : question existante réutilisée (aucune question ni Conversation nouvelle), Conversation
+    // lue en base ; l'échec réclamé sera remplacé par le résultat. Dès ici, un échec (réservation
+    // comprise) est enregistré à la place de la ligne réclamée.
+    const retry = classified.outcome === "retry" ? classified : null;
+    if (retry) {
+      conversationId = retry.conversationId;
+      questionRequestId = input.clientRequestId;
+      replaceMessageId = retry.replaceMessageId;
     }
 
     stage = "reserve";
     const reservation = parseReservation(await within(rpc(target, "reserve_ai_call", {}, signal)));
     if (!reservation) throw new ChatError("INTERNAL", 500, true, "reserve_invalid_body");
     if (!reservation.ok) {
-      logInfo("chat_quota_refused", { reason: reservation.reason });
+      logInfo("chat_quota_refused", { reason: reservation.reason, retry: retry !== null || undefined });
+      // Réessai refusé par le quota : l'échec précédent est rétabli (il reste affiché), sans réservation.
+      if (retry) await restoreFailure(retry.previousErrorCode);
       return reservation.reason === "global"
         ? errorResponse("AI_DAILY_CAP_REACHED", CAP_MESSAGE, false, 503, reservation.resetAt)
         : errorResponse("QUOTA_EXCEEDED", QUOTA_MESSAGE, false, 429, reservation.resetAt);
@@ -572,10 +717,15 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     let standaloneQuestion: string | null = null;
     let rewriteError: unknown = null;
     let rewriteAttempted = false;
-    if (input.conversationId) {
+    // Story 5.9 (Q2) : pour un réessai, l'historique est relu AVANT la question réessayée, dans sa
+    // Conversation (lue en base) ; la question autonome déjà enregistrée est reprise telle quelle, sinon
+    // la reformulation est refaite (sans être enregistrée : la question existe déjà).
+    const historyConversation = retry ? retry.conversationId : input.conversationId;
+    if (retry?.standaloneQuestion) standaloneQuestion = retry.standaloneQuestion;
+    if (historyConversation) {
       stage = "history";
-      history = await within(readHistory(target, input.conversationId, signal));
-      if (history.length > 0) {
+      history = await within(readHistory(target, historyConversation, signal, retry?.questionCreatedAt));
+      if (history.length > 0 && standaloneQuestion === null) {
         stage = "rewrite";
         rewriteAttempted = true;
         // 10 s au plus, pris sur l'échéance du premier affichage en mode flux (la génération reçoit le
@@ -626,6 +776,9 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     // autonome (story 5.8). Dès qu'une reformulation a été tentée (réussie ou non), la question est
     // enregistrée avec le délai de nettoyage, hors de l'échéance commune : si celle-ci tombe pendant
     // l'enregistrement, la question existe quand même et l'échec y est rattaché (error avec conversationId).
+    // Réessai : la question est déjà enregistrée (aucune question ni Conversation nouvelle).
+    if (retry) return { input, history, standaloneQuestion, rewriteError };
+
     stage = "conversation";
     const cleanupRecord = rewriteAttempted || signal.aborted;
     const questionSignal = cleanupRecord ? AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS) : signal;
@@ -654,10 +807,16 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       );
     } catch (error) {
       if (error instanceof ChatError && error.pgCode === "23505") {
-        // Même clientRequestId arrivé en concurrence : aucune Conversation de plus, unité rendue.
+        // Même clientRequestId arrivé en concurrence : aucune Conversation de plus, unité rendue ; la
+        // Conversation de la question déjà enregistrée accompagne le 409 si elle peut être lue (5.9).
         await release();
         logInfo("chat_replay_refused", { concurrent: true });
-        return errorResponse("REQUEST_IN_PROGRESS", IN_PROGRESS_MESSAGE, false, 409);
+        const existing = await questionConversation(
+          target,
+          input.clientRequestId,
+          AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS),
+        ).catch(() => undefined);
+        return errorResponse("REQUEST_IN_PROGRESS", IN_PROGRESS_MESSAGE, false, 409, undefined, existing);
       }
       throw error;
     }
@@ -752,7 +911,9 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       ): Promise<ModelResult> => {
         generation = "billed";
         try {
-          return await within(call(withSignal(fakeGeneration, signal), Math.min(generationMaxMs, remaining())));
+          // Story 5.9 (option A du 2026-11-20) : le délai de l'enregistrement du résultat est réservé dans
+          // l'échéance commune (génération et appel court bornés au temps restant moins ce délai).
+          return await within(call(withSignal(fakeGeneration, signal), Math.min(generationMaxMs, generationLeft())));
         } catch (error) {
           if (error instanceof AiError && (error.outcome === "no_response" || error.outcome === undefined) && !signal.aborted) {
             generation = "no_response";
@@ -779,9 +940,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       const refuse = async (marker: Exclude<Marker, "REPONSE">, generated: ModelResult): Promise<Outcome> => {
         const { kind, content } = REFUSALS[marker];
         stage = "refusal";
-        await within(
-          rpc(target, "save_assistant_answer", { p_conversation_id: conversationId, p_kind: kind, p_content: content, p_sources: [], p_client_request_id: questionRequestId }, signal),
-        );
+        await saveResult({ p_kind: kind, p_content: content, p_sources: [] });
         logInfo("chat_done", {
           kind,
           ...logged(generated),
@@ -862,25 +1021,16 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
 
       stage = "save";
       const saveStarted = Date.now();
-      const saved = (await within(
-        rpc(
-          target,
-          "save_assistant_answer",
-          {
-            p_conversation_id: conversationId,
-            p_kind: "answer",
-            p_content: content,
-            p_sources: sources.map(({ document_id, document_title, text_version, passages }) => ({
-              document_id,
-              document_title,
-              text_version,
-              passages,
-            })),
-            p_client_request_id: questionRequestId,
-          },
-          signal,
-        ),
-      )) as { sources?: { ordinal?: unknown; document_id?: unknown }[] } | null;
+      const saved = (await saveResult({
+        p_kind: "answer",
+        p_content: content,
+        p_sources: sources.map(({ document_id, document_title, text_version, passages }) => ({
+          document_id,
+          document_title,
+          text_version,
+          passages,
+        })),
+      })) as { sources?: { ordinal?: unknown; document_id?: unknown }[] } | null;
       const savedSources = Array.isArray(saved?.sources) ? saved.sources : null;
       if (!savedSources || savedSources.length !== sources.length) throw new ChatError("INTERNAL", 500, true, "save_invalid_body");
 
@@ -925,7 +1075,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   // JSON 504 AI_TIMEOUT aussitôt ; en-têtes déjà partis : événement error aussitôt. Le travail en cours
   // continue en tâche de fond jusqu'à son terme (question et échec enregistrés, libération selon
   // AD-14) ; son issue n'est jamais envoyée en plus.
-  const acceptance = (async (): Promise<Response | Accepted> => {
+  const acceptance = (async (): Promise<Response | Accepted | Replayed> => {
     try {
       return await accept();
     } catch (error) {
@@ -933,7 +1083,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       return errorResponse(failed.code, messageFor(failed.code), failed.retryable, failed.status);
     }
   })();
-  let accepted: Response | Accepted | "expired";
+  let accepted: Response | Accepted | Replayed | "expired";
   if (streaming) {
     const reached = new Promise<"expired">((resolve) => {
       onFirstDisplayExpired = () => resolve("expired");
@@ -947,7 +1097,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     const rest = (async () => {
       try {
         const late = await acceptance;
-        if (!(late instanceof Response)) await answer(late, () => {});
+        if (!(late instanceof Response) && !isReplayed(late)) await answer(late, () => {});
       } finally {
         clearTimeout(timer);
       }
@@ -960,6 +1110,26 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     clearTimeout(timer);
     displayed();
     return accepted;
+  }
+  if (isReplayed(accepted)) {
+    clearTimeout(timer);
+    displayed();
+    const outcome = accepted.replayed;
+    if (!streaming) return json(outcome.body);
+    // Mode flux : même forme qu'une réponse ou un refus de première main (done ou refusal), sans texte
+    // provisoire.
+    const events = eventStream();
+    events.opened();
+    if (outcome.type === "answer") events.send("done", outcome.body);
+    else {
+      events.send("refusal", {
+        conversationId: outcome.body.conversationId,
+        kind: outcome.body.message.kind,
+        content: outcome.body.message.content,
+      });
+    }
+    events.close();
+    return new Response(events.stream, { status: 200, headers: SSE_HEADERS });
   }
   const input = accepted;
 

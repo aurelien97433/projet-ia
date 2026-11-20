@@ -30,11 +30,13 @@ export type AppError = {
     message: string;
     retryable: boolean;
     resetAt?: string;
+    // Story 5.9 : Conversation de la question déjà en cours (409 REQUEST_IN_PROGRESS de l'Assistant).
+    conversationId?: string;
   };
 };
 
-export function appError(code: ErrorCode, message: string, retryable: boolean, resetAt?: string): AppError {
-  return { error: resetAt ? { code, message, retryable, resetAt } : { code, message, retryable } };
+export function appError(code: ErrorCode, message: string, retryable: boolean, resetAt?: string, conversationId?: string): AppError {
+  return { error: { code, message, retryable, ...(resetAt ? { resetAt } : {}), ...(conversationId ? { conversationId } : {}) } };
 }
 
 type LogDetails = Record<string, string | number | boolean | undefined>;

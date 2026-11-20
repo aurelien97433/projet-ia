@@ -134,6 +134,140 @@ export function isReleasable(state: GenerationState): boolean {
   return state !== "billed";
 }
 
+// Idempotence (story 5.9, AD-16) : classement d'une demande par begin_retry (migration
+// 20261120090000_idempotence.sql), avant toute réservation.
+export type StoredSource = {
+  document_id: string | null;
+  document_title: string;
+  text_version: number;
+  passages: unknown;
+};
+
+export type RetryClassification =
+  | { outcome: "new" }
+  | { outcome: "mismatch" }
+  | { outcome: "in_progress"; conversationId: string }
+  | {
+      outcome: "replay";
+      conversationId: string;
+      kind: "answer" | "refusal_info_absente" | "refusal_hors_cadre";
+      content: string;
+      sources: StoredSource[];
+    }
+  | {
+      outcome: "retry";
+      conversationId: string;
+      question: string;
+      standaloneQuestion: string | null;
+      questionCreatedAt: string;
+      replaceMessageId: string;
+      previousErrorCode: string;
+    };
+
+const isStoredSource = (value: unknown): value is StoredSource => {
+  const row = value as Record<string, unknown> | null;
+  return (
+    typeof row === "object" &&
+    row !== null &&
+    (row.document_id === null || (typeof row.document_id === "string" && UUID.test(row.document_id))) &&
+    typeof row.document_title === "string" &&
+    row.document_title !== "" &&
+    Number.isInteger(row.text_version)
+  );
+};
+
+const REPLAY_KINDS = ["answer", "refusal_info_absente", "refusal_hors_cadre"] as const;
+
+// Réponse de begin_retry, ou null si elle est illisible.
+export function parseRetryClassification(value: unknown): RetryClassification | null {
+  const row = value as Record<string, unknown> | null;
+  if (typeof row !== "object" || row === null) return null;
+  const conversationId = typeof row.conversation_id === "string" && UUID.test(row.conversation_id) ? row.conversation_id : null;
+  switch (row.outcome) {
+    case "new":
+      return { outcome: "new" };
+    case "mismatch":
+      return { outcome: "mismatch" };
+    case "in_progress":
+      return conversationId ? { outcome: "in_progress", conversationId } : null;
+    case "replay": {
+      const kind = REPLAY_KINDS.find((candidate) => candidate === row.kind);
+      if (!conversationId || !kind || typeof row.content !== "string" || row.content === "") return null;
+      if (!Array.isArray(row.sources) || !row.sources.every(isStoredSource)) return null;
+      return { outcome: "replay", conversationId, kind, content: row.content, sources: row.sources };
+    }
+    case "retry": {
+      if (
+        !conversationId ||
+        typeof row.question !== "string" ||
+        row.question === "" ||
+        !(row.standalone_question === null || typeof row.standalone_question === "string") ||
+        typeof row.question_created_at !== "string" ||
+        Number.isNaN(Date.parse(row.question_created_at)) ||
+        typeof row.replace_message_id !== "string" ||
+        !UUID.test(row.replace_message_id) ||
+        typeof row.previous_error_code !== "string" ||
+        !/^[A-Z_]{1,64}$/.test(row.previous_error_code)
+      ) {
+        return null;
+      }
+      return {
+        outcome: "retry",
+        conversationId,
+        question: row.question,
+        standaloneQuestion: row.standalone_question === "" ? null : (row.standalone_question as string | null),
+        questionCreatedAt: row.question_created_at,
+        replaceMessageId: row.replace_message_id,
+        previousErrorCode: row.previous_error_code,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+// Source d'une réponse rejouée (Q3 = A), même forme que la réponse de chat : positions et version
+// seulement pour un Document existant (story 5.7, report de la 3.4 : rien de plus que le titre et le
+// nombre de Passages pour un Document supprimé, jamais de passage_id). Les numéros [P{n}] du contexte de
+// la génération ne sont pas enregistrés : passageNumbers vaut 1..k (k = nombre de Passages cités, la
+// page n'en lit que le nombre).
+export type ReplaySource = {
+  documentId: string | null;
+  title: string;
+  passageNumbers: number[];
+  passages?: { start: number; end: number }[];
+  textVersion?: number;
+};
+
+const isPosition = (value: unknown): value is { start: number; end: number } => {
+  const item = value as { start?: unknown; end?: unknown } | null;
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    Number.isInteger(item.start) &&
+    Number.isInteger(item.end) &&
+    (item.start as number) >= 0 &&
+    (item.end as number) > (item.start as number)
+  );
+};
+
+export function replaySources(sources: StoredSource[]): ReplaySource[] {
+  return sources.map((source) => {
+    const list = Array.isArray(source.passages) ? source.passages : [];
+    const count = Math.min(Math.max(list.length, 1), CHAT_MAX_PASSAGES);
+    const base = {
+      documentId: source.document_id,
+      title: source.document_title,
+      passageNumbers: Array.from({ length: count }, (_, index) => index + 1),
+    };
+    if (source.document_id === null) return base;
+    const positions = list.length > 0 && list.length <= CHAT_MAX_PASSAGES && list.every(isPosition)
+      ? list.map(({ start, end }) => ({ start, end }))
+      : undefined;
+    return positions ? { ...base, passages: positions, textVersion: source.text_version } : { ...base, textVersion: source.text_version };
+  });
+}
+
 // Questions de suivi (story 5.8, Q2 = A). Message de la Conversation relu avec le jeton (RLS).
 export type HistoryRow = {
   role: "user" | "assistant";

@@ -11,7 +11,18 @@ import {
   SESSION_MESSAGE,
   UNVERIFIABLE_MESSAGE,
 } from "../../supabase/functions/chat/index.ts";
-import { CHAT_FIRST_DISPLAY_MS, EMBEDDING_DIMENSION, REWRITE_FIRST_DISPLAY_MARGIN_MS } from "../../supabase/functions/_shared/config.ts";
+import {
+  CHAT_CLEANUP_TIMEOUT_MS,
+  CHAT_FIRST_DISPLAY_MS,
+  CHAT_GENERATION_MAX_TIMEOUT_MS,
+  CHAT_JSON_GENERATION_MAX_TIMEOUT_MS,
+  CHAT_JSON_TIMEOUT_MS,
+  CHAT_TIMEOUT_MS,
+  EMBEDDING_DIMENSION,
+  REWRITE_FIRST_DISPLAY_MARGIN_MS,
+} from "../../supabase/functions/_shared/config.ts";
+import { CHAT_RELAY_TIMEOUT_MS } from "@/server/chat/relay";
+import { CHAT_CLIENT_TIMEOUT_MS } from "@/components/assistant/assistant-view";
 import { AiError } from "../../supabase/functions/_shared/errors.ts";
 import { fakeStreamResponse } from "../../supabase/functions/_shared/fake-generation.ts";
 import {
@@ -80,7 +91,12 @@ beforeEach(() => {
   vi.stubGlobal("Deno", { env: { get: (name: string) => env[name] } });
   routes = {
     auth: async () => Response.json({ id: "u1" }),
-    replay: async () => Response.json([]),
+    // Story 5.9 : classement du clientRequestId (begin_retry) ; nouvelle question par défaut.
+    replay: async () => Response.json({ outcome: "new" }),
+    // Story 5.9 : résultat déjà enregistré ? (lu avant d'enregistrer un échec après l'envoi de l'enregistrement)
+    settled: async () => Response.json([]),
+    // Story 5.9 : Conversation de la question déjà enregistrée (23505 concurrent).
+    lookup: async () => Response.json([{ conversation_id: CONVERSATION }]),
     reserve: async () => Response.json({ ok: true, reservation_id: RESERVATION, reset_at: "2026-11-17T00:00:00+00:00" }),
     start: async () => Response.json({ conversation_id: CONVERSATION, message_id: "m1" }),
     // Story 5.6 : Conversation poursuivie, lue avec le jeton (RLS), puis question ajoutée.
@@ -122,7 +138,9 @@ beforeEach(() => {
     if (url.endsWith("/auth/v1/user")) return route("auth");
     // Story 5.8 : messages de la Conversation poursuivie (historique) ; sinon, rejeu.
     if (url.includes("/rest/v1/messages?") && url.includes("conversation_id=eq.")) return route("history");
-    if (url.includes("/rest/v1/messages?")) return route("replay");
+    if (url.includes("/rest/v1/messages?") && url.includes("role=eq.assistant")) return route("settled");
+    if (url.includes("/rest/v1/messages?") && url.includes("role=eq.user")) return route("lookup");
+    if (url.endsWith("/rpc/begin_retry")) return route("replay");
     if (url.includes("/rest/v1/conversations?")) return route("conversation");
     if (url.endsWith("/rpc/add_question")) return route("add");
     if (url.endsWith("/rpc/reserve_ai_call")) return route("reserve");
@@ -342,13 +360,18 @@ describe("chat : garde-fou et rejeu", () => {
     expect(calls("embed") + calls("generate") + calls("start")).toBe(0);
   });
 
-  it("rejeu (question déjà reçue) : 409 REQUEST_IN_PROGRESS sans réservation", async () => {
-    routes.replay = async () => Response.json([{ id: "m1" }]);
+  it("question en cours (story 5.9) : 409 REQUEST_IN_PROGRESS avec la Conversation, sans réservation", async () => {
+    routes.replay = async () => Response.json({ outcome: "in_progress", conversation_id: CONVERSATION });
     const response = await ask();
     expect(response.status).toBe(409);
-    expect((await response.json()).error.code).toBe("REQUEST_IN_PROGRESS");
+    expect((await response.json()).error).toEqual({
+      code: "REQUEST_IN_PROGRESS",
+      message: IN_PROGRESS_MESSAGE,
+      retryable: false,
+      conversationId: CONVERSATION,
+    });
     expect(order).toEqual(["auth", "replay"]);
-    expect(String(fetchMock.mock.calls[1][0])).toContain(`client_request_id=eq.${REQUEST_ID}`);
+    expect(bodyOf("/rpc/begin_retry")).toEqual({ p_client_request_id: REQUEST_ID, p_question: QUESTION });
   });
 
   it("23505 concurrent à la création de la question : unité rendue puis 409", async () => {
@@ -358,6 +381,13 @@ describe("chat : garde-fou et rejeu", () => {
     expect((await response.json()).error.code).toBe("REQUEST_IN_PROGRESS");
     expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
     expect(calls("embed") + calls("generate") + calls("failure")).toBe(0);
+  });
+
+  it("23505 concurrent (story 5.9) : le 409 porte la Conversation de la question déjà enregistrée", async () => {
+    routes.start = async () => Response.json({ code: "23505", message: "duplicate key" }, { status: 409 });
+    const response = await ask();
+    expect((await response.json()).error.conversationId).toBe(CONVERSATION);
+    expect(calls("lookup")).toBe(1);
   });
 });
 
@@ -825,7 +855,12 @@ describe("chat : mode flux (story 5.5)", () => {
   });
 
   it.each([
-    ["rejeu (question déjà reçue) : 409 REQUEST_IN_PROGRESS", () => (routes.replay = async () => Response.json([{ id: "m1" }])), 409, "REQUEST_IN_PROGRESS"],
+    [
+      "question en cours (même identifiant) : 409 REQUEST_IN_PROGRESS",
+      () => (routes.replay = async () => Response.json({ outcome: "in_progress", conversation_id: CONVERSATION })),
+      409,
+      "REQUEST_IN_PROGRESS",
+    ],
     [
       "quota atteint : 429 QUOTA_EXCEEDED",
       () => (routes.reserve = async () => Response.json({ ok: false, reason: "user", reset_at: "2026-11-17T00:00:00+00:00" })),
@@ -1509,5 +1544,306 @@ describe("chat : questions de suivi (story 5.8)", () => {
     expect(output).toContain("chat_rewrite_done");
     expect(output).toContain("chat_rewrite_failed");
     for (const secret of [FOLLOW_UP, STANDALONE, "Qui valide une facture", "direction financière"]) expect(output).not.toContain(secret);
+  });
+});
+
+// Story 5.9 : idempotence (AD-16). Classement par begin_retry avant toute réservation : rejeu sans appel
+// ni quota, 409 avec la Conversation, réessai qui réutilise la question et remplace l'échec réclamé.
+describe("chat : idempotence (story 5.9)", () => {
+  const CLAIMED = "99999999-0000-4000-8000-000000000009";
+  const QUESTION_AT = "2026-11-20T09:00:00.123+00:00";
+  const STANDALONE = "Comment relancer un client qui n'a pas payé sa facture ?";
+  const PREVIOUS_ID = "11111111-0000-4000-8000-000000000001";
+  const retrying =
+    (extra: Record<string, unknown> = {}) =>
+    async () =>
+      Response.json({
+        outcome: "retry",
+        conversation_id: CONVERSATION,
+        question: QUESTION,
+        standalone_question: null,
+        question_created_at: QUESTION_AT,
+        replace_message_id: CLAIMED,
+        previous_error_code: "AI_UNAVAILABLE",
+        ...extra,
+      });
+  const replaying =
+    (kind: string, content: string, sources: unknown[] = []) =>
+    async () =>
+      Response.json({ outcome: "replay", conversation_id: CONVERSATION, kind, content, sources });
+  const storedSources = [
+    { document_id: DOC_2, document_title: "FAQ comptabilité", text_version: 1, passages: [{ passage_id: P2, start: 5, end: 40 }] },
+    {
+      document_id: null,
+      document_title: "Note supprimée",
+      text_version: 3,
+      passages: [
+        { passage_id: P1, start: 0, end: 9 },
+        { passage_id: P3, start: 10, end: 20 },
+      ],
+    },
+  ];
+  // Historique d'une question de suivi : un échange réglé avant la question réessayée.
+  const previousExchange = async () =>
+    Response.json([
+      { role: "assistant", kind: "answer", content: "On relance par e-mail[S1].", client_request_id: PREVIOUS_ID, created_at: "2026-11-20T08:59:02Z" },
+      { role: "user", kind: "question", content: "Comment relancer ?", client_request_id: PREVIOUS_ID, created_at: "2026-11-20T08:59:01Z" },
+    ]);
+  const streamed = async (body: Record<string, unknown> = {}) => {
+    const pending: Promise<unknown>[] = [];
+    const response = await handle(
+      request(
+        { question: QUESTION, clientRequestId: REQUEST_ID, ...body },
+        { Authorization: `Bearer ${TOKEN}`, apikey: PUBLISHABLE, Accept: "text/event-stream" },
+      ),
+      { waitUntil: (promise) => void pending.push(promise) },
+    );
+    const text = await response.text();
+    await Promise.all(pending);
+    return { response, text };
+  };
+
+  it("rejeu d'une réponse (JSON) : même réponse et Sources reconstruites, aucune réservation ni appel", async () => {
+    routes.replay = replaying("answer", `${ANSWER_SECRET}[S1] et[S2].`, storedSources);
+    const response = await ask();
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      conversationId: CONVERSATION,
+      message: {
+        kind: "answer",
+        content: `${ANSWER_SECRET}[S1] et[S2].`,
+        sources: [
+          { documentId: DOC_2, title: "FAQ comptabilité", passageNumbers: [1], passages: [{ start: 5, end: 40 }], textVersion: 1 },
+          // Document supprimé : titre et nombre de Passages seulement (report de la 3.4).
+          { documentId: null, title: "Note supprimée", passageNumbers: [1, 2] },
+        ],
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain(P2);
+    expect(order).toEqual(["auth", "replay"]);
+  });
+
+  it("rejeu d'une réponse (flux) : un seul événement done, aucun delta, aucune réservation", async () => {
+    routes.replay = replaying("answer", `${ANSWER_SECRET}[S1].`, storedSources.slice(0, 1));
+    const { response, text } = await streamed();
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(text).not.toContain("event: delta");
+    expect(text.match(/event: /g)).toHaveLength(1);
+    expect(text).toContain("event: done");
+    expect(text).toContain(`"conversationId":"${CONVERSATION}"`);
+    expect(order).toEqual(["auth", "replay"]);
+  });
+
+  it("rejeu d'un refus (flux) : événement refusal d'un bloc, aucun appel ni quota", async () => {
+    routes.replay = replaying("refusal_info_absente", REFUSAL_INFO_ABSENTE);
+    const { text } = await streamed();
+    expect(text).toContain(
+      `event: refusal\ndata: ${JSON.stringify({ conversationId: CONVERSATION, kind: "refusal_info_absente", content: REFUSAL_INFO_ABSENTE })}`,
+    );
+    expect(order).toEqual(["auth", "replay"]);
+  });
+
+  it("même identifiant, autre question (ou autre Conversation) : VALIDATION_FAILED, rien d'enregistré", async () => {
+    routes.replay = async () => Response.json({ outcome: "mismatch" });
+    const response = await ask();
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("VALIDATION_FAILED");
+    expect(order).toEqual(["auth", "replay"]);
+  });
+
+  it("Conversation vérifiée avant le classement, transmise à begin_retry", async () => {
+    routes.replay = async () => Response.json({ outcome: "in_progress", conversation_id: CONVERSATION });
+    await handle(request({ question: QUESTION, clientRequestId: REQUEST_ID, conversationId: CONVERSATION }));
+    expect(order).toEqual(["auth", "conversation", "replay"]);
+    expect(bodyOf("/rpc/begin_retry")).toEqual({ p_client_request_id: REQUEST_ID, p_question: QUESTION, p_conversation_id: CONVERSATION });
+  });
+
+  it("classement illisible : échec INTERNAL, aucune réservation", async () => {
+    routes.replay = async () => Response.json({ outcome: "retry" });
+    const response = await ask();
+    expect(response.status).toBe(500);
+    expect(calls("reserve")).toBe(0);
+  });
+
+  it("réessai après panne : question réutilisée (Conversation lue en base), unité réservée, réponse à la place de l'échec", async () => {
+    routes.replay = retrying();
+    const response = await ask();
+    expect(response.status).toBe(200);
+    expect((await response.json()).conversationId).toBe(CONVERSATION);
+    expect(order).toEqual(["auth", "replay", "reserve", "history", "embed", "match", "documents", "generate", "save"]);
+    expect(calls("start") + calls("add")).toBe(0);
+    expect(bodyOf("/rpc/save_assistant_answer")).toMatchObject({
+      p_conversation_id: CONVERSATION,
+      p_kind: "answer",
+      p_client_request_id: REQUEST_ID,
+      p_replace_message_id: CLAIMED,
+    });
+    // Historique relu avant la question réessayée.
+    const historyUrl = String(fetchMock.mock.calls.find(([url]) => String(url).includes("conversation_id=eq."))![0]);
+    expect(historyUrl).toContain(`created_at=lt.${encodeURIComponent(QUESTION_AT)}`);
+  });
+
+  it("réessai après citations invalides : la réponse valide remplace l'échec, aucune question ni bulle en plus", async () => {
+    routes.replay = retrying({ previous_error_code: "AI_CITATIONS_INVALID" });
+    const response = await ask();
+    expect((await response.json()).message.kind).toBe("answer");
+    expect(calls("start") + calls("add") + calls("failure")).toBe(0);
+    expect(bodyOf("/rpc/save_assistant_answer").p_replace_message_id).toBe(CLAIMED);
+  });
+
+  it("réessai qui échoue encore (panne sans réponse) : nouvel échec à la place de l'échec, unité rendue (AD-14)", async () => {
+    routes.replay = retrying();
+    routes.generate = async () => new Response("{}", { status: 503 });
+    const response = await ask({ timeoutMs: 2_000, generationTimeoutMs: 200 });
+    expect((await response.json()).error).toMatchObject({ code: "AI_UNAVAILABLE", retryable: true });
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({
+      p_conversation_id: CONVERSATION,
+      p_error_code: "AI_UNAVAILABLE",
+      p_client_request_id: REQUEST_ID,
+      p_replace_message_id: CLAIMED,
+    });
+    expect(calls("release")).toBe(1);
+  });
+
+  it("réessai qui aboutit à un refus : refus à la place de l'échec, unité consommée", async () => {
+    routes.replay = retrying();
+    routes.match = async () => Response.json([]);
+    const response = await ask();
+    expect((await response.json()).message.kind).toBe("refusal_info_absente");
+    expect(bodyOf("/rpc/save_assistant_answer")).toMatchObject({ p_kind: "refusal_info_absente", p_replace_message_id: CLAIMED });
+    expect(calls("release")).toBe(0);
+  });
+
+  it("réessai refusé par le quota : 429, aucun appel, l'échec précédent est rétabli à sa place", async () => {
+    routes.replay = retrying({ previous_error_code: "AI_CITATIONS_INVALID" });
+    routes.reserve = async () => Response.json({ ok: false, reason: "user", reset_at: "2026-11-21T00:00:00+00:00" });
+    const response = await ask();
+    expect(response.status).toBe(429);
+    expect((await response.json()).error.code).toBe("QUOTA_EXCEEDED");
+    expect(order).toEqual(["auth", "replay", "reserve", "failure"]);
+    expect(bodyOf("/rpc/record_assistant_failure")).toEqual({
+      p_conversation_id: CONVERSATION,
+      p_error_code: "AI_CITATIONS_INVALID",
+      p_client_request_id: REQUEST_ID,
+      p_replace_message_id: CLAIMED,
+    });
+  });
+
+  it("réessai d'une question de suivi : historique d'avant la question, reformulation refaite, historique transmis", async () => {
+    routes.replay = retrying();
+    routes.history = previousExchange;
+    routes.rewrite = async () => completion(STANDALONE);
+    const response = await ask();
+    expect(response.status).toBe(200);
+    expect(order).toEqual(["auth", "replay", "reserve", "history", "rewrite", "embed", "match", "documents", "generate", "save"]);
+    expect(calls("add")).toBe(0);
+    expect(bodyOf("/embeddings").input).toEqual([STANDALONE]);
+    const generation = String(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/chat/completions")).at(-1)![1].body);
+    expect(generation).toContain("Comment relancer ?");
+  });
+
+  it("réessai d'une question de suivi dont la question autonome existe : pas de nouvelle reformulation, recherche sur elle", async () => {
+    routes.replay = retrying({ standalone_question: STANDALONE });
+    routes.history = previousExchange;
+    await ask();
+    expect(calls("rewrite")).toBe(0);
+    expect(bodyOf("/embeddings").input).toEqual([STANDALONE]);
+  });
+
+  it("réessai dont la reformulation tombe en panne : échec à la place de l'échec, unité rendue, aucune question ajoutée", async () => {
+    routes.replay = retrying();
+    routes.history = previousExchange;
+    routes.rewrite = async () => new Response("{}", { status: 503 });
+    const response = await ask();
+    expect((await response.json()).error.code).toBe("AI_UNAVAILABLE");
+    expect(bodyOf("/rpc/record_assistant_failure").p_replace_message_id).toBe(CLAIMED);
+    expect(calls("release")).toBe(1);
+    expect(calls("add") + calls("start") + calls("embed")).toBe(0);
+  });
+
+  it("réessai sans conversationId (abandon à 20 s sur /assistant) : la Conversation lue en base est renvoyée", async () => {
+    routes.replay = retrying();
+    routes.generate = async () => fakeStreamResponse(["REPONSE\nA [P1]."]);
+    const { text } = await streamed();
+    expect(text).toContain("event: done");
+    expect(text).toContain(`"conversationId":"${CONVERSATION}"`);
+    expect(calls("conversation")).toBe(0);
+  });
+
+  it("enregistrement validé puis corps illisible (réponse HTTP perdue) : aucun échec enregistré en plus", async () => {
+    routes.save = async () => new Response("pas du JSON", { status: 200 });
+    routes.settled = async () => Response.json([{ id: "m2" }]);
+    const response = await ask();
+    expect(response.status).toBe(500);
+    expect(calls("settled")).toBe(1);
+    expect(calls("failure")).toBe(0);
+    expect(calls("release")).toBe(0);
+  });
+
+  it("enregistrement en échec réel (rien en base) : échec enregistré comme avant", async () => {
+    routes.save = async () => Response.json({ code: "XX000" }, { status: 500 });
+    await ask();
+    expect(calls("settled")).toBe(1);
+    expect(calls("failure")).toBe(1);
+  });
+
+  // Chaîne des délais (AD-16, décision de l'utilisateur du 2026-11-20, option A) : les 5 s de
+  // l'enregistrement du résultat sont réservées dans l'échéance commune.
+  it("chaîne des délais : enregistrement réservé dans l'échéance ; flux 85 s < navigateur 90 s, JSON 60 s < relais 70 s ; garde-fou de 17 s inchangé", () => {
+    expect(CHAT_CLEANUP_TIMEOUT_MS).toBe(5_000);
+    // Fin au pire = génération bornée (échéance − 5 s) + enregistrement (5 s) = échéance.
+    expect(Math.min(CHAT_GENERATION_MAX_TIMEOUT_MS, CHAT_TIMEOUT_MS - CHAT_CLEANUP_TIMEOUT_MS) + CHAT_CLEANUP_TIMEOUT_MS).toBeLessThanOrEqual(CHAT_TIMEOUT_MS);
+    expect(CHAT_TIMEOUT_MS).toBeLessThan(CHAT_CLIENT_TIMEOUT_MS);
+    expect(Math.min(CHAT_JSON_GENERATION_MAX_TIMEOUT_MS, CHAT_JSON_TIMEOUT_MS - CHAT_CLEANUP_TIMEOUT_MS) + CHAT_CLEANUP_TIMEOUT_MS).toBeLessThanOrEqual(CHAT_JSON_TIMEOUT_MS);
+    expect(CHAT_JSON_TIMEOUT_MS).toBeLessThan(CHAT_RELAY_TIMEOUT_MS);
+    expect(CHAT_FIRST_DISPLAY_MS).toBe(17_000);
+  });
+
+  it("génération bornée au temps restant moins le délai d'enregistrement : coupée avant que l'enregistrement ne déborde l'échéance", async () => {
+    let aborted = -1;
+    const started = Date.now();
+    routes.generate = (_, init) =>
+      new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          aborted = Date.now() - started;
+          reject(new DOMException("interrompu", "AbortError"));
+        });
+      });
+    const response = await ask({ timeoutMs: 1_000, cleanupTimeoutMs: 400, generationTimeoutMs: 10_000 });
+    expect((await response.json()).error.code).toBe("AI_TIMEOUT");
+    // Échéance 1 000 ms, 400 ms réservées : la génération est coupée vers 600 ms, pas à 1 000 ms.
+    expect(aborted).toBeGreaterThan(0);
+    expect(aborted).toBeLessThan(1_000 - 400 + 150);
+  });
+
+  it("génération lente puis enregistrement lent (dans son délai) : réponse renvoyée avant l'échéance, enregistrement jamais interrompu, aucun échec", async () => {
+    const save = routes.save;
+    let abortedDuringSave: boolean | undefined;
+    routes.generate = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      return completion(`REPONSE\n${ANSWER_SECRET} [P2].`);
+    };
+    routes.save = async (url, init) => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      abortedDuringSave = init.signal?.aborted;
+      return save(url, init);
+    };
+    const started = Date.now();
+    const response = await ask({ timeoutMs: 1_000, cleanupTimeoutMs: 400, generationTimeoutMs: 10_000 });
+    expect(response.status).toBe(200);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(abortedDuringSave).toBe(false);
+    expect(calls("failure")).toBe(0);
+  });
+
+  it("journaux du rejeu et du réessai : ni question ni réponse", async () => {
+    routes.replay = replaying("answer", `${ANSWER_SECRET}[S1].`, storedSources.slice(0, 1));
+    await ask();
+    routes.replay = retrying();
+    await ask();
+    const output = logs();
+    expect(output).toContain("chat_replayed");
+    for (const secret of [QUESTION, ANSWER_SECRET]) expect(output).not.toContain(secret);
   });
 });

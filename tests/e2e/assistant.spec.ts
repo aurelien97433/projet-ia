@@ -3,6 +3,7 @@ import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { createClient } from "@supabase/supabase-js";
 import type { Locator, Page, Request } from "@playwright/test";
+import { conversationTitle } from "../../supabase/functions/_shared/chat.ts";
 import { EMBEDDING_MODEL, EMBEDDING_VERSION } from "../../supabase/functions/_shared/config.ts";
 import { fakeVector } from "../../supabase/functions/_shared/fake-embeddings.ts";
 import {
@@ -317,7 +318,10 @@ test("citation invalide (story 5.4, génération simulée) : retirée sans messa
   expectBoundary(requests);
 });
 
-test("panne : alerte et « Réessayer », focus sur l'alerte ; « Réessayer » : même question, nouveau clientRequestId, une seule bulle", async ({
+// Story 5.9 : la première demande va jusqu'à chat (réponse enregistrée), mais la page reçoit une panne
+// (réponse HTTP perdue) ; « Réessayer » renvoie le même identifiant : la réponse enregistrée est rejouée,
+// sans nouvelle question, sans bulle ni réponse en plus en base.
+test("panne : alerte et « Réessayer », focus sur l'alerte ; « Réessayer » : même question, MÊME clientRequestId, une seule bulle, rien en double en base", async ({
   page,
   account,
 }) => {
@@ -327,6 +331,8 @@ test("panne : alerte et « Réessayer », focus sur l'alerte ; « Réessayer » 
   await page.route("**/api/chat", async (route) => {
     calls += 1;
     if (calls === 1) {
+      const reached = await route.fetch();
+      await reached.body();
       await route.fulfill(fulfill({ error: { code: "AI_UNAVAILABLE", message: t.failed, retryable: true } }, 503));
     } else await route.continue();
   });
@@ -348,11 +354,22 @@ test("panne : alerte et « Réessayer », focus sur l'alerte ; « Réessayer » 
   const bodies = chatCalls(requests).map((request) => request.postDataJSON() as { question: string; clientRequestId: string });
   expect(bodies).toHaveLength(2);
   expect(bodies[1].question).toBe(bodies[0].question);
-  expect(bodies[1].clientRequestId).not.toBe(bodies[0].clientRequestId);
+  expect(bodies[1].clientRequestId).toBe(bodies[0].clientRequestId);
+  // En base : une seule question pour cet identifiant, une seule réponse.
+  const { data: stored } = await admin()
+    .from("messages")
+    .select("role, kind")
+    .eq("owner_id", account.id)
+    .eq("client_request_id", bodies[0].clientRequestId)
+    .order("created_at");
+  expect(stored).toEqual([
+    { role: "user", kind: "question" },
+    { role: "assistant", kind: "answer" },
+  ]);
   expectBoundary(requests);
 });
 
-test("quota et plafond simulés : texte du catalogue avec l'heure UTC, sans « Réessayer » ; double envoi (409) : sans « Réessayer »", async ({
+test("quota et plafond simulés : texte du catalogue avec l'heure UTC, sans « Réessayer » ; double envoi (409) sans Conversation connue : « Réessayer » (story 5.9)", async ({
   page,
 }) => {
   const requests = collectRequests(page);
@@ -377,12 +394,44 @@ test("quota et plafond simulés : texte du catalogue avec l'heure UTC, sans « R
     await field(page).fill(`Question ${message.slice(0, 12)}`);
     await field(page).press("Enter");
     const alert = thread(page).getByRole("alert");
-    await expect(alert).toHaveText(message);
+    // Story 5.9 : le 409 sans Conversation connue garde son texte, suivi de « Réessayer ».
+    await expect(alert).toHaveText(message === t.inProgress ? `${message}${t.retry}` : message);
     await expect(alert).toBeFocused();
-    await expect(alert.getByRole("button")).toHaveCount(0);
+    await expect(alert.getByRole("button")).toHaveCount(message === t.inProgress ? 1 : 0);
     await field(page).focus();
   }
   expectBoundary(requests);
+});
+
+// Story 5.9 (AD-16) : rechargement de la page pendant une réponse en cours. La Conversation rouverte
+// montre la question en cours, se recharge, puis affiche la réponse enregistrée : aucun doublon.
+test("rechargement pendant une demande en cours (story 5.9) : question en cours, puis la réponse apparaît, sans doublon", async ({
+  page,
+  account,
+}) => {
+  const seeded = await seedDocument(account, `${tag()} ${FAKE_SLOW_STREAM_MARKER}`);
+  await openAssistant(page);
+  await field(page).fill(seeded.question);
+  await field(page).press("Enter");
+  await expect(thread(page).locator("[data-provisional]")).toBeVisible();
+  const { data: conversations } = await admin()
+    .from("conversations")
+    .select("id")
+    .eq("owner_id", account.id)
+    .eq("title", conversationTitle(seeded.question));
+  expect(conversations).toHaveLength(1);
+  const id = conversations![0].id as string;
+
+  await page.goto(`/assistant/${id}`);
+  await expect(field(page)).toBeVisible();
+  await expect(page.locator("[data-question-bubble]")).toHaveCount(1);
+  await expect(answerStatus(page).locator("[data-answer] p").first()).toHaveText(/^Réponse simulée à partir des Documents Source 1./, {
+    timeout: 20_000,
+  });
+  await expect(page.locator("[data-question-bubble]")).toHaveCount(1);
+  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  const { data: stored } = await admin().from("messages").select("kind").eq("conversation_id", id).order("created_at");
+  expect(stored).toEqual([{ kind: "question" }, { kind: "answer" }]);
 });
 
 test("clavier : Maj+Entrée va à la ligne, compteur ; vide ou trop longue : message, aucune requête", async ({ page }) => {

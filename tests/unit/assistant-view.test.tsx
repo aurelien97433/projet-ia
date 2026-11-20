@@ -28,8 +28,8 @@ const answer = (content = "Une facture est émise sous 5 jours ouvrés[S1].", so
     },
   });
 const refusal = () => json({ conversationId: CONVERSATION, message: { kind: "refusal_info_absente", content: t.refusalInfoAbsente, sources: [] } });
-const failure = (code: string, status: number, retryable: boolean, message: string, resetAt?: string) =>
-  json({ error: resetAt ? { code, message, retryable, resetAt } : { code, message, retryable } }, status);
+const failure = (code: string, status: number, retryable: boolean, message: string, resetAt?: string, conversationId?: string) =>
+  json({ error: { code, message, retryable, ...(resetAt ? { resetAt } : {}), ...(conversationId ? { conversationId } : {}) } }, status);
 
 const fetchMock = () => vi.mocked(fetch);
 const field = () => screen.getByLabelText(t.fieldLabel) as HTMLTextAreaElement;
@@ -62,6 +62,7 @@ async function ask(value: string) {
 beforeEach(() => {
   refresh.mockReset();
   router.push.mockReset();
+  router.replace.mockReset();
   params = new URLSearchParams();
   window.history.replaceState(null, "", "/assistant");
   vi.stubGlobal("fetch", vi.fn());
@@ -368,7 +369,7 @@ describe("saisie invalide (aucun appel)", () => {
 });
 
 describe("erreurs", () => {
-  it("panne 503 : alerte à la place de la réponse, focus sur l'alerte, question conservée ; « Réessayer » : même question, nouveau clientRequestId, une seule bulle", async () => {
+  it("panne 503 : alerte à la place de la réponse, focus sur l'alerte, question conservée ; « Réessayer » : même question, MÊME clientRequestId (story 5.9), une seule bulle", async () => {
     let release!: (response: Response) => void;
     fetchMock()
       .mockResolvedValueOnce(failure("AI_UNAVAILABLE", 503, true, t.failed))
@@ -391,8 +392,8 @@ describe("erreurs", () => {
     expect(send().getAttribute("aria-disabled")).toBe("true");
     const [first, second] = bodies();
     expect(second.question).toBe(first.question);
-    expect(second.clientRequestId).toMatch(UUID);
-    expect(second.clientRequestId).not.toBe(first.clientRequestId);
+    expect(first.clientRequestId).toMatch(UUID);
+    expect(second.clientRequestId).toBe(first.clientRequestId);
 
     await act(async () => release(answer()));
     expect(screen.getByText(answerText("Une facture est émise sous 5 jours ouvrés Source 1."))).toBeTruthy();
@@ -414,12 +415,17 @@ describe("erreurs", () => {
     expect(document.activeElement).toBe(alert);
   });
 
-  it("409 REQUEST_IN_PROGRESS : « déjà en cours », sans « Réessayer »", async () => {
-    fetchMock().mockResolvedValue(failure("REQUEST_IN_PROGRESS", 409, false, t.inProgress));
+  it("409 REQUEST_IN_PROGRESS sans Conversation : « déjà en cours » avec « Réessayer », qui renvoie le même identifiant (story 5.9)", async () => {
+    fetchMock().mockResolvedValueOnce(failure("REQUEST_IN_PROGRESS", 409, false, t.inProgress)).mockResolvedValueOnce(answer());
     render(<AssistantView />);
     await ask("Question");
-    expect(screen.getByRole("alert").textContent).toBe(t.inProgress);
-    expect(within(screen.getByRole("alert")).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(t.inProgress);
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: t.retry }));
+    await flush();
+    const [first, second] = bodies();
+    expect(second.clientRequestId).toBe(first.clientRequestId);
+    expect(bubbles()).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toContain("Source 1");
   });
 
   it("400 VALIDATION_FAILED de la route : texte de saisie invalide, jamais celui de la panne", async () => {
@@ -471,7 +477,6 @@ describe("erreurs", () => {
 describe("revue de la 5.2b", () => {
   it.each([
     ["VALIDATION_FAILED", 400, t.invalidRequest],
-    ["REQUEST_IN_PROGRESS", 409, t.inProgress],
     ["QUOTA_EXCEEDED", 429, t.quotaExceeded("demain à 0 h 00 (UTC)")],
     ["AI_DAILY_CAP_REACHED", 503, t.dailyCapReached("demain à 0 h 00 (UTC)")],
     ["UNAUTHENTICATED", 401, texts.session.expired],
@@ -489,7 +494,7 @@ describe("revue de la 5.2b", () => {
     render(<AssistantView />);
     await ask("Ma question");
     type("Nouveau texte");
-    await act(async () => release(failure("REQUEST_IN_PROGRESS", 409, false, t.inProgress)));
+    await act(async () => release(failure("VALIDATION_FAILED", 400, false, t.invalidRequest)));
     expect(field().value).toBe("Nouveau texte");
   });
 
@@ -771,7 +776,12 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
       question: "Sous quel délai une facture doit-elle être émise ?",
       reply: { kind: "answer", content: "Une facture est émise sous 5 jours ouvrés [P2].", sources: [SOURCE] },
     },
-    { id: "q2", question: "Et pour un avoir ?", reply: { kind: "failure", code: "AI_TIMEOUT" } },
+    {
+      id: "q2",
+      question: "Et pour un avoir ?",
+      clientRequestId: "66666666-6666-4666-8666-666666666666",
+      reply: { kind: "failure", code: "AI_TIMEOUT" },
+    },
   ];
   const OTHER = "55555555-5555-4555-8555-555555555555";
   const list = (conversations: unknown[]) => json({ conversations });
@@ -801,9 +811,57 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     await flush();
     fireEvent.click(screen.getByRole("button", { name: t.retry }));
     await flush();
-    expect(bodies()[0]).toMatchObject({ question: "Et pour un avoir ?", conversationId: CONVERSATION });
+    // Story 5.9 : même identifiant que la question enregistrée en échec ; aucune bulle de plus.
+    expect(bodies()[0]).toMatchObject({
+      question: "Et pour un avoir ?",
+      conversationId: CONVERSATION,
+      clientRequestId: "66666666-6666-4666-8666-666666666666",
+    });
     expect(bubbles()).toHaveLength(2);
     expect(screen.getByRole("status").textContent).toContain("Source 1");
+  });
+
+  it("story 5.9 : « Réessayer » reçoit 409 (question déjà en cours) sur sa Conversation : état « en cours », rechargement toutes les 5 s, puis le résultat remplace l'alerte", async () => {
+    vi.useFakeTimers();
+    fetchMock().mockResolvedValue(failure("REQUEST_IN_PROGRESS", 409, false, t.inProgress, undefined, CONVERSATION));
+    const { rerender } = render(<AssistantView conversation={conversation(OLD)} />);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: t.retry }));
+    await flush();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe(t.pending);
+    expect(send().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(router.replace).not.toHaveBeenCalled();
+    // Le serveur relu : la réponse enregistrée remplace l'échec, une seule bulle par échange.
+    const settled: Thread = [OLD[0], { ...OLD[1], reply: { kind: "answer", content: "Un avoir suit la même règle[S1].", sources: [SOURCE] } }];
+    rerender(<AssistantView conversation={conversation(settled)} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(bubbles()).toHaveLength(2);
+    expect(document.body.textContent).toContain("Un avoir suit la même règle");
+    await act(async () => vi.advanceTimersByTime(15_000));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("story 5.9 : 409 en cours puis rechargement qui aboutit à un échec : « Réessayer » de nouveau proposé", async () => {
+    vi.useFakeTimers();
+    fetchMock().mockResolvedValue(failure("REQUEST_IN_PROGRESS", 409, false, t.inProgress, undefined, CONVERSATION));
+    const { rerender } = render(<AssistantView conversation={conversation(OLD)} />);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: t.retry }));
+    await flush();
+    rerender(<AssistantView conversation={conversation([OLD[0], { ...OLD[1], reply: { kind: "failure", code: "AI_TIMEOUT" } }])} />);
+    expect(within(screen.getByRole("alert")).getByRole("button", { name: t.retry })).toBeTruthy();
+  });
+
+  it("story 5.9 : 409 sur /assistant (Conversation inconnue de la page, abandon à 20 s) : la Conversation est ouverte à son adresse", async () => {
+    fetchMock().mockResolvedValue(failure("REQUEST_IN_PROGRESS", 409, false, t.inProgress, undefined, CONVERSATION));
+    render(<AssistantView />);
+    await ask("Première question");
+    expect(router.replace).toHaveBeenCalledWith(`/assistant/${CONVERSATION}`);
+    expect(screen.getByRole("status").textContent).toBe(t.pending);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("poursuivre : la question part avec le conversationId de la page", async () => {

@@ -76,6 +76,28 @@ describe("règles d'affichage d'un échange", () => {
     expect(exchangeReply(at(600), [], NOW)).toEqual({ kind: "failure", code: "AI_TIMEOUT" });
   });
 
+  it("story 5.9 : échec REQUEST_IN_PROGRESS (réessai réclamé) en cours pendant 90 s après sa date, puis AI_TIMEOUT", () => {
+    const claimed = (secondsAgo: number) => assistant("failure", secondsAgo, { errorCode: "REQUEST_IN_PROGRESS" });
+    // Question ancienne, réessai réclamé il y a 10 s : en cours.
+    expect(exchangeReply(at(600), [claimed(10)], NOW)).toEqual({ kind: "pending" });
+    expect(exchangeReply(at(600), [claimed(89.999)], NOW)).toEqual({ kind: "pending" });
+    expect(exchangeReply(at(600), [claimed(90)], NOW)).toEqual({ kind: "failure", code: "AI_TIMEOUT" });
+    // Revue de la 5.9 : un échec tardif (daté après la réclamation) ne masque pas une réclamation de
+    // moins de 90 s ; une fois la réclamation périmée, le dernier échec est affiché.
+    expect(exchangeReply(at(600), [claimed(30), assistant("failure", 10, { errorCode: "AI_UNAVAILABLE" })], NOW)).toEqual({ kind: "pending" });
+    expect(exchangeReply(at(600), [claimed(120), assistant("failure", 10, { errorCode: "AI_UNAVAILABLE" })], NOW)).toEqual({
+      kind: "failure",
+      code: "AI_UNAVAILABLE",
+    });
+    // Une réponse l'emporte toujours.
+    expect(exchangeReply(at(600), [claimed(10), assistant("answer", 5)], NOW).kind).toBe("answer");
+    // Le fil porte l'identifiant de la question (« Réessayer » le renvoie tel quel).
+    const q = question(600, "Q ?", "6f1c2b9e-3a4d-4e5f-8a9b-0c1d2e3f4a5b");
+    const [exchange] = buildThread([q, claimed(10)], NOW);
+    expect(exchange).toMatchObject({ clientRequestId: "6f1c2b9e-3a4d-4e5f-8a9b-0c1d2e3f4a5b", reply: { kind: "pending" } });
+    expect(hasPendingExchange([exchange])).toBe(true);
+  });
+
   it("fil : un échange par question, messages de l'Assistant rattachés à la question qui les précède, dans l'ordre", () => {
     const q1 = question(300, "Première ?");
     const q2 = question(200, "Deuxième ?");

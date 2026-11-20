@@ -56,16 +56,19 @@ type Reply =
   | { kind: "error"; error: ChatError };
 // Fil de la Conversation (story 5.6) : tous les échanges, dans l'ordre. stored : échange lu en base à
 // l'ouverture (/assistant/[id]), par opposition à une question envoyée depuis cette page.
-type Exchange = { id: string; question: string; reply: Reply; stored: boolean };
+// clientRequestId (story 5.9, AD-16) : identifiant de la question, renvoyé tel quel par « Réessayer ».
+type Exchange = { id: string; question: string; clientRequestId: string | null; reply: Reply; stored: boolean };
 // Issue d'une demande : la réponse affichée et la Conversation créée ou poursuivie, si chat l'a donnée.
-type Outcome = { reply: Reply; conversationId?: string };
+// inProgress (story 5.9) : 409 REQUEST_IN_PROGRESS avec la Conversation de la question déjà en cours.
+type Outcome = { reply: Reply; conversationId?: string; inProgress?: boolean };
 
 // Échanges enregistrés (règles d'affichage de conversation-thread.ts) → fil de la page. Un échec
 // enregistré devient l'alerte de panne avec le message du catalogue pour son code.
 function fromThread(exchanges: ThreadExchange[]): Exchange[] {
-  return exchanges.map(({ id, question, reply }) => ({
+  return exchanges.map(({ id, question, clientRequestId, reply }) => ({
     id,
     question,
+    clientRequestId: clientRequestId ?? null,
     stored: true,
     reply:
       reply.kind === "failure"
@@ -75,8 +78,9 @@ function fromThread(exchanges: ThreadExchange[]): Exchange[] {
 }
 
 // Corps d'erreur AD-19 renvoyé par /api/chat ; le message vient déjà du catalogue (relais).
+// Story 5.9 : un 409 REQUEST_IN_PROGRESS porte la Conversation de la question déjà en cours.
 const errorBodySchema = z.object({
-  error: z.object({ code: z.enum(ERROR_CODES), message: z.string().min(1), retryable: z.boolean() }),
+  error: z.object({ code: z.enum(ERROR_CODES), message: z.string().min(1), retryable: z.boolean(), conversationId: z.uuid().optional() }),
 });
 
 // Pannes de l'Assistant : titre « La réponse n'a pas pu être générée. » suivi du message. Les autres
@@ -89,9 +93,10 @@ const FAILURE_CODES: readonly ErrorCode[] = [
   "AI_BUDGET_EXHAUSTED",
   "INTERNAL",
 ];
-// Jamais de « Réessayer » : le quota ou le plafond ne reviennent pas avant l'heure indiquée, et un
-// double envoi (409) est déjà en cours.
-const NO_RETRY_CODES: readonly ErrorCode[] = ["QUOTA_EXCEEDED", "AI_DAILY_CAP_REACHED", "REQUEST_IN_PROGRESS"];
+// Jamais de « Réessayer » : le quota ou le plafond ne reviennent pas avant l'heure indiquée. Story 5.9 :
+// un 409 REQUEST_IN_PROGRESS fait patienter puis recharge la Conversation ; sans Conversation connue,
+// « Réessayer » renvoie le même identifiant (idempotent).
+const NO_RETRY_CODES: readonly ErrorCode[] = ["QUOTA_EXCEEDED", "AI_DAILY_CAP_REACHED"];
 
 const unavailable = (): Reply => ({ kind: "error", error: { code: "AI_UNAVAILABLE", message: t.failed, retryable: true } });
 const timedOut = (): Reply => ({ kind: "error", error: { code: "AI_TIMEOUT", message: t.failed, retryable: true } });
@@ -297,8 +302,8 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
   const tooLong = questionLength > CHAT_MAX_QUESTION_LENGTH;
   const fieldIssue: ChatQuestionIssue | null = tooLong ? "tooLong" : emptyRefused ? "empty" : null;
 
-  const updateExchange = (exchangeId: string, reply: Reply) =>
-    setExchanges((current) => current.map((exchange) => (exchange.id === exchangeId ? { ...exchange, reply } : exchange)));
+  const updateExchange = (exchangeId: string, reply: Reply, stored = false) =>
+    setExchanges((current) => current.map((exchange) => (exchange.id === exchangeId ? { ...exchange, reply, stored } : exchange)));
 
   // Conversation créée par la première question (ou confirmée) : la page en prend l'adresse, sans
   // rechargement ni perte du texte affiché ; les questions suivantes y sont ajoutées.
@@ -309,7 +314,7 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     if (window.location.pathname !== conversationHref(id)) window.history.replaceState(null, "", addressOf(id, measuring));
   }
 
-  async function ask(question: string, exchangeId: string) {
+  async function ask(question: string, exchangeId: string, clientRequestId: string) {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -337,12 +342,11 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        // Nouvel identifiant à chaque envoi, « Réessayer » compris (décision du 2026-11-16) ; Conversation
-        // en cours, si elle existe (story 5.6).
+        // Story 5.9 (AD-16) : nouvel identifiant pour chaque question, le MÊME pour « Réessayer » (fin de
+        // la décision du 2026-11-16) : chat rejoue un résultat enregistré, ou réessaie sur place.
+        // Conversation en cours, si elle existe (story 5.6).
         body: JSON.stringify(
-          currentConversation
-            ? { question, clientRequestId: crypto.randomUUID(), conversationId: currentConversation }
-            : { question, clientRequestId: crypto.randomUUID() },
+          currentConversation ? { question, clientRequestId, conversationId: currentConversation } : { question, clientRequestId },
         ),
         cache: "no-store",
         signal: controller.signal,
@@ -376,7 +380,15 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
           if (parsed.success) outcome = { reply: toReply(parsed.data), conversationId: parsed.data.conversationId };
         } else {
           const parsed = errorBodySchema.safeParse(body);
-          if (parsed.success) outcome = { reply: { kind: "error", error: parsed.data.error } };
+          if (parsed.success) {
+            const { conversationId, ...error } = parsed.data.error;
+            // Story 5.9 : question déjà en cours. Avec sa Conversation : attente puis rechargement ; sans,
+            // « Réessayer » (même identifiant).
+            outcome =
+              error.code === "REQUEST_IN_PROGRESS"
+                ? { reply: { kind: "error", error: { ...error, retryable: true } }, conversationId, inProgress: conversationId !== undefined }
+                : { reply: { kind: "error", error } };
+          }
           else if (response.status === 401) {
             outcome = { reply: { kind: "error", error: { code: "UNAUTHENTICATED", message: texts.session.expired, retryable: false } } };
           }
@@ -393,6 +405,15 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     // reçue reste adoptée.
     let reply = outcome.reply;
     if (expired) reply = timedOut();
+    // Story 5.9 (AD-16) : 409, la question est déjà en cours de traitement : état « en cours », puis la
+    // Conversation est rechargée jusqu'à un résultat (90 s au plus, règles du fil : au-delà, échec avec
+    // « Réessayer »).
+    if (!expired && outcome.inProgress && outcome.conversationId) {
+      controllerRef.current = null;
+      busyRef.current = false;
+      waitForConversation(outcome.conversationId, exchangeId);
+      return;
+    }
     if (outcome.conversationId) adoptConversation(outcome.conversationId);
     if (measuring) {
       const measure: Measure = {
@@ -414,6 +435,19 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     // revient dans le champ s'il est resté vide, pour être corrigée ou renvoyée plus tard.
     if (reply.kind === "error" && !canRetry(reply.error)) setValue((current) => (current === "" ? question : current));
     updateExchange(exchangeId, reply);
+  }
+
+  // Question déjà en cours (409, story 5.9) : sur la page de cette Conversation, l'échange devient un
+  // échange enregistré en cours, rechargé toutes les 5 s ; sinon, la Conversation est ouverte à son adresse.
+  function waitForConversation(id: string, exchangeId: string) {
+    if (conversation?.id === id) {
+      updateExchange(exchangeId, { kind: "pending" }, true);
+      return;
+    }
+    updateExchange(exchangeId, { kind: "pending" });
+    // Adresse déjà prise sans rechargement (replaceState, page /assistant) : rechargement complet.
+    if (window.location.pathname === conversationHref(id)) window.location.reload();
+    else router.replace(addressOf(id, measuring));
   }
 
   useEffect(() => () => controllerRef.current?.abort(), []);
@@ -450,22 +484,27 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     setEmptyRefused(false);
     const question = value.trim();
     const id = `local-${nextIdRef.current++}`;
-    setExchanges((current) => [...current, { id, question, reply: { kind: "pending" }, stored: false }]);
+    const clientRequestId = crypto.randomUUID();
+    setExchanges((current) => [...current, { id, question, clientRequestId, reply: { kind: "pending" }, stored: false }]);
     setValue("");
-    void ask(question, id);
+    void ask(question, id, clientRequestId);
   }
 
-  // « Réessayer » (dernier échange seulement) : la question repart dans la même Conversation (Q3 = A).
+  // « Réessayer » (dernier échange seulement) : la question repart dans la même Conversation (Q3 = A),
+  // avec le MÊME identifiant (story 5.9) : aucune bulle ni question en plus, le résultat remplace l'alerte.
   function retry() {
     if (busyRef.current || last === undefined) return;
     busyRef.current = true;
+    const clientRequestId = last.clientRequestId ?? crypto.randomUUID();
     // L'alerte qui a le focus disparaît : le focus va dans le champ pendant l'attente.
     fieldRef.current?.focus();
     // Même bulle de question : seul l'état de la réponse reprend.
     setExchanges((current) =>
-      current.map((exchange) => (exchange.id === last.id ? { ...exchange, reply: { kind: "pending" }, stored: false } : exchange)),
+      current.map((exchange) =>
+        exchange.id === last.id ? { ...exchange, clientRequestId, reply: { kind: "pending" }, stored: false } : exchange,
+      ),
     );
-    void ask(last.question, last.id);
+    void ask(last.question, last.id, clientRequestId);
   }
 
   // « + Nouvelle Conversation » sur /assistant, alors qu'une Conversation y a été commencée : l'écran

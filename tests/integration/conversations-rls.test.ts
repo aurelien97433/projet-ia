@@ -647,10 +647,11 @@ describe("story 5.6 : add_question et conversation_list", () => {
     );
     const common = { definer: false, config: '{"search_path=\\"\\""}', auth_exec: true, anon_exec: false, no_public: true };
     expect(rows).toEqual([
-      { name: "record_assistant_failure", args: "p_conversation_id uuid, p_error_code text, p_client_request_id uuid", ...common },
+      // Story 5.9 : p_replace_message_id ajouté (drop puis create), toujours une seule signature.
+      { name: "record_assistant_failure", args: "p_conversation_id uuid, p_error_code text, p_client_request_id uuid, p_replace_message_id uuid", ...common },
       {
         name: "save_assistant_answer",
-        args: "p_conversation_id uuid, p_kind message_kind, p_content text, p_sources jsonb, p_client_request_id uuid",
+        args: "p_conversation_id uuid, p_kind message_kind, p_content text, p_sources jsonb, p_client_request_id uuid, p_replace_message_id uuid",
         ...common,
       },
     ]);
@@ -779,5 +780,269 @@ describe("story 5.8 : add_question avec la question autonome", () => {
     expect(foreign.error?.code).toBe(FK);
     const { data } = await admin.from("messages").select("id").eq("conversation_id", conv.id);
     expect(data).toHaveLength(1);
+  });
+});
+
+// Story 5.9 : idempotence (AD-16). begin_retry (classement et réclamation, verrou transactionnel),
+// remplacement de l'échec par save_assistant_answer et record_assistant_failure (p_replace_message_id),
+// ligne « en cours » dans conversation_list ; aucune réclamation ni remplacement croisés entre Comptes.
+describe("story 5.9 : begin_retry et remplacement de l'échec", () => {
+  const QUESTION = "Combien de jours de congés ?";
+  type Classified = { outcome: string; conversation_id?: string; replace_message_id?: string; previous_error_code?: string; [key: string]: unknown };
+  const beginRetry = async (owner: Account, requestId: string, text = QUESTION, conversationId?: string) => {
+    const { data, error } = await owner.client.rpc("begin_retry", {
+      p_client_request_id: requestId,
+      p_question: text,
+      ...(conversationId ? { p_conversation_id: conversationId } : {}),
+    });
+    if (error) throw new Error(`begin_retry : ${error.code}`);
+    return data as Classified;
+  };
+  // Question vieillie (seul l'administrateur peut modifier created_at).
+  const age = (id: string, seconds: number) =>
+    localSqlRows(`update public.messages set created_at = clock_timestamp() - interval '${seconds} seconds' where id = '${id}'`);
+  const messagesOf = async (owner: Account, conversationId: string) =>
+    (
+      await owner.client
+        .from("messages")
+        .select("id, role, kind, content, error_code, client_request_id, created_at")
+        .eq("conversation_id", conversationId)
+        .order("created_at")
+    ).data!;
+  const failedQuestion = async (owner: Account, code = "AI_UNAVAILABLE") => {
+    const conv = await conversation(owner, "Réessai");
+    const requestId = crypto.randomUUID();
+    await question(owner, conv.id, requestId);
+    const failure = await assistant(owner, conv.id, "failure", { client_request_id: requestId, error_code: code });
+    return { conv, requestId, failure };
+  };
+
+  it("UNE seule signature de chaque fonction (avec p_replace_message_id), begin_retry : security invoker, search_path vide, EXECUTE à authenticated seul ; déclencheur sans EXECUTE", () => {
+    const rows = localSqlRows(
+      "select p.proname as name, pg_get_function_identity_arguments(p.oid) as args, p.prosecdef as definer, p.proconfig::text as config, has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec, has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec, has_function_privilege('service_role', p.oid, 'EXECUTE') as service_exec, not exists (select 1 from aclexplode(p.proacl) x where x.grantee = 0) as no_public from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('begin_retry', 'save_assistant_answer', 'record_assistant_failure', 'stamp_replaced_failure') order by p.proname",
+    );
+    const common = { definer: false, config: '{"search_path=\\"\\""}', auth_exec: true, anon_exec: false, service_exec: false, no_public: true };
+    expect(rows).toEqual([
+      { name: "begin_retry", args: "p_client_request_id uuid, p_question text, p_conversation_id uuid", ...common },
+      {
+        name: "record_assistant_failure",
+        args: "p_conversation_id uuid, p_error_code text, p_client_request_id uuid, p_replace_message_id uuid",
+        ...common,
+      },
+      {
+        name: "save_assistant_answer",
+        args: "p_conversation_id uuid, p_kind message_kind, p_content text, p_sources jsonb, p_client_request_id uuid, p_replace_message_id uuid",
+        ...common,
+      },
+      { name: "stamp_replaced_failure", args: "", ...common, auth_exec: false },
+    ]);
+    // Aucun droit nouveau sur la date des messages : seul le déclencheur la fixe.
+    const [column] = localSqlRows("select has_column_privilege('authenticated', 'public.messages', 'created_at', 'UPDATE') as created_update");
+    expect(column).toEqual({ created_update: false });
+  });
+
+  it("appels sans p_replace_message_id (forme du chat de la 5.8, avant son redéploiement) : insertion, comme avant", async () => {
+    const conv = await conversation(a, "Forme de la 5.8");
+    const requestId = crypto.randomUUID();
+    await question(a, conv.id, requestId);
+    expect((await a.client.rpc("record_assistant_failure", { p_conversation_id: conv.id, p_error_code: "AI_TIMEOUT", p_client_request_id: requestId })).error).toBeNull();
+    const saved = await a.client.rpc("save_assistant_answer", {
+      p_conversation_id: conv.id,
+      p_kind: "refusal_info_absente",
+      p_content: "Refus.",
+      p_sources: [],
+      p_client_request_id: requestId,
+    });
+    expect(saved.error).toBeNull();
+    // Index partiel limité à role = user : la réponse reprend l'identifiant de sa question.
+    expect((await messagesOf(a, conv.id)).map((row) => [row.kind, row.client_request_id])).toEqual([
+      ["question", requestId],
+      ["failure", requestId],
+      ["refusal_info_absente", requestId],
+    ]);
+  });
+
+  it("classement : nouvelle, autre texte ou autre Conversation (mismatch), en cours (< 90 s), rejeu avec Sources", async () => {
+    expect(await beginRetry(a, crypto.randomUUID())).toEqual({ outcome: "new" });
+
+    const pending = await conversation(a, "En cours");
+    const pendingId = crypto.randomUUID();
+    await question(a, pending.id, pendingId);
+    expect(await beginRetry(a, pendingId, "Autre question ?")).toEqual({ outcome: "mismatch" });
+    expect(await beginRetry(a, pendingId, QUESTION, (await conversation(a, "Autre")).id)).toEqual({ outcome: "mismatch" });
+    expect(await beginRetry(a, pendingId)).toEqual({ outcome: "in_progress", conversation_id: pending.id });
+    expect(await beginRetry(a, pendingId, QUESTION, pending.id)).toEqual({ outcome: "in_progress", conversation_id: pending.id });
+
+    const { conv, requestId } = await failedQuestion(a);
+    const answer = await assistant(a, conv.id, "answer", { client_request_id: requestId });
+    expect((await insertSource(a, answer.id, null)).error).toBeNull();
+    // Une réponse l'emporte sur l'échec : rejeu, rien d'écrit.
+    const before = await messagesOf(a, conv.id);
+    expect(await beginRetry(a, requestId)).toEqual({
+      outcome: "replay",
+      conversation_id: conv.id,
+      kind: "answer",
+      content: "Vous avez 25 jours.",
+      sources: [{ document_id: null, document_title: "Procédure", text_version: 1, passages }],
+    });
+    expect(await messagesOf(a, conv.id)).toEqual(before);
+  });
+
+  it("réessai après un échec : l'échec est réclamé (REQUEST_IN_PROGRESS, date du moment) ; un second classement → en cours, sans attendre", async () => {
+    const { conv, requestId, failure } = await failedQuestion(a, "AI_CITATIONS_INVALID");
+    age(failure.id, 300);
+    const claimed = await beginRetry(a, requestId);
+    expect(claimed).toMatchObject({
+      outcome: "retry",
+      conversation_id: conv.id,
+      question: QUESTION,
+      standalone_question: null,
+      replace_message_id: failure.id,
+      previous_error_code: "AI_CITATIONS_INVALID",
+    });
+    const rows = await messagesOf(a, conv.id);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ id: failure.id, kind: "failure", error_code: "REQUEST_IN_PROGRESS" });
+    expect(Date.now() - Date.parse(rows[1].created_at as string)).toBeLessThan(30_000);
+    // Verrou transactionnel : libéré à la fin de l'appel ; le second classement voit la réclamation.
+    const started = Date.now();
+    expect(await beginRetry(a, requestId)).toEqual({ outcome: "in_progress", conversation_id: conv.id });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    // Liste : en cours, pas « Sans réponse ».
+    const { data } = await a.client.from("conversation_list").select("unanswered").eq("id", conv.id).single();
+    expect(data!.unanswered).toBe(false);
+  });
+
+  it("réclamation de plus de 90 s : traitée comme un échec, de nouveau réclamable (jamais bloquée) ; « Sans réponse » dans la liste", async () => {
+    const { conv, requestId, failure } = await failedQuestion(a);
+    expect((await beginRetry(a, requestId)).outcome).toBe("retry");
+    age(failure.id, 91);
+    const { data } = await a.client.from("conversation_list").select("unanswered").eq("id", conv.id).single();
+    expect(data!.unanswered).toBe(true);
+    expect(await beginRetry(a, requestId)).toMatchObject({ outcome: "retry", replace_message_id: failure.id, previous_error_code: "AI_TIMEOUT" });
+  });
+
+  it("question sans résultat depuis plus de 90 s : une ligne d'échec REQUEST_IN_PROGRESS est insérée et réclamée", async () => {
+    const conv = await conversation(a, "Abandonnée");
+    const requestId = crypto.randomUUID();
+    const asked = await question(a, conv.id, requestId);
+    age(asked.id, 120);
+    const claimed = await beginRetry(a, requestId);
+    expect(claimed).toMatchObject({ outcome: "retry", previous_error_code: "AI_TIMEOUT" });
+    const rows = await messagesOf(a, conv.id);
+    expect(rows.map((row) => [row.kind, row.error_code, row.client_request_id])).toEqual([
+      ["question", null, requestId],
+      ["failure", "REQUEST_IN_PROGRESS", requestId],
+    ]);
+    expect(rows[1].id).toBe(claimed.replace_message_id);
+  });
+
+  it("revue : échec tardif du chat d'origine inséré après la réclamation → la réclamation de moins de 90 s reste « en cours » (classement et liste)", async () => {
+    const conv = await conversation(a, "Échec tardif");
+    const requestId = crypto.randomUUID();
+    const asked = await question(a, conv.id, requestId);
+    age(asked.id, 120);
+    expect((await beginRetry(a, requestId)).outcome).toBe("retry");
+    // Le chat d'origine termine en retard et insère son échec (sans p_replace_message_id), daté après la réclamation.
+    const late = await a.client.rpc("record_assistant_failure", { p_conversation_id: conv.id, p_error_code: "AI_TIMEOUT", p_client_request_id: requestId });
+    expect(late.error).toBeNull();
+    expect(await beginRetry(a, requestId)).toEqual({ outcome: "in_progress", conversation_id: conv.id });
+    const { data } = await a.client.from("conversation_list").select("unanswered").eq("id", conv.id).single();
+    expect(data!.unanswered).toBe(false);
+  });
+
+  it("concurrence : deux classements simultanés du même identifiant → un seul réessai, l'autre en cours", async () => {
+    const { requestId, failure } = await failedQuestion(a);
+    const results = await Promise.all([beginRetry(a, requestId), beginRetry(a, requestId), beginRetry(a, requestId)]);
+    expect(results.filter((result) => result.outcome === "retry")).toHaveLength(1);
+    expect(results.filter((result) => result.outcome === "in_progress")).toHaveLength(2);
+    expect((await readAsAdmin("messages", failure.id))!.error_code).toBe("REQUEST_IN_PROGRESS");
+  });
+
+  it("remplacement : la réponse et ses Sources prennent la place de l'échec (même ligne) ; un résultat déjà remplacé ne l'est plus (P0002)", async () => {
+    const { conv, requestId, failure } = await failedQuestion(a);
+    const claimed = await beginRetry(a, requestId);
+    const saved = await a.client.rpc("save_assistant_answer", {
+      p_conversation_id: conv.id,
+      p_kind: "answer",
+      p_content: "Vous avez 25 jours[S1].",
+      p_sources: [{ document_id: null, document_title: "Procédure", text_version: 1, passages }],
+      p_client_request_id: requestId,
+      p_replace_message_id: claimed.replace_message_id,
+    });
+    expect(saved.error).toBeNull();
+    expect((saved.data as { message_id: string }).message_id).toBe(failure.id);
+    const rows = await messagesOf(a, conv.id);
+    expect(rows.map((row) => [row.id, row.kind, row.error_code])).toEqual([
+      [rows[0].id, "question", null],
+      [failure.id, "answer", null],
+    ]);
+    expect((await a.client.from("message_sources").select("id").eq("message_id", failure.id)).data).toHaveLength(1);
+    // Réponse validée : ni un nouvel échec ni un autre résultat ne la remplacent.
+    const late = await a.client.rpc("record_assistant_failure", {
+      p_conversation_id: conv.id,
+      p_error_code: "AI_TIMEOUT",
+      p_client_request_id: requestId,
+      p_replace_message_id: failure.id,
+    });
+    expect(late.error?.code).toBe("P0002");
+    expect((await readAsAdmin("messages", failure.id))!.kind).toBe("answer");
+    // Rejeu ensuite.
+    expect((await beginRetry(a, requestId)).outcome).toBe("replay");
+  });
+
+  it("réessai qui échoue encore : nouvel échec à la place de l'ancien (même ligne, nouveau code)", async () => {
+    const { conv, requestId, failure } = await failedQuestion(a);
+    await beginRetry(a, requestId);
+    const again = await a.client.rpc("record_assistant_failure", {
+      p_conversation_id: conv.id,
+      p_error_code: "AI_TIMEOUT",
+      p_client_request_id: requestId,
+      p_replace_message_id: failure.id,
+    });
+    expect(again.error).toBeNull();
+    expect(again.data).toBe(failure.id);
+    expect((await messagesOf(a, conv.id)).map((row) => [row.kind, row.error_code])).toEqual([
+      ["question", null],
+      ["failure", "AI_TIMEOUT"],
+    ]);
+  });
+
+  it("Q2 : B ne réclame ni ne remplace l'échec de A, avec le même identifiant que A ou un identifiant forgé", async () => {
+    const { conv, requestId, failure } = await failedQuestion(a);
+    age(failure.id, 300);
+    // Même identifiant que A : B n'a aucune question avec lui → nouvelle question, rien de A n'est touché.
+    expect(await beginRetry(b, requestId)).toEqual({ outcome: "new" });
+    expect(await beginRetry(b, crypto.randomUUID())).toEqual({ outcome: "new" });
+    const untouched = await readAsAdmin("messages", failure.id);
+    expect(untouched).toMatchObject({ kind: "failure", error_code: "AI_UNAVAILABLE" });
+    // p_replace_message_id d'un autre Compte : refusé, rien d'écrit.
+    const save = await b.client.rpc("save_assistant_answer", {
+      p_conversation_id: conv.id,
+      p_kind: "refusal_info_absente",
+      p_content: "Intrusion.",
+      p_sources: [],
+      p_client_request_id: requestId,
+      p_replace_message_id: failure.id,
+    });
+    expect(save.error?.code).toBe("P0002");
+    const record = await b.client.rpc("record_assistant_failure", {
+      p_conversation_id: conv.id,
+      p_error_code: "AI_TIMEOUT",
+      p_client_request_id: requestId,
+      p_replace_message_id: failure.id,
+    });
+    expect(record.error?.code).toBe("P0002");
+    expect(await readAsAdmin("messages", failure.id)).toEqual(untouched);
+    // A ne remplace pas l'échec d'une autre de ses questions (identifiant différent).
+    const other = await a.client.rpc("record_assistant_failure", {
+      p_conversation_id: conv.id,
+      p_error_code: "AI_TIMEOUT",
+      p_client_request_id: crypto.randomUUID(),
+      p_replace_message_id: failure.id,
+    });
+    expect(other.error?.code).toBe("P0002");
+    // anon : aucun accès.
+    expect((await anon.rpc("begin_retry", { p_client_request_id: requestId, p_question: QUESTION })).error).not.toBeNull();
   });
 });

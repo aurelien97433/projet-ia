@@ -41,7 +41,11 @@ export const PASSAGE_TITLE_MAX_LENGTH = 200;
 // restant ; génération diffusée : 20 s jusqu'au premier morceau, 70 s au plus en tout. Au-delà de
 // l'échéance, l'échec et la libération éventuelle sont encore enregistrés, avec leur propre délai.
 // Chaîne : génération 20 s au premier morceau < relais 25 s aux en-têtes ; chat 85 s < navigateur
-// 90 s < maxDuration 120 s.
+// 90 s < maxDuration 120 s. Story 5.9 (décision de l'utilisateur du 2026-11-20, option A) :
+// l'enregistrement du résultat (save_assistant_answer, CHAT_CLEANUP_TIMEOUT_MS = 5 s, hors de
+// l'échéance commune pour que sa réponse soit toujours lue) est RÉSERVÉ dans l'échéance : la génération
+// (et l'appel court) reçoit au plus le temps restant moins 5 s ; chat finit donc, enregistrement compris,
+// avant 85 s en flux (sous les 90 s du navigateur) et avant 60 s en JSON (sous les 70 s du relais).
 export const CHAT_TIMEOUT_MS = 85_000;
 export const CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS = 20_000;
 // Premier affichage du serveur (story 5.5, décision de l'utilisateur du 2026-11-17, option A) : en mode
@@ -55,6 +59,7 @@ export const CHAT_GENERATION_MAX_TIMEOUT_MS = 70_000;
 // 40 s au plus, sous le délai de 70 s du relais JSON.
 export const CHAT_JSON_TIMEOUT_MS = 60_000;
 export const CHAT_JSON_GENERATION_MAX_TIMEOUT_MS = 40_000;
+// Délai propre des écritures hors de l'échéance commune (enregistrement du résultat, échec, libération).
 export const CHAT_CLEANUP_TIMEOUT_MS = 5_000;
 // Questions de suivi (story 5.8, AD-12) : reformulation en question autonome à partir des 3 derniers
 // échanges réglés, réponses tronquées à 1 500 caractères. Délai de 10 s pour la reformulation (toutes

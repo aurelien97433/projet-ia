@@ -235,6 +235,29 @@ describe("relayChat", () => {
     expect(await relayChat(request, TOKEN, undefined, TARGET)).toEqual({ status, body: appError(code, message, retryable) });
   });
 
+  it("story 5.9 : 409 REQUEST_IN_PROGRESS relayé avec la Conversation (UUID seulement, et pour ce code seulement)", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({ error: { code: "REQUEST_IN_PROGRESS", message: "x", retryable: false, conversationId: CONVERSATION.toUpperCase() } }, { status: 409 }),
+    );
+    expect(await relayChat(request, TOKEN, undefined, TARGET)).toEqual({
+      status: 409,
+      body: appError("REQUEST_IN_PROGRESS", texts.assistant.inProgress, false, undefined, CONVERSATION.toLowerCase()),
+    });
+    fetchMock.mockResolvedValue(
+      Response.json({ error: { code: "REQUEST_IN_PROGRESS", message: "x", retryable: false, conversationId: "pas-un-uuid" } }, { status: 409 }),
+    );
+    expect((await relayChat(request, TOKEN, undefined, TARGET)).body).toEqual(appError("REQUEST_IN_PROGRESS", texts.assistant.inProgress, false));
+    fetchMock.mockResolvedValue(
+      Response.json({ error: { code: "AI_TIMEOUT", message: "x", retryable: true, conversationId: CONVERSATION } }, { status: 504 }),
+    );
+    expect((await relayChat(request, TOKEN, undefined, TARGET)).body).toEqual(appError("AI_TIMEOUT", texts.assistant.failed, true));
+    fetchMock.mockResolvedValue(
+      Response.json({ error: { code: "REQUEST_IN_PROGRESS", message: "x", retryable: false, conversationId: CONVERSATION } }, { status: 409 }),
+    );
+    const streamed = await relayChatStream(request, TOKEN, undefined, TARGET);
+    expect(((await streamed.json()) as { error: { conversationId?: string } }).error.conversationId).toBe(CONVERSATION);
+  });
+
   it("401 de la passerelle : UNAUTHENTICATED", async () => {
     fetchMock.mockResolvedValue(Response.json({ msg: "Invalid JWT" }, { status: 401 }));
     expect(await relayChat(request, TOKEN, undefined, TARGET)).toEqual({

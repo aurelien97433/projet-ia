@@ -67,6 +67,11 @@ async function userCount(user: User): Promise<number> {
 const globalCount = () => sqlNumber(`select coalesce((select count from public.ai_usage_global where day_utc = ${DAY}), 0) as value`);
 const setLimit = (key: string, value: number) => localSqlRows(`update public.ai_limits set value = ${value} where key = '${key}'`);
 
+// Story 5.9 : une réponse rejouée garde le texte, les Sources, leurs positions et versions ; les numéros
+// [P{n}] du contexte de génération ne sont pas enregistrés, seul leur nombre est comparé.
+const comparable = (value: unknown): unknown =>
+  JSON.parse(JSON.stringify(value), (key, item) => (key === "passageNumbers" && Array.isArray(item) ? item.length : item));
+
 const reserve = async (user: User) => {
   const { data, error } = await user.client.rpc("reserve_ai_call");
   if (error) throw new Error(`reserve_ai_call : ${error.code}`);
@@ -351,15 +356,19 @@ describe("fonction chat (vectorisation et génération simulées)", () => {
     }
   });
 
-  it("même clientRequestId : 409 REQUEST_IN_PROGRESS, aucune réservation ni Conversation", async () => {
+  it("story 5.9, même clientRequestId après une réponse : rejeu de la réponse et des Sources, aucune réservation ni Conversation", async () => {
     const id = crypto.randomUUID();
-    expect((await chat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", id)).status).toBe(200);
-    const before = { user: (await userCount(measure)), conversations: (await measure.client.from("conversations").select("id")).data!.length };
+    const first = await chat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", id);
+    expect(first.status).toBe(200);
+    const before = { user: (await userCount(measure)), global: globalCount(), conversations: (await measure.client.from("conversations").select("id")).data!.length };
     const replay = await chat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", id);
-    expect(replay.status).toBe(409);
-    expect(replay.body.error.code).toBe("REQUEST_IN_PROGRESS");
+    expect(replay.status).toBe(200);
+    expect(comparable(replay.body)).toEqual(comparable(first.body));
     expect((await userCount(measure))).toBe(before.user);
+    expect(globalCount()).toBe(before.global);
     expect((await measure.client.from("conversations").select("id")).data).toHaveLength(before.conversations);
+    const { data: messages } = await measure.client.from("messages").select("kind").eq("conversation_id", first.body.conversationId);
+    expect(messages).toHaveLength(2);
   });
 
   it("réponse sans citation valide : AI_CITATIONS_INVALID, échec enregistré, unité consommée (Compte et global +1)", async () => {
@@ -582,12 +591,16 @@ describe("fonction chat en flux (story 5.5)", () => {
     expect(final[0]).toMatchObject({ event: "error", data: { code: "AI_OUTPUT_INVALID" } });
   });
 
-  it("même clientRequestId en flux : 409 REQUEST_IN_PROGRESS en JSON", async () => {
+  it("story 5.9, même clientRequestId en flux après une réponse : un seul done identique, aucun delta, compteur inchangé", async () => {
     const id = crypto.randomUUID();
-    await streamChat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", id);
-    const response = await request(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", undefined, id);
-    expect(response.status).toBe(409);
-    expect(((await response.json()) as ChatBody).error.code).toBe("REQUEST_IN_PROGRESS");
+    const first = await streamChat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", id);
+    const before = await userCount(measure);
+    const replay = await streamChat(measure, "Sous quel délai les notes de frais sont-elles remboursées ?", id);
+    expect(replay.response.status).toBe(200);
+    expect(replay.deltas).toEqual([]);
+    expect(comparable(replay.final)).toEqual(comparable([first.final.at(-1)]));
+    expect(replay.final[0].event).toBe("done");
+    expect(await userCount(measure)).toBe(before);
   });
 
   it("client déconnecté pendant le flux : la réponse est enregistrée quand même", async () => {
@@ -767,5 +780,222 @@ describe("fonction chat : questions de suivi (story 5.8)", () => {
       { role: "assistant", kind: "failure", error_code: "AI_UNAVAILABLE", standalone_question: null, client_request_id: streamRequestId },
     ]);
     expect(data).toHaveLength(6);
+  });
+});
+
+// Story 5.9 : idempotence (AD-16) de bout en bout, fonction chat locale (génération simulée). L'état
+// d'une demande précédente (question en cours, panne, citations invalides) est préparé par les
+// fonctions SQL du Collaborateur ; seule la date est vieillie par l'administrateur.
+describe("fonction chat : idempotence (story 5.9)", () => {
+  const QUESTION = "Combien de jours de congés payés un collaborateur a-t-il par an ?";
+  const age = (sql: string) => localSqlRows(sql);
+  async function send(user: User, question: string, clientRequestId: string, conversationId?: string) {
+    const response = await fetch(`${localSupabase().url}/functions/v1/chat`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${user.token}`, apikey: localSupabase().publishableKey, "Content-Type": "application/json" },
+      body: JSON.stringify(conversationId ? { question, clientRequestId, conversationId } : { question, clientRequestId }),
+    });
+    return { status: response.status, body: (await response.json()) as ChatBody & { error: { conversationId?: string } } };
+  }
+  // Question enregistrée (comme par chat), avec éventuellement un échec rattaché.
+  async function asked(user: User, question = QUESTION, failureCode?: string) {
+    const requestId = crypto.randomUUID();
+    const { data, error } = await user.client.rpc("start_conversation", { p_title: question.slice(0, 120), p_question: question, p_client_request_id: requestId });
+    if (error) throw new Error(`start_conversation : ${error.code}`);
+    const conversationId = (data as { conversation_id: string }).conversation_id;
+    let failureId: string | undefined;
+    if (failureCode) {
+      const failed = await user.client.rpc("record_assistant_failure", { p_conversation_id: conversationId, p_error_code: failureCode, p_client_request_id: requestId });
+      if (failed.error) throw new Error(`record_assistant_failure : ${failed.error.code}`);
+      failureId = failed.data as string;
+    }
+    return { requestId, conversationId, failureId };
+  }
+  const messagesOf = async (user: User, conversationId: string) =>
+    (await user.client.from("messages").select("id, role, kind, error_code, standalone_question").eq("conversation_id", conversationId).order("created_at")).data!;
+
+  it("rejeu d'un refus : même refus, aucun appel, compteur inchangé", async () => {
+    const user = await signUp("chat-rejeu-refus");
+    const id = crypto.randomUUID();
+    const first = await send(user, "xyzzy plugh quux frobnicate", id);
+    expect(first.body.message.kind).toBe("refusal_info_absente");
+    const before = await userCount(user);
+    const replay = await send(user, "xyzzy plugh quux frobnicate", id);
+    expect(replay).toEqual(first);
+    expect(await userCount(user)).toBe(before);
+  });
+
+  it("en cours (question de moins de 90 s sans résultat) : 409 avec la Conversation, aucune réservation", async () => {
+    const user = await signUp("chat-en-cours");
+    const { requestId, conversationId } = await asked(user);
+    const response = await send(user, QUESTION, requestId);
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatchObject({ code: "REQUEST_IN_PROGRESS", conversationId });
+    expect(await userCount(user)).toBe(0);
+    expect(await messagesOf(user, conversationId)).toHaveLength(1);
+  });
+
+  it("sans résultat depuis plus de 90 s : réessai, question réutilisée, unité réservée, résultat enregistré (une bulle)", async () => {
+    const user = await signUp("chat-plus-de-90");
+    const { requestId, conversationId } = await asked(user);
+    age(`update public.messages set created_at = now() - interval '120 seconds' where client_request_id = '${requestId}'`);
+    const response = await send(user, QUESTION, requestId);
+    expect(response.status).toBe(200);
+    expect(response.body.conversationId).toBe(conversationId);
+    expect((await messagesOf(user, conversationId)).map((row) => row.kind)).toEqual(["question", "answer"]);
+    expect(await userCount(user)).toBe(1);
+  });
+
+  it.each([["AI_UNAVAILABLE"], ["AI_CITATIONS_INVALID"]])(
+    "réessai après %s (sans conversationId, comme après l'abandon à 20 s) : la réponse remplace l'échec, même ligne, aucune question ni Conversation en plus",
+    async (code) => {
+      const user = await signUp("chat-reessai");
+      const { requestId, conversationId, failureId } = await asked(user, QUESTION, code);
+      const response = await send(user, QUESTION, requestId);
+      expect(response.status).toBe(200);
+      expect(response.body.message.kind).toBe("answer");
+      expect(response.body.conversationId).toBe(conversationId);
+      const rows = await messagesOf(user, conversationId);
+      expect(rows.map((row) => [row.kind, row.error_code])).toEqual([
+        ["question", null],
+        ["answer", null],
+      ]);
+      expect(rows[1].id).toBe(failureId);
+      expect((await user.client.from("conversations").select("id")).data).toHaveLength(1);
+      expect((await user.client.from("message_sources").select("id").eq("message_id", failureId!)).data!.length).toBeGreaterThan(0);
+      expect(await userCount(user)).toBe(1);
+      // Rejeu ensuite : la réponse, sans appel.
+      expect(comparable(await send(user, QUESTION, requestId))).toEqual(comparable(response));
+      expect(await userCount(user)).toBe(1);
+    },
+  );
+
+  it("réessai qui échoue encore : le nouvel échec remplace l'ancien (une seule ligne), unité consommée (AD-14)", async () => {
+    const user = await signUp("chat-reessai-echec");
+    const question = `${QUESTION} ${FAKE_NO_CITATION_MARKER}`;
+    const id = crypto.randomUUID();
+    const first = await send(user, question, id);
+    expect(first.body.error.code).toBe("AI_CITATIONS_INVALID");
+    const again = await send(user, question, id);
+    expect(again.body.error.code).toBe("AI_CITATIONS_INVALID");
+    const conversations = (await user.client.from("conversations").select("id")).data!;
+    expect(conversations).toHaveLength(1);
+    expect((await messagesOf(user, conversations[0].id)).map((row) => [row.kind, row.error_code])).toEqual([
+      ["question", null],
+      ["failure", "AI_CITATIONS_INVALID"],
+    ]);
+    expect(await userCount(user)).toBe(2);
+  });
+
+  it("réessai d'une question de suivi : historique d'avant la question ; question autonome non réécrite en base", async () => {
+    const user = await signUp("chat-reessai-suivi");
+    const first = await send(user, QUESTION, crypto.randomUUID());
+    const conversationId = first.body.conversationId;
+    const followId = crypto.randomUUID();
+    expect((await user.client.rpc("add_question", { p_conversation_id: conversationId, p_question: "Et qui valide la demande ?", p_client_request_id: followId })).error).toBeNull();
+    expect((await user.client.rpc("record_assistant_failure", { p_conversation_id: conversationId, p_error_code: "AI_UNAVAILABLE", p_client_request_id: followId })).error).toBeNull();
+    const retried = await send(user, "Et qui valide la demande ?", followId, conversationId);
+    expect(retried.status).toBe(200);
+    expect(retried.body.message.kind).toBe("answer");
+    expect((await messagesOf(user, conversationId)).map((row) => [row.kind, row.standalone_question])).toEqual([
+      ["question", null],
+      ["answer", null],
+      ["question", null],
+      ["answer", null],
+    ]);
+  });
+
+  // Revue de la 5.9 : l'historique transmis est bien celui d'AVANT la question réessayée. Observé par la
+  // reformulation simulée en panne (repère dans la question) : elle n'est tentée que si l'historique lu
+  // contient un échange réglé.
+  it("réessai : historique relu d'avant la question réessayée (un échange réglé APRÈS elle est ignoré, un échange AVANT elle est transmis)", async () => {
+    const user = await signUp("chat-reessai-historique");
+    const firstQuestion = `${QUESTION} ${FAKE_REWRITE_FAILURE_MARKER}`;
+    const { requestId: firstId, conversationId } = await asked(user, firstQuestion, "AI_UNAVAILABLE");
+    // Échange réglé APRÈS la première question.
+    const secondId = crypto.randomUUID();
+    expect((await user.client.rpc("add_question", { p_conversation_id: conversationId, p_question: "Et qui valide la demande ?", p_client_request_id: secondId })).error).toBeNull();
+    expect(
+      (
+        await user.client.rpc("save_assistant_answer", {
+          p_conversation_id: conversationId,
+          p_kind: "refusal_info_absente",
+          p_content: REFUSAL_INFO_ABSENTE,
+          p_sources: [],
+          p_client_request_id: secondId,
+        })
+      ).error,
+    ).toBeNull();
+    // Réessai de la première : aucun échange avant elle → aucune reformulation, donc pas de panne simulée.
+    const first = await send(user, firstQuestion, firstId, conversationId);
+    expect(first.status).toBe(200);
+    // Troisième question, en échec, APRÈS des échanges réglés : son réessai reformule (panne simulée).
+    const thirdQuestion = `Et ensuite ? ${FAKE_REWRITE_FAILURE_MARKER}`;
+    const thirdId = crypto.randomUUID();
+    expect((await user.client.rpc("add_question", { p_conversation_id: conversationId, p_question: thirdQuestion, p_client_request_id: thirdId })).error).toBeNull();
+    expect((await user.client.rpc("record_assistant_failure", { p_conversation_id: conversationId, p_error_code: "AI_TIMEOUT", p_client_request_id: thirdId })).error).toBeNull();
+    const before = await userCount(user);
+    const third = await send(user, thirdQuestion, thirdId, conversationId);
+    expect(third.status).toBe(503);
+    expect(third.body.error.code).toBe("AI_UNAVAILABLE");
+    // Panne de reformulation sans réponse facturée : unité rendue ; l'échec remplace l'ancien (une ligne).
+    expect(await userCount(user)).toBe(before);
+    expect((await messagesOf(user, conversationId)).map((row) => [row.kind, row.error_code])).toEqual([
+      // Ordre de created_at : le résultat du réessai prend la date du remplacement (après l'échange 2).
+      ["question", null],
+      ["question", null],
+      ["refusal_info_absente", null],
+      [first.body.message.kind, null],
+      ["question", null],
+      ["failure", "AI_UNAVAILABLE"],
+    ]);
+  });
+
+  it("même identifiant, autre question : 400 VALIDATION_FAILED, rien d'enregistré, aucune réservation", async () => {
+    const user = await signUp("chat-autre-texte");
+    const { requestId, conversationId } = await asked(user, QUESTION, "AI_UNAVAILABLE");
+    const response = await send(user, "Une tout autre question ?", requestId);
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_FAILED");
+    expect((await messagesOf(user, conversationId)).map((row) => [row.kind, row.error_code])).toEqual([
+      ["question", null],
+      ["failure", "AI_UNAVAILABLE"],
+    ]);
+    expect(await userCount(user)).toBe(0);
+  });
+
+  it("doublons volontaires : même texte, deux identifiants → deux questions enregistrées et traitées", async () => {
+    const user = await signUp("chat-doublons");
+    const [one, two] = await Promise.all([send(user, QUESTION, crypto.randomUUID()), send(user, QUESTION, crypto.randomUUID())]);
+    expect([one.status, two.status]).toEqual([200, 200]);
+    expect(one.body.conversationId).not.toBe(two.body.conversationId);
+    expect((await user.client.from("messages").select("id").eq("role", "user")).data).toHaveLength(2);
+    expect(await userCount(user)).toBe(2);
+  });
+
+  it("concurrence : deux réessais simultanés du même identifiant → un seul réserve et appelle le fournisseur", async () => {
+    const user = await signUp("chat-double-reessai");
+    const { requestId, conversationId } = await asked(user, QUESTION, "AI_UNAVAILABLE");
+    const results = await Promise.all([send(user, QUESTION, requestId), send(user, QUESTION, requestId)]);
+    expect(results.every((result) => result.status === 200 || result.status === 409)).toBe(true);
+    expect(results.some((result) => result.status === 200)).toBe(true);
+    expect(await userCount(user)).toBe(1);
+    expect((await messagesOf(user, conversationId)).map((row) => row.kind)).toEqual(["question", "answer"]);
+  });
+
+  it("quota épuisé au réessai : 429, l'échec reste affiché (code d'origine), aucun appel", async () => {
+    const user = await signUp("chat-reessai-quota");
+    const { requestId, conversationId, failureId } = await asked(user, QUESTION, "AI_CITATIONS_INVALID");
+    await Promise.all(Array.from({ length: 60 }, () => reserve(user)));
+    const response = await send(user, QUESTION, requestId);
+    expect(response.status).toBe(429);
+    expect(response.body.error.code).toBe("QUOTA_EXCEEDED");
+    const rows = await messagesOf(user, conversationId);
+    expect(rows.map((row) => [row.kind, row.error_code])).toEqual([
+      ["question", null],
+      ["failure", "AI_CITATIONS_INVALID"],
+    ]);
+    expect(rows[1].id).toBe(failureId);
+    expect(await userCount(user)).toBe(60);
   });
 });

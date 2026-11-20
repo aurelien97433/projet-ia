@@ -71,10 +71,16 @@ export function chatMessage(code: ErrorCode, resetAt?: string): string {
 const requestBody = ({ question, clientRequestId, conversationId }: ChatRequest) =>
   JSON.stringify(conversationId ? { question, clientRequestId, conversationId } : { question, clientRequestId });
 
-const failed = (code: ErrorCode, retryable: boolean, status: number, resetAt?: string): ChatRelayResult => ({
+const failed = (code: ErrorCode, retryable: boolean, status: number, resetAt?: string, conversationId?: string): ChatRelayResult => ({
   status,
-  body: appError(code, chatMessage(code, resetAt), retryable, resetAt),
+  body: appError(code, chatMessage(code, resetAt), retryable, resetAt, conversationId),
 });
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Story 5.9 : Conversation de la question déjà en cours, relayée avec le 409 REQUEST_IN_PROGRESS seulement.
+const validConversationId = (code: ErrorCode, value: unknown): string | undefined =>
+  code === "REQUEST_IN_PROGRESS" && typeof value === "string" && UUID.test(value) ? value.toLowerCase() : undefined;
 
 const unavailable = (): ChatRelayResult => failed("AI_UNAVAILABLE", true, 503);
 
@@ -137,13 +143,13 @@ function readJsonResult(response: Response, body: unknown, duration_ms: number):
   // La passerelle Supabase refuse un jeton invalide avant la fonction, avec son propre corps.
   if (response.status === 401) return failed("UNAUTHENTICATED", false, 401);
 
-  const error = (body as { error?: { code?: unknown; retryable?: unknown; resetAt?: unknown } } | undefined)?.error;
+  const error = (body as { error?: { code?: unknown; retryable?: unknown; resetAt?: unknown; conversationId?: unknown } } | undefined)?.error;
   if (!isErrorCode(error?.code) || response.status < 400) {
     logEvent("chat_relay_failed", { cause: "unexpected_error", status: response.status, duration_ms });
     return unavailable();
   }
   logEvent("chat_relay_refused", { code: error.code, status: response.status, duration_ms });
-  return failed(error.code, error.retryable === true, response.status, validResetAt(error.resetAt));
+  return failed(error.code, error.retryable === true, response.status, validResetAt(error.resetAt), validConversationId(error.code, error.conversationId));
 }
 
 const jsonResponse = ({ status, body }: ChatRelayResult) =>

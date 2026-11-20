@@ -45,7 +45,8 @@ export type ThreadReply =
   | { kind: "pending" };
 
 // Un échange : une question et l'issue retenue parmi les messages de l'Assistant qui la suivent.
-export type ThreadExchange = { id: string; question: string; reply: ThreadReply };
+// clientRequestId : identifiant de la question, renvoyé tel quel par « Réessayer » (story 5.9, AD-16).
+export type ThreadExchange = { id: string; question: string; clientRequestId?: string | null; reply: ThreadReply };
 
 const asErrorCode = (value: string | null): ErrorCode =>
   ERROR_CODES.includes(value as ErrorCode) ? (value as ErrorCode) : "INTERNAL";
@@ -54,6 +55,12 @@ const asErrorCode = (value: string | null): ErrorCode =>
 // 1. une réponse ou un refus enregistré l'emporte sur un échec de la même question (le plus récent) ;
 // 2. échec seul → échec, avec son code ;
 // 3. aucun message de l'Assistant : en cours pendant 90 s après la question, puis échec AI_TIMEOUT.
+// Story 5.9 : un échec REQUEST_IN_PROGRESS est un réessai réclamé (begin_retry) : en cours pendant 90 s
+// après sa date, QUELLE QUE SOIT sa place parmi les échecs (un échec tardif ne la masque pas), puis il
+// compte comme un échec AI_TIMEOUT (même règle que begin_retry et la vue conversation_list).
+const isFreshClaim = (message: StoredMessage, nowMs: number) =>
+  message.kind === "failure" && message.errorCode === "REQUEST_IN_PROGRESS" && nowMs - Date.parse(message.createdAt) < PENDING_LIMIT_MS;
+
 export function exchangeReply(questionCreatedAt: string, replies: StoredMessage[], nowMs: number): ThreadReply {
   const settled = replies.filter((message) => message.kind !== "failure" && message.kind !== "question").at(-1);
   if (settled) {
@@ -61,7 +68,9 @@ export function exchangeReply(questionCreatedAt: string, replies: StoredMessage[
     if (settled.kind === "refusal_hors_cadre") return { kind: "refusal", variant: "hors_cadre" };
     return { kind: "answer", content: settled.content ?? "", sources: settled.sources };
   }
+  if (replies.some((message) => isFreshClaim(message, nowMs))) return { kind: "pending" };
   const failure = replies.filter((message) => message.kind === "failure").at(-1);
+  if (failure?.errorCode === "REQUEST_IN_PROGRESS") return { kind: "failure", code: "AI_TIMEOUT" };
   if (failure) return { kind: "failure", code: asErrorCode(failure.errorCode) };
   const age = nowMs - Date.parse(questionCreatedAt);
   return age < PENDING_LIMIT_MS ? { kind: "pending" } : { kind: "failure", code: "AI_TIMEOUT" };
@@ -91,6 +100,7 @@ export function buildThread(messages: StoredMessage[], nowMs: number): ThreadExc
   return groups.map(({ question, replies }) => ({
     id: question.id,
     question: question.content ?? "",
+    clientRequestId: question.clientRequestId,
     reply: exchangeReply(question.createdAt, replies, nowMs),
   }));
 }
