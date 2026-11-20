@@ -1786,6 +1786,8 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 
 **Écart h1 #1 : variabilité, pas régression.** « Quel est le budget marketing de NexaWorks pour 2027 ? » a été classé hors cadre au lieu d'« information absente » sur le premier essai ; les deux autres étaient conformes. Avant de conclure, l'utilisateur a demandé une comparaison de l'appel court entre la base et la 5.8 : consigne, échantillonnage et sortie bornée inchangés ; pour une première question, la question transmise reste la question d'origine. La base distante, lue en lecture seule, confirme le chemin : nouvelle Conversation, aucune question autonome, refus en 925 ms, un seul appel. h1 avait réussi 15 fois sur 15 depuis la 5.3. La consigne renforcée (« une question qui nomme NexaWorks n'est jamais hors cadre », « en cas de doute, information absente ») est validée, mais reportée en première tâche de la 5.9, qui redéploie `chat` de toute façon : pas de cycle de déploiement séparé.
 
+**Correction du 2026-11-20 au soir.** Ce paragraphe compare l'appel court, que h1 n'emprunte pas : h1 a 5 Passages au-dessus du seuil et passe par la génération complète. La conclusion (non-déterminisme du modèle, pas une régression) est confirmée autrement, par les journaux de `chat` v7 à v10 (même modèle, même entrée de 1 504 tokens) ; voir la section 5.9 ci-dessous.
+
 **Statut.** Story 5.8 `done` le 2026-11-20, avec deux réserves écrites : h1 #1 (5.9) et le test e2e `search-page` instable sous charge (7.3).
 
 ## Story 5.9 : idempotence des questions (2026-11-20, en cours)
@@ -1800,3 +1802,11 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 | v10 (5.9, 20/11 soir) | génération complète | 5 | 1 504 | `refusal_hors_cadre` ×2 sur 3 | 229 |
 
 Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passages), `temperature` 0 et `seed` : non-déterminisme du modèle sur une question frontière, pas une régression. Le passage de 185 à 229 tokens pour o1 confirme que la consigne du matin ne touchait que l'appel court. Correctif : la même règle dans la ligne des refus de `CHAT_SYSTEM_PROMPT`, avec un test mot pour mot. Leçon : avant de comparer un chemin de code, vérifier par une mesure que la question l'emprunte vraiment.
+
+**Correctif et rejeu.** Même règle dans la ligne des refus de `CHAT_SYSTEM_PROMPT` (`d938d06`), avec un test mot pour mot. Redéploiement de `chat`, compteur du Compte de mesure 1 remis à 0 (contrôlé par un select), `test:chat:live` : 15 sur 15 (h1 « information absente » ×3, o1 hors cadre ×3, compteur 0 → 15). Un rejeu réussi montre l'absence de régression, pas la disparition du non-déterminisme.
+
+**Production de la 5.9.** `deploy:supabase` : migration `20261120090000_idempotence.sql`, `chat`, `process-document` et `semantic-search` redéployées. Contrôle distant en lecture seule par l'IA : une seule signature de `begin_retry`, `save_assistant_answer`, `record_assistant_failure` et `add_question`, `EXECUTE` à `authenticated` seul, `search_path` vide, déclencheur actif, vue `conversation_list` en `security_invoker`. `test:followup:live` 14 sur 14 (compteur 44 → 58).
+
+**Revue et vérification.** Un relecteur séparé (décision du 2026-11-16) : aucun bloquant ; deux constats moyens tranchés par l'utilisateur. R1 : un échec tardif du `chat` d'origine pouvait masquer une réclamation en cours et laisser deux réessais appeler le fournisseur (reproduit en SQL par le relecteur) ; corrigé. R2 : l'enregistrement du résultat, sorti de l'échéance commune pour ne jamais être coupé, rompait la chaîne « 85 s < 90 s » ; option A, ses 5 s sont réservées dans l'échéance. Le `db reset` a été refusé deux fois par le contrôle des permissions de l'agent ; l'utilisateur l'a lancé lui-même avant la vérification complète (1 953 tests, e2e 373 passés, 0 échec).
+
+**Statut.** Story 5.9 `done` le 2026-11-20.

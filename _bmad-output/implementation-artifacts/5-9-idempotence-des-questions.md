@@ -2,7 +2,7 @@
 title: 'Story 5.9 : Idempotence des questions'
 type: 'feature'
 created: '2026-11-20'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'a701c5ed4e5b5ba01843c3f4068ece93774ddfb9'
@@ -184,3 +184,7 @@ Relecteur séparé unique (2026-11-20, décision de l'utilisateur du 2026-11-16,
 Conclusion de l'utilisateur : même entrée, même modèle, `temperature` 0 et `seed` → **non-déterminisme du modèle sur une question frontière**, pas une régression de notre code. Le passage de 185 à 229 `input_tokens` pour o1 en v10 confirme que la consigne du matin ne s'applique qu'à l'appel court.
 
 **Correctif (décision de l'utilisateur du 2026-11-20) :** même règle dans la ligne des refus de `CHAT_SYSTEM_PROMPT` (« une question qui nomme NexaWorks n'est jamais hors cadre » ; « Entre ces deux refus, en cas de doute, choisissez REFUS_INFO_ABSENTE », borné aux deux refus pour ne pas pousser au refus quand les Passages permettent de répondre) ; test unitaire de la consigne entière, ligne par ligne ; `npm test` (95 fichiers, 1 954 tests), `tsc` verts. Commit local séparé, puis redéploiement de `chat` par l'utilisateur, compteur du Compte de mesure 1 remis à zéro et un seul rejeu de `test:chat:live`.
+
+**Rejeu après correctif (2026-11-20) :** `chat` redéployée (`d938d06`), compteur du Compte de mesure 1 remis à 0 par l'utilisateur (contrôlé par un select), `npm run test:chat:live` : **15 sur 15** (h1 `refusal_info_absente` ×3, o1 `refusal_hors_cadre` ×3, compteur 0 → 15), `docs/mesures/assistant-live.md`. Push de `c59c236` et `d938d06`. Diagnostic de la 5.8 corrigé (spec 5.8, journal, `deferred-work.md`, notes datées renvoyant aux journaux v7 à v10). Story `done` le 2026-11-20.
+
+**Vérification manuelle du site par l'utilisateur (2026-11-20, `d938d06`) :** q1 répond normalement ; « Réessayer » sur une Conversation « Sans réponse » remplace l'échec dans la même Conversation, sans question ni bulle en double. Conforme.

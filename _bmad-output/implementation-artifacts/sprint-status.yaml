@@ -31,7 +31,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-20-2026 10:17
+last_updated: 11-20-2026 12:32
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -84,7 +84,7 @@ development_status:
   5-6-conversations-et-historique: done  # P0 · dépend de : 5.5
   5-7-panneau-source: done  # P0 · dépend de : 5.6
   5-8-questions-de-suivi: done  # P0 · dépend de : 5.7
-  5-9-idempotence-des-questions: in-progress  # P0 · dépend de : 5.8
+  5-9-idempotence-des-questions: done  # P0 · dépend de : 5.8
   5-10-quota-quotidien-et-remboursement: backlog  # P0 · dépend de : 5.9 · fusionnée avec 5.11 le 2026-11-16 (une seule spec, une seule livraison)
   5-11-erreurs-et-états-de-l-interface-de-l-assistant: backlog  # P0 · dépend de : 5.10 · fusionnée avec 5.10 le 2026-11-16
   5-12-navigation-entre-passages-et-champ-au-dessus-du-clavier-fini: out-of-scope  # hors périmètre le 2026-11-16 · P0 FINITION · dépend de : 5.7
