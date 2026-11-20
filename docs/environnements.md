@@ -144,7 +144,7 @@ Seuls appels réels : `npm run test:ai` (un mot, avec la fonction locale `ai-hea
 
 ## Garde-fou du crédit d'IA (`ai_limits`, story 5.2a-2)
 
-Avant tout appel à OpenAI, la fonction `chat` réserve une unité avec `reserve_ai_call()` : quota par Compte et par jour UTC, et plafond global du projet par jour UTC, réservés ensemble et de façon atomique. Les limites sont dans la table `ai_limits`, sans accès par l'API (ni `anon`, ni `authenticated`, ni `service_role`) ; elles ne sont jamais fournies par l'appelant.
+Avant tout appel à OpenAI, la fonction `chat` réserve une unité avec `reserve_ai_call()` : quota par Compte et par jour UTC, et plafond global du projet par jour UTC, réservés ensemble et de façon atomique. Les limites sont dans la table `ai_limits`, sans accès en écriture par l'API ; depuis la story 5.10 (migration `20261120150000_ai_limits_read.sql`), `authenticated` lit seulement les colonnes `key` et `value` de la ligne `ai_daily_quota` (bloc de limite atteinte au chargement de l'Assistant), `ai_global_daily_cap` reste invisible, rien pour `anon` ; elles ne sont jamais fournies par l'appelant.
 
 | Clé | Valeur initiale | Effet |
 |---|---|---|

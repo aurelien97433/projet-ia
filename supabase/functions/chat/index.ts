@@ -695,8 +695,19 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     }
 
     stage = "reserve";
-    const reservation = parseReservation(await within(rpc(target, "reserve_ai_call", {}, signal)));
+    // Story 5.10 (rapport de la 5.8 et de la 5.2a-2) : la réponse de reserve_ai_call est lue avec le temps restant plus le délai
+    // de nettoyage, hors de l'échéance commune (comme add_question après une reformulation), pour que
+    // l'identifiant de réservation soit toujours connu ; une échéance tombée pendant la réservation rend
+    // l'unité aussitôt (fail, AD-14 : rien n'a été envoyé au fournisseur) et répond AI_TIMEOUT. Le
+    // garde-fou des 17 s, lui, répond toujours à son échéance (le travail continue en tâche de fond).
+    if (signal.aborted) throw new AiError("AI_TIMEOUT", true, "délai de chat dépassé avant la réservation");
+    const reservation = parseReservation(await rpc(target, "reserve_ai_call", {}, AbortSignal.timeout(remaining() + cleanupMs)));
     if (!reservation) throw new ChatError("INTERNAL", 500, true, "reserve_invalid_body");
+    if (reservation.ok && signal.aborted) {
+      reservationId = reservation.reservationId;
+      logInfo("chat_reservation_expired", { retry: retry !== null || undefined });
+      throw new AiError("AI_TIMEOUT", true, "délai de chat dépassé pendant la réservation");
+    }
     if (!reservation.ok) {
       logInfo("chat_quota_refused", { reason: reservation.reason, retry: retry !== null || undefined });
       // Réessai refusé par le quota : l'échec précédent est rétabli (il reste affiché), sans réservation.
@@ -717,6 +728,9 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     let standaloneQuestion: string | null = null;
     let rewriteError: unknown = null;
     let rewriteAttempted = false;
+    // Story 5.10 (R6 de la 5.9) : la reformulation a reçu une réponse du fournisseur (réussie, ou
+    // inexploitable, ou délai après envoi) : l'unité est consommée même si la question n'est pas enregistrée.
+    let rewriteBilled = false;
     // Story 5.9 (Q2) : pour un réessai, l'historique est relu AVANT la question réessayée, dans sa
     // Conversation (lue en base) ; la question autonome déjà enregistrée est reprise telle quelle, sinon
     // la reformulation est refaite (sans être enregistrée : la question existe déjà).
@@ -747,6 +761,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
             }),
           );
           standaloneQuestion = rewritten.question;
+          rewriteBilled = true;
           logInfo("chat_rewrite_done", {
             exchanges: history.length,
             model: rewritten.model,
@@ -761,6 +776,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
             !((error.outcome === "no_response" || error.outcome === undefined) && !signal.aborted)
           ) {
             generation = "billed";
+            rewriteBilled = true;
           }
           logEvent("chat_rewrite_failed", {
             code: error instanceof AiError ? error.code : "unknown",
@@ -807,10 +823,14 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       );
     } catch (error) {
       if (error instanceof ChatError && error.pgCode === "23505") {
-        // Même clientRequestId arrivé en concurrence : aucune Conversation de plus, unité rendue ; la
-        // Conversation de la question déjà enregistrée accompagne le 409 si elle peut être lue (5.9).
-        await release();
-        logInfo("chat_replay_refused", { concurrent: true });
+        // Même clientRequestId arrivé en concurrence : aucune Conversation de plus ; la Conversation de la
+        // question déjà enregistrée accompagne le 409 si elle peut être lue (5.9). Story 5.10 (R6) : règle
+        // de libération d'AD-14 pour la reformulation du perdant : unité rendue si aucune reformulation n'a
+        // été envoyée ou si elle a échoué sans réponse ; consommée si elle a reçu une réponse.
+        let released = false;
+        if (rewriteBilled) reservationId = null;
+        else released = await release();
+        logInfo("chat_replay_refused", { concurrent: true, released, rewrite_billed: rewriteBilled || undefined });
         const existing = await questionConversation(
           target,
           input.clientRequestId,

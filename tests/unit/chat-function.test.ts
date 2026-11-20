@@ -383,6 +383,56 @@ describe("chat : garde-fou et rejeu", () => {
     expect(calls("embed") + calls("generate") + calls("failure")).toBe(0);
   });
 
+  // Story 5.10 (rapport de la 5.8 et de la 5.2a-2) : la réponse de reserve_ai_call est lue hors de
+  // l'échéance commune ; réservation validée après l'échéance → unité rendue aussitôt, AI_TIMEOUT.
+  it("échéance pendant reserve_ai_call (JSON) : réservation lue quand même, unité rendue, 504 AI_TIMEOUT, rien d'autre", async () => {
+    routes.reserve = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return Response.json({ ok: true, reservation_id: RESERVATION, reset_at: "2026-11-17T00:00:00+00:00" });
+    };
+    const response = await ask({ timeoutMs: 100 });
+    expect(response.status).toBe(504);
+    expect((await response.json()).error).toMatchObject({ code: "AI_TIMEOUT", retryable: true });
+    expect(order).toEqual(["auth", "replay", "reserve", "release"]);
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
+    expect(logs()).toContain("chat_reservation_expired");
+  });
+
+  it("échéance pendant reserve_ai_call : la lecture garde son propre délai (nettoyage), pas l'échéance commune", async () => {
+    let aborted = false;
+    routes.reserve = (_, init) =>
+      new Promise((resolve) => {
+        init.signal?.addEventListener("abort", () => {
+          aborted = true;
+        });
+        setTimeout(() => resolve(Response.json({ ok: true, reservation_id: RESERVATION, reset_at: "2026-11-17T00:00:00+00:00" })), 250);
+      });
+    await ask({ timeoutMs: 50 });
+    expect(aborted).toBe(false);
+    expect(calls("release")).toBe(1);
+  });
+
+  it("réservation plus lente que le délai de nettoyage mais avant l'échéance : acceptée (temps restant + nettoyage), réponse normale", async () => {
+    routes.reserve = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return Response.json({ ok: true, reservation_id: RESERVATION, reset_at: "2026-11-17T00:00:00+00:00" });
+    };
+    const response = await ask({ timeoutMs: 5_000, cleanupTimeoutMs: 100 });
+    expect(response.status).toBe(200);
+    expect(calls("release")).toBe(0);
+    expect(calls("generate")).toBe(1);
+  });
+
+  it("échéance pendant reserve_ai_call, quota refusé : 429 comme avant, rien à rendre", async () => {
+    routes.reserve = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return Response.json({ ok: false, reason: "user", reset_at: "2026-11-17T00:00:00+00:00" });
+    };
+    const response = await ask({ timeoutMs: 50 });
+    expect(response.status).toBe(429);
+    expect(calls("release")).toBe(0);
+  });
+
   it("23505 concurrent (story 5.9) : le 409 porte la Conversation de la question déjà enregistrée", async () => {
     routes.start = async () => Response.json({ code: "23505", message: "duplicate key" }, { status: 409 });
     const response = await ask();
@@ -1434,11 +1484,13 @@ describe("chat : questions de suivi (story 5.8)", () => {
     expect(await response.json()).toEqual({ error: { code: "AI_TIMEOUT", message: FAILURE_MESSAGE, retryable: true } });
     expect(Date.now() - started).toBeLessThan(300 + 250);
     await Promise.all(pending);
-    // Rien de plus après l'échéance : ni historique, ni reformulation, ni génération (la réservation,
-    // interrompue par l'échéance commune, n'a jamais été lue : comportement de la 5.5, inchangé).
+    // Rien de plus après l'échéance : ni historique, ni reformulation, ni génération. Story 5.10 : la
+    // réservation, lue hors de l'échéance commune, est rendue aussitôt (identifiant toujours connu).
     expect(calls("history")).toBe(0);
     expect(calls("rewrite")).toBe(0);
     expect(calls("generate")).toBe(0);
+    expect(calls("release")).toBe(1);
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
   });
 
   it("garde-fou des 17 s : en-têtes partis (première question), échec et libération lents après l'échéance → error envoyé à l'échéance, une seule fois ; écritures faites ensuite", async () => {
@@ -1517,15 +1569,39 @@ describe("chat : questions de suivi (story 5.8)", () => {
     expect(calls("rewrite")).toBe(0);
   });
 
-  it("rejeu concurrent (23505 sur la question après la reformulation) : 409, unité rendue, reformulation perdue sans autre effet", async () => {
+  // Story 5.10 (R6 de la 5.9) : le perdant du 23505 applique la règle de libération d'AD-14 à sa
+  // reformulation (rendue seulement si aucune réponse du fournisseur n'a été reçue).
+  it("R6 : 23505 sur la question après une reformulation qui a reçu une réponse : 409, unité consommée (AD-14)", async () => {
     routes.add = async () => Response.json({ code: "23505" }, { status: 409 });
     const response = await follow();
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe("REQUEST_IN_PROGRESS");
     expect(calls("rewrite")).toBe(1);
-    expect(calls("release")).toBe(1);
+    expect(calls("release")).toBe(0);
     expect(calls("failure")).toBe(0);
     expect(calls("embed")).toBe(0);
+    expect(logs()).toContain('"rewrite_billed":true');
+  });
+
+  it("R6 : 23505 après une reformulation inexploitable (réponse reçue) : unité consommée", async () => {
+    routes.add = async () => Response.json({ code: "23505" }, { status: 409 });
+    routes.rewrite = async () => completion("");
+    const response = await follow();
+    expect(response.status).toBe(409);
+    expect(calls("rewrite")).toBeGreaterThanOrEqual(1);
+    expect(calls("release")).toBe(0);
+  });
+
+  it("R6 : 23505 après une reformulation sans réponse (panne réseau) : unité rendue", async () => {
+    routes.add = async () => Response.json({ code: "23505" }, { status: 409 });
+    routes.rewrite = async () => {
+      throw new TypeError("réseau");
+    };
+    const response = await follow();
+    expect(response.status).toBe(409);
+    expect(calls("rewrite")).toBeGreaterThanOrEqual(1);
+    expect(calls("release")).toBe(1);
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
   });
 
   it("historique illisible : échec, unité rendue, aucune reformulation", async () => {

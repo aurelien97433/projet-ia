@@ -321,7 +321,45 @@ describe("focus", () => {
     field().focus();
     fireEvent.submit(screen.getByRole("search"));
     await flush();
-    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    // Story 5.10 (Q3 = A) : l'alerte qui reçoit le focus n'a pas de role="alert" (annoncée une fois, par
+    // le focus) ; groupe nommé par son titre.
+    const alert = screen.getByRole("group", { name: t.failed });
+    expect(document.activeElement).toBe(alert);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("story 5.10 (Q3 = A) : focus posé hors de la vue pendant la Recherche → alerte avec role=\"alert\", focus non déplacé", async () => {
+    let fail!: (reason: unknown) => void;
+    fetchMock()
+      .mockResolvedValueOnce(json({ results: [] }))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (fail = reject)));
+    setQuery("x");
+    render(
+      <>
+        <button type="button">Dehors</button>
+        <SearchView />
+      </>,
+    );
+    await flush();
+    field().focus();
+    fireEvent.submit(screen.getByRole("search"));
+    await flush();
+    const outside = screen.getByRole("button", { name: "Dehors" });
+    outside.focus();
+    await act(async () => fail(new TypeError("réseau")));
+    await flush();
+    expect(screen.getByRole("alert").textContent).toContain(t.failed);
+    expect(screen.queryByRole("group", { name: t.failed })).toBeNull();
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it("story 5.10 (Q3 = A) : erreur sans déplacement du focus (premier chargement) : role=\"alert\" gardé", async () => {
+    fetchMock().mockRejectedValueOnce(new TypeError("réseau"));
+    setQuery("x");
+    render(<SearchView />);
+    await flush();
+    expect(screen.getByRole("alert").getAttribute("aria-labelledby")).toBeNull();
+    expect(document.activeElement).not.toBe(screen.getByRole("alert"));
   });
 
   it("premier chargement complet (focus sur la page) : le focus n'est pas déplacé", async () => {

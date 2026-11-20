@@ -198,8 +198,12 @@ test("erreur : alerte et « Réessayer », Requête conservée ; « Réessayer �
   await page.goto("/recherche");
   await field(page).fill(seeded.query);
   await field(page).press("Enter");
-  const alert = page.getByRole("alert").filter({ hasText: t.failed });
+  // Story 5.10 (Q3 = A) : l'alerte qui reçoit le focus n'a pas de role="alert" (annoncée une seule
+  // fois, par le focus) ; groupe nommé par son titre.
+  const alert = page.getByRole("group", { name: t.failed });
   await expect(alert).toBeFocused();
+  // Hors de l'annonceur de navigation de Next.js (role="alert", hors du contenu principal).
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await expect(field(page)).toHaveValue(seeded.query);
   await alert.getByRole("button", { name: t.retry }).press("Enter");
   await expect(cards(page).filter({ hasText: seeded.title })).toHaveCount(1);

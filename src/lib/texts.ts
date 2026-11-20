@@ -255,6 +255,10 @@ export const texts = {
     questionTooLong: "Votre question dépasse 2 000 caractères. Raccourcissez-la pour l'envoyer.",
     quotaExceeded: (moment: string) =>
       `Vous avez atteint votre limite quotidienne de questions et de Résumés. Elle sera rétablie ${moment}. La Recherche reste disponible.`,
+    // Bloc de limite atteinte (story 5.10, EXPERIENCE.md, « Quota atteint : Assistant ») : raison reliée
+    // au champ et à « Envoyer » par aria-describedby, lien vers la Recherche.
+    quotaReason: "Limite quotidienne atteinte",
+    openSearch: "Ouvrir la Recherche",
     // Plafond global du projet : texte validé le 2026-11-16 (story 5.2a-2), ajouté à EXPERIENCE.md.
     dailyCapReached: (moment: string) =>
       `L'Assistant a atteint sa limite d'utilisation pour aujourd'hui. Il sera de nouveau disponible ${moment}. La Recherche reste disponible.`,

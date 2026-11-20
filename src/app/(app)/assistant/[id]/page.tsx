@@ -6,6 +6,7 @@ import { ASSISTANT_FIELD_ID } from "@/components/assistant/constants";
 import { PageTitle } from "@/components/shell/page-title";
 import { createClient } from "@/lib/supabase/server";
 import { getConversation } from "@/server/conversations/get-conversation";
+import { getQuota } from "@/server/quota/get-quota";
 import ConversationLoading from "./loading";
 
 // E4 · Conversation enregistrée (story 5.6, FR-20) : titre de la Conversation (h1), fil de tous les
@@ -17,7 +18,10 @@ export default async function ConversationPage({ params }: PageProps<"/assistant
   // l'état « en cours » d'une question dépend de l'heure de la lecture.
   await connection();
   const { id } = await params;
-  const conversation = await getConversation(id, await createClient());
+  const supabase = await createClient();
+  // Story 5.10 (Q1 = A) : quota du Collaborateur lu avec son jeton (RLS), en même temps que la
+  // Conversation ; lecture en échec : null, la page s'affiche normalement.
+  const [conversation, quota] = await Promise.all([getConversation(id, supabase), getQuota(supabase)]);
   if (!conversation) notFound();
 
   // La vue lit ?mesure=1 et ?historique=1 (useSearchParams) : frontière Suspense. Clé : une autre
@@ -28,6 +32,7 @@ export default async function ConversationPage({ params }: PageProps<"/assistant
         key={conversation.id}
         title={<PageTitle focusTargetId={ASSISTANT_FIELD_ID}>{conversation.title}</PageTitle>}
         conversation={conversation}
+        quota={quota}
       />
     </Suspense>
   );

@@ -52,7 +52,9 @@ export function SearchView() {
   // n'est jamais affichée pour une nouvelle Requête, qui apparaît en chargement dès son rendu.
   const [attempt, setAttempt] = useState(0);
   const key = query === null ? null : `${attempt}:${query}`;
-  const [outcome, setOutcome] = useState<(Outcome & { key: string }) | null>(null);
+  // focus (story 5.10, Q3 = A) : le résultat recevra le focus ; une alerte qui le reçoit n'a pas de
+  // role="alert" (sinon elle est lue deux fois).
+  const [outcome, setOutcome] = useState<(Outcome & { key: string; focus: boolean }) | null>(null);
   const view: View = key === null ? { kind: "idle" } : outcome?.key === key ? outcome : { kind: "loading" };
   const containerRef = useRef<HTMLDivElement>(null);
   const announcementRef = useRef<HTMLParagraphElement>(null);
@@ -100,7 +102,11 @@ export function SearchView() {
       }
       if (!isCurrent()) return;
       controllerRef.current = null;
-      setOutcome({ ...next, key: requestKey });
+      // Story 5.10 (Q3 = A) : décidé une seule fois, à l'arrivée du résultat, si le focus le suivra
+      // (intention du Collaborateur et focus libre maintenant) ; la même décision retire role="alert".
+      const focused = document.activeElement;
+      const free = focused === null || focused === document.body || containerRef.current?.contains(focused) === true;
+      setOutcome({ ...next, key: requestKey, focus: focusOnResultRef.current && free });
     },
     [router],
   );
@@ -122,10 +128,15 @@ export function SearchView() {
     if (view.kind !== "success" && view.kind !== "error") return;
     if (!focusOnResultRef.current) return;
     focusOnResultRef.current = false;
+    // Alerte : décision prise à l'arrivée du résultat (outcome.focus), appliquée telle quelle.
+    if (view.kind === "error") {
+      if (outcome?.focus) alertRef.current?.focus();
+      return;
+    }
     const active = document.activeElement;
     const free = active === null || active === document.body || containerRef.current?.contains(active) === true;
     if (!free) return;
-    (view.kind === "error" ? alertRef.current : announcementRef.current)?.focus();
+    announcementRef.current?.focus();
   }, [view.kind, outcome]);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -199,6 +210,7 @@ export function SearchView() {
         <ErrorAlert
           ref={alertRef}
           title={t.failed}
+          focused={outcome?.focus === true}
           action={
             <Button
               type="button"

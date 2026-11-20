@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
 import type { ConversationListItem } from "@/lib/schemas/chat";
 import { texts } from "@/lib/texts";
+import { useDisplayTimeZone } from "@/lib/use-hydrated";
 import { conversationHref } from "./constants";
 
 const DATE_FORMAT: Intl.DateTimeFormatOptions = {
@@ -13,25 +13,15 @@ const DATE_FORMAT: Intl.DateTimeFormatOptions = {
   hour: "2-digit",
   minute: "2-digit",
 };
-// Rendu serveur et hydratation : fuseau fixe, identique des deux côtés (le serveur Vercel est en UTC).
-const SERVER_TIME_ZONE = "Europe/Paris";
-
-const noSubscription = () => () => {};
-// Vrai dans le navigateur une fois hydraté, faux au rendu serveur et pendant l'hydratation.
-const useHydrated = () =>
-  useSyncExternalStore(
-    noSubscription,
-    () => true,
-    () => false,
-  );
 
 // Date du dernier échange dans le fuseau du navigateur, en français (architecture §6). Revue de la
 // story 5.6 (constat 2) : avec suppressHydrationWarning, React garde le texte du serveur sans le
 // corriger, donc une heure UTC restait affichée. Le serveur et l'hydratation rendent la même date dans
 // un fuseau fixe ; le navigateur passe à son propre fuseau aussitôt après.
 export function ConversationDate({ iso }: { iso: string }) {
-  const hydrated = useHydrated();
-  const label = new Date(iso).toLocaleString("fr-FR", hydrated ? DATE_FORMAT : { ...DATE_FORMAT, timeZone: SERVER_TIME_ZONE });
+  // Fuseau fixe au rendu serveur et à l'hydratation, celui du navigateur ensuite (use-hydrated.ts).
+  const timeZone = useDisplayTimeZone();
+  const label = new Date(iso).toLocaleString("fr-FR", { ...DATE_FORMAT, timeZone });
   return <time dateTime={iso}>{label}</time>;
 }
 

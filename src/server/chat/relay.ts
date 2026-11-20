@@ -37,7 +37,9 @@ export type ChatRelayResult = { status: number; body: ChatResponse | AppError };
 
 const isErrorCode = (value: unknown): value is ErrorCode => ERROR_CODES.includes(value as ErrorCode);
 
-// Moment du rétablissement : le fuseau du navigateur est inconnu ici, l'heure est donnée en UTC.
+// Moment du rétablissement : le fuseau du navigateur est inconnu ici, l'heure est donnée en UTC. Story
+// 5.10 : texte de repli seulement (client sans resetAt) ; la page recalcule le moment en heure locale à
+// partir de resetAt, relayé avec le refus.
 const moment = (resetAt: string) => `${formatResetMoment(resetAt, new Date(), "UTC")} (UTC)`;
 
 // Texte du catalogue pour chaque code renvoyé par chat.

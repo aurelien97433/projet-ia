@@ -1,6 +1,7 @@
 // Moment du rétablissement du quota (EXPERIENCE.md, « Format de {moment} ») : « aujourd'hui à {heure} »
-// ou « demain à {heure} », dans un fuseau donné (celui du navigateur en 5.10). Côté serveur, le fuseau
-// du navigateur est inconnu : le relais de chat (story 5.2a-2) l'écrit en UTC, en le précisant.
+// ou « demain à {heure} », dans un fuseau donné. Story 5.10 : calculé dans le navigateur (fuseau du
+// navigateur, sans « (UTC) ») à partir de resetAt, par la page de l'Assistant. Côté serveur, le fuseau
+// est inconnu : le relais de chat garde un texte de repli en UTC, en le précisant.
 export function formatResetMoment(resetAt: string, now: Date = new Date(), timeZone?: string): string {
   const reset = new Date(resetAt);
   if (Number.isNaN(reset.getTime())) return "demain";

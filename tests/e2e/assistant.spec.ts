@@ -14,8 +14,8 @@ import {
   FAKE_SLOW_STREAM_MARKER,
 } from "../../supabase/functions/_shared/fake-generation.ts";
 import { texts } from "../../src/lib/texts";
-import { expect, isDesktop, test, type Account } from "../support/e2e-auth";
-import { localSupabase } from "../support/local-supabase";
+import { createAccount, deleteAccount, expect, isDesktop, test, type Account } from "../support/e2e-auth";
+import { localSqlRows, localSupabase } from "../support/local-supabase";
 
 // Page Assistant (story 5.2b), sur le build de production et Supabase local, avec la vectorisation et
 // la génération simulées de la pile locale (aucun appel à OpenAI). Parcours réel : un Document prêt
@@ -23,6 +23,8 @@ import { localSupabase } from "../support/local-supabase";
 // supprimé. Pannes et quota : POST /api/chat intercepté. Les compteurs du garde-fou sont remis à zéro
 // par la préparation des tests (global-setup.ts).
 test.use({ storageState: async ({ authState }, provide) => provide(authState) });
+// Story 5.10 : heure locale du rétablissement calculée dans le navigateur ; fuseau fixé pour les attentes.
+test.use({ timezoneId: "Europe/Paris" });
 
 const t = texts.assistant;
 const root = process.cwd();
@@ -107,6 +109,10 @@ const spokenText = (locator: Locator) =>
     return clone.textContent;
   });
 const counter = (page: Page) => page.locator("[data-counter]");
+// Alerte de panne du fil (ErrorAlert). Story 5.10 (Q3 = A) : celle qui reçoit le focus n'a pas de
+// role="alert" (annoncée une seule fois) : cherchée par son attribut.
+const failureAlert = (page: Page) => thread(page).locator("[data-error-alert]");
+const quotaBlock = (page: Page) => page.locator("[data-quota-block]");
 const fulfill = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
 
 // Lien hydraté (gestionnaire React posé) : sinon le clic ferait un chargement complet, où le focus
@@ -195,7 +201,7 @@ test("hors base : bloc de refus distinct, sans zone Sources ; une seconde questi
   await expect(page.getByRole("list", { name: t.sourcesLabel })).toHaveCount(0);
   await expect(refusal.getByRole("button")).toHaveText([t.reformulate]);
   await expect(refusal.getByRole("link")).toHaveText([t.searchDocuments, t.addDocument]);
-  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await expect(failureAlert(page)).toHaveCount(0);
   await expect(field(page)).toBeFocused();
   // Bloc visuellement distinct d'une réponse : bordure et fond propres.
   const style = await refusal.evaluate((element) => {
@@ -270,7 +276,7 @@ test("refus « hors cadre » (story 5.3, appel court simulé) : texte du catalog
   await expect(refusal.getByRole("button")).toHaveText([t.reformulate]);
   await expect(refusal.getByRole("link")).toHaveCount(0);
   await expect(page.getByRole("list", { name: t.sourcesLabel })).toHaveCount(0);
-  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await expect(failureAlert(page)).toHaveCount(0);
   await expect(field(page)).toBeFocused();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBe(0);
@@ -289,7 +295,7 @@ test("marqueur invalide (génération simulée) : alerte de panne avec « Réess
   await openAssistant(page);
   await field(page).fill(seeded.question);
   await field(page).press("Enter");
-  const alert = thread(page).getByRole("alert").filter({ hasText: t.failedTitle });
+  const alert = failureAlert(page).filter({ hasText: t.failedTitle });
   await expect(alert).toContainText(t.failed);
   await expect(alert.getByRole("button", { name: t.retry })).toBeVisible();
   await expect(page.getByText(/REPONSE|réponse simulée/)).toHaveCount(0);
@@ -309,7 +315,7 @@ test("citation invalide (story 5.4, génération simulée) : retirée sans messa
   const text = answerStatus(page).locator("[data-answer] p").first();
   await expect(text).toHaveText(/^Réponse simulée à partir des Documents Source 1\. Point simulé sans Passage\.$/);
   await expect(text.locator("sup")).toHaveCount(1);
-  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await expect(failureAlert(page)).toHaveCount(0);
   const chip = answerStatus(page).getByRole("list", { name: t.sourcesLabel }).getByRole("listitem").first();
   expect(await spokenText(chip)).toBe(`Source 1 : ${seeded.title}`);
   await expect(chip.locator('[aria-hidden="true"]')).toHaveText(`1 · ${seeded.title}`);
@@ -340,14 +346,17 @@ test("panne : alerte et « Réessayer », focus sur l'alerte ; « Réessayer » 
   await field(page).fill(seeded.question);
   await field(page).press("Enter");
 
-  const alert = thread(page).getByRole("alert").filter({ hasText: t.failedTitle });
+  const alert = failureAlert(page).filter({ hasText: t.failedTitle });
   await expect(alert).toContainText(t.failed);
   await expect(alert).toBeFocused();
+  // Story 5.10 (Q3 = A) : alerte focalisée = groupe nommé par son titre, sans role="alert" (annoncée une fois).
+  await expect(thread(page).getByRole("group", { name: t.failedTitle })).toBeFocused();
+  await expect(thread(page).getByRole("alert")).toHaveCount(0);
   await expect(page.locator("[data-question-bubble]")).toContainText(seeded.question);
 
   await alert.getByRole("button", { name: t.retry }).press("Enter");
   await expect(answerStatus(page).locator("[data-answer]")).toBeVisible();
-  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await expect(failureAlert(page)).toHaveCount(0);
   await expect(page.locator("[data-question-bubble]")).toHaveCount(1);
   await expect(field(page)).toBeFocused();
 
@@ -369,15 +378,11 @@ test("panne : alerte et « Réessayer », focus sur l'alerte ; « Réessayer » 
   expectBoundary(requests);
 });
 
-test("quota et plafond simulés : texte du catalogue avec l'heure UTC, sans « Réessayer » ; double envoi (409) sans Conversation connue : « Réessayer » (story 5.9)", async ({
+test("plafond simulé : texte du catalogue avec l'heure locale (story 5.10), sans « Réessayer », sans bloc de quota ; double envoi (409) sans Conversation connue : « Réessayer » (story 5.9)", async ({
   page,
 }) => {
   const requests = collectRequests(page);
   const responses = [
-    fulfill(
-      { error: { code: "QUOTA_EXCEEDED", message: t.quotaExceeded("demain à 0 h 00 (UTC)"), retryable: false, resetAt: "2026-11-17T00:00:00.000Z" } },
-      429,
-    ),
     fulfill(
       {
         error: { code: "AI_DAILY_CAP_REACHED", message: t.dailyCapReached("demain à 0 h 00 (UTC)"), retryable: false, resetAt: "2026-11-17T00:00:00.000Z" },
@@ -386,18 +391,22 @@ test("quota et plafond simulés : texte du catalogue avec l'heure UTC, sans « R
     ),
     fulfill({ error: { code: "REQUEST_IN_PROGRESS", message: t.inProgress, retryable: false } }, 409),
   ];
-  const expected = [t.quotaExceeded("demain à 0 h 00 (UTC)"), t.dailyCapReached("demain à 0 h 00 (UTC)"), t.inProgress];
+  // Fuseau du navigateur (Europe/Paris, playwright.config) : le 17/11 00:00 UTC est déjà passé, donc
+  // « demain » (jour différent d'aujourd'hui), à 1 h 00 heure de Paris, sans « (UTC) ».
+  const expected = [t.dailyCapReached("demain à 1 h 00"), t.inProgress];
   let index = 0;
   await page.route("**/api/chat", (route) => route.fulfill(responses[index++]));
   await openAssistant(page);
   for (const message of expected) {
     await field(page).fill(`Question ${message.slice(0, 12)}`);
     await field(page).press("Enter");
-    const alert = thread(page).getByRole("alert");
+    // Alerte du dernier échange (les pannes plus anciennes du fil restent affichées).
+    const alert = failureAlert(page).last();
     // Story 5.9 : le 409 sans Conversation connue garde son texte, suivi de « Réessayer ».
     await expect(alert).toHaveText(message === t.inProgress ? `${message}${t.retry}` : message);
     await expect(alert).toBeFocused();
     await expect(alert.getByRole("button")).toHaveCount(message === t.inProgress ? 1 : 0);
+    await expect(quotaBlock(page)).toHaveCount(0);
     await field(page).focus();
   }
   expectBoundary(requests);
@@ -429,7 +438,7 @@ test("rechargement pendant une demande en cours (story 5.9) : question en cours,
     timeout: 20_000,
   });
   await expect(page.locator("[data-question-bubble]")).toHaveCount(1);
-  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await expect(failureAlert(page)).toHaveCount(0);
   const { data: stored } = await admin().from("messages").select("kind").eq("conversation_id", id).order("created_at");
   expect(stored).toEqual([{ kind: "question" }, { kind: "answer" }]);
 });
@@ -633,7 +642,7 @@ test("panne après le texte provisoire (story 5.5) : texte provisoire retiré, a
   await openAssistant(page);
   await field(page).fill("Question en panne");
   await field(page).press("Enter");
-  const alert = thread(page).getByRole("alert");
+  const alert = failureAlert(page);
   await expect(alert).toContainText(t.unverifiable);
   await expect(alert.getByRole("button", { name: t.retry })).toBeVisible();
   await expect(thread(page).locator("[data-provisional]")).toHaveCount(0);
@@ -650,9 +659,9 @@ test("20 s sans premier affichage (story 5.5) : alerte de panne et « Réessayer
   await field(page).press("Enter");
   await expect(page.getByText(t.pending)).toBeVisible();
   await page.clock.fastForward(19_000);
-  await expect(thread(page).getByRole("alert")).toHaveCount(0);
+  await expect(failureAlert(page)).toHaveCount(0);
   await page.clock.fastForward(1_500);
-  const alert = thread(page).getByRole("alert");
+  const alert = failureAlert(page);
   await expect(alert).toContainText(t.failedTitle);
   await expect(alert.getByRole("button", { name: t.retry })).toBeVisible();
   await expect(page.locator("[data-question-bubble]")).toContainText("Question sans réponse");
@@ -673,4 +682,159 @@ test("mesure du flux (?mesure=1, story 5.5) : instrument visible et résultat sa
   expect(result).toContain("(hors mini Jeu, texte non repris)");
   expect(result).not.toContain(seeded.question);
   expect(result).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-|@|::/);
+});
+
+// Story 5.10 : quota quotidien. Le quota est lu au chargement par le composant serveur, avec le jeton du
+// Collaborateur (RLS) ; il est simulé ici par SQL sur la pile locale (compteur du jour à 60), puis remis
+// à zéro. Fuseau du navigateur fixé à Paris pour l'heure locale du rétablissement.
+test.describe("quota quotidien (story 5.10)", () => {
+  test.use({ timezoneId: "Europe/Paris" });
+
+  const DAY = "(now() at time zone 'utc')::date";
+  const setUsage = (accountId: string, count: number) =>
+    localSqlRows(
+      `insert into public.ai_usage (user_id, day_utc, count) values ('${accountId}', ${DAY}, ${count}) on conflict (user_id, day_utc) do update set count = ${count}`,
+    );
+  const clearUsage = (accountId: string) => localSqlRows(`delete from public.ai_usage where user_id = '${accountId}'`);
+  const nextUtcMidnight = (now = Date.now()) => {
+    const date = new Date(now);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+  };
+  const moment = (resetMs: number, nowMs: number) => {
+    const day = (ms: number) => new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short" }).format(ms);
+    return `${day(resetMs) === day(nowMs) ? "aujourd'hui" : "demain"} à 1 h 00`;
+  };
+
+  test("quota atteint au chargement : bloc neutre d'emblée, heure locale, « Ouvrir la Recherche » ; champ et « Envoyer » aria-disabled avec la raison ; clavier ; axe sans violation ; un autre Compte n'est jamais bloqué", async ({
+    page,
+    account,
+  }) => {
+    const requests = collectRequests(page);
+    const other = await createAccount("e2e-quota-autre");
+    try {
+      // Autre Compte au quota, Compte du test sous le quota : page normale.
+      setUsage(other.id, 60);
+      setUsage(account.id, 59);
+      await openAssistant(page);
+      await expect(quotaBlock(page)).toHaveCount(0);
+      await expect(field(page)).not.toHaveAttribute("aria-disabled", "true");
+
+      setUsage(account.id, 60);
+      await page.goto(`/assistant?question=${encodeURIComponent("Ma question préparée")}`);
+      await expect(field(page)).toBeVisible();
+      const now = Date.now();
+      await expect(quotaBlock(page)).toContainText(t.quotaExceeded(moment(nextUtcMidnight(now), now)));
+      await expect(quotaBlock(page)).not.toContainText("(UTC)");
+      await expect(page.locator("[data-error-alert]")).toHaveCount(0);
+      await expect(field(page)).toHaveAttribute("aria-disabled", "true");
+      await expect(field(page)).toHaveValue("Ma question préparée");
+      const reason = page.locator("[data-quota-reason]");
+      await expect(reason).toHaveText(t.quotaReason);
+      const reasonId = await reason.getAttribute("id");
+      expect((await field(page).getAttribute("aria-describedby"))?.split(" ")).toContain(reasonId);
+      await expect(sendButton(page)).toHaveAttribute("aria-disabled", "true");
+      await expect(sendButton(page)).toHaveAttribute("aria-describedby", reasonId!);
+
+      // Clavier : Entrée et « Envoyer » n'envoient rien ; « Ouvrir la Recherche » atteint et activé au clavier.
+      await field(page).focus();
+      await page.keyboard.press("Enter");
+      await sendButton(page).focus();
+      await page.keyboard.press("Enter");
+      await expect(field(page)).toHaveValue("Ma question préparée");
+      const link = quotaBlock(page).getByRole("link", { name: t.openSearch });
+      await link.focus();
+      await expect(link).toBeFocused();
+
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBe(0);
+      const results = await new AxeBuilder({ page }).exclude("nextjs-portal").analyze();
+      expect(results.violations.map((v) => `${v.id} : ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/recherche$/);
+      expect(chatCalls(requests)).toHaveLength(0);
+      expectBoundary(requests);
+    } finally {
+      clearUsage(account.id);
+      clearUsage(other.id);
+      await deleteAccount(other);
+    }
+  });
+
+  test("quota atteint au chargement, réactivation par l'horloge à resetAt, sans rechargement : champ réactivé, question conservée", async ({
+    page,
+    account,
+  }) => {
+    const resetMs = nextUtcMidnight();
+    await page.clock.install({ time: resetMs - 10_000 });
+    try {
+      setUsage(account.id, 60);
+      await page.goto(`/assistant?question=${encodeURIComponent("Question gardée")}`);
+      await expect(quotaBlock(page)).toBeVisible();
+      clearUsage(account.id);
+      await page.clock.fastForward(11_000);
+      await expect(quotaBlock(page)).toHaveCount(0);
+      await expect(field(page)).not.toHaveAttribute("aria-disabled", "true");
+      await expect(sendButton(page)).not.toHaveAttribute("aria-disabled", "true");
+      await expect(field(page)).toHaveValue("Question gardée");
+    } finally {
+      clearUsage(account.id);
+    }
+  });
+
+  test("QUOTA_EXCEEDED à l'envoi (simulé) : bloc avec l'heure locale, question gardée dans le champ et hors du fil ; réactivation par l'horloge à resetAt, sans rechargement ; axe sans violation", async ({
+    page,
+  }) => {
+    // Horloge figée 5 min avant resetAt (pauseAt, après axe qui a besoin des minuteries), pour que le
+    // temps réel des étapes ne compte pas.
+    const start = Date.parse("2026-11-20T23:50:00.000Z");
+    const paused = Date.parse("2026-11-20T23:55:00.000Z");
+    const resetAt = "2026-11-21T00:00:00.000Z";
+    await page.clock.install({ time: start });
+    await page.route("**/api/chat", (route) =>
+      route.fulfill(
+        fulfill({ error: { code: "QUOTA_EXCEEDED", message: t.quotaExceeded("demain à 0 h 00 (UTC)"), retryable: false, resetAt } }, 429),
+      ),
+    );
+    await openAssistant(page);
+    await field(page).fill("Ma question refusée");
+    await field(page).press("Enter");
+    // 23:50 UTC = 00:50 à Paris le 21 ; rétablissement à 01:00 heure de Paris, le même jour.
+    await expect(quotaBlock(page)).toContainText(t.quotaExceeded("aujourd'hui à 1 h 00"));
+    await expect(page.locator("[data-question-bubble]")).toHaveCount(0);
+    await expect(page.locator("[data-error-alert]")).toHaveCount(0);
+    await expect(field(page)).toHaveValue("Ma question refusée");
+    await expect(field(page)).toHaveAttribute("aria-disabled", "true");
+    await expect(sendButton(page)).toHaveAttribute("aria-disabled", "true");
+    const results = await new AxeBuilder({ page }).exclude("nextjs-portal").analyze();
+    expect(results.violations.map((v) => `${v.id} : ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+
+    await page.clock.pauseAt(paused);
+    await page.clock.fastForward(Date.parse(resetAt) - paused - 5_000);
+    await expect(quotaBlock(page)).toBeVisible();
+    await page.clock.fastForward(6_000);
+    await expect(quotaBlock(page)).toHaveCount(0);
+    await expect(field(page)).not.toHaveAttribute("aria-disabled", "true");
+    await expect(field(page)).toHaveValue("Ma question refusée");
+  });
+
+  test("Q3 = A : focus posé hors de la vue pendant la demande → la panne garde role=\"alert\" (annoncée), le focus reste où il est", async ({ page }) => {
+    let fulfillChat!: () => void;
+    const held = new Promise<void>((resolve) => (fulfillChat = resolve));
+    await page.route("**/api/chat", async (route) => {
+      await held;
+      await route.fulfill(fulfill({ error: { code: "AI_UNAVAILABLE", message: t.failed, retryable: true } }, 503));
+    });
+    await openAssistant(page);
+    await field(page).fill("Question en panne");
+    await field(page).press("Enter");
+    await expect(page.getByText(t.pending)).toBeVisible();
+    // Focus posé hors de la vue de l'Assistant (lien d'évitement de la coquille).
+    const skip = page.getByRole("link", { name: texts.shell.skipLink });
+    await skip.focus();
+    fulfillChat();
+    await expect(thread(page).getByRole("alert")).toContainText(t.failedTitle);
+    await expect(thread(page).getByRole("group", { name: t.failedTitle })).toHaveCount(0);
+    await expect(skip).toBeFocused();
+  });
 });

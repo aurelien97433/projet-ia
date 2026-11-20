@@ -19,6 +19,8 @@ import {
   type ThreadSource,
 } from "@/lib/conversation-thread";
 import { ERROR_CODES, type ErrorCode } from "@/lib/errors";
+import { nextUtcMidnight, type QuotaState, quotaReachedUntil } from "@/lib/quota";
+import { formatResetMoment } from "@/lib/reset-moment";
 import {
   CHAT_MAX_QUESTION_LENGTH,
   chatDeltaSchema,
@@ -33,6 +35,7 @@ import { searchHref, SEARCH_PATH } from "@/lib/search-links";
 import { createSseParser, type SseEvent } from "@/lib/sse";
 import { functionRegion, type Measure, measureMarkdown } from "@/lib/stream-measure";
 import { texts } from "@/lib/texts";
+import { useDisplayTimeZone } from "@/lib/use-hydrated";
 import { ASSISTANT_FIELD_ID, ASSISTANT_HREF, conversationHref } from "./constants";
 import { HistorySheet } from "./history-sheet";
 import { SOURCE_PANEL_ID, SourcePanel, type SourceSelection, useWideLayout } from "./source-panel";
@@ -46,7 +49,9 @@ const t = texts.assistant;
 export const CHAT_FIRST_DISPLAY_TIMEOUT_MS = 20_000;
 export const CHAT_CLIENT_TIMEOUT_MS = 90_000;
 
-type ChatError = { code: ErrorCode; message: string; retryable: boolean };
+// resetAt (story 5.10) : prochain 00:00 UTC renvoyé par le serveur avec QUOTA_EXCEEDED et
+// AI_DAILY_CAP_REACHED ; le moment du rétablissement est calculé dans le navigateur à partir de lui.
+type ChatError = { code: ErrorCode; message: string; retryable: boolean; resetAt?: string };
 type Reply =
   | { kind: "pending" }
   // Texte provisoire (story 5.5) : sans marqueur ni repère, remplacé par la réponse validée.
@@ -57,7 +62,9 @@ type Reply =
 // Fil de la Conversation (story 5.6) : tous les échanges, dans l'ordre. stored : échange lu en base à
 // l'ouverture (/assistant/[id]), par opposition à une question envoyée depuis cette page.
 // clientRequestId (story 5.9, AD-16) : identifiant de la question, renvoyé tel quel par « Réessayer ».
-type Exchange = { id: string; question: string; clientRequestId: string | null; reply: Reply; stored: boolean };
+// focusAlert (story 5.10, Q3 = A) : décidé une seule fois, à l'arrivée d'une panne, si le focus ira sur
+// son alerte (focus « libre » à ce moment) ; sert à la fois à déplacer le focus et à retirer role="alert".
+type Exchange = { id: string; question: string; clientRequestId: string | null; reply: Reply; stored: boolean; focusAlert?: boolean };
 // Issue d'une demande : la réponse affichée et la Conversation créée ou poursuivie, si chat l'a donnée.
 // inProgress (story 5.9) : 409 REQUEST_IN_PROGRESS avec la Conversation de la question déjà en cours.
 type Outcome = { reply: Reply; conversationId?: string; inProgress?: boolean };
@@ -80,8 +87,23 @@ function fromThread(exchanges: ThreadExchange[]): Exchange[] {
 // Corps d'erreur AD-19 renvoyé par /api/chat ; le message vient déjà du catalogue (relais).
 // Story 5.9 : un 409 REQUEST_IN_PROGRESS porte la Conversation de la question déjà en cours.
 const errorBodySchema = z.object({
-  error: z.object({ code: z.enum(ERROR_CODES), message: z.string().min(1), retryable: z.boolean(), conversationId: z.uuid().optional() }),
+  error: z.object({
+    code: z.enum(ERROR_CODES),
+    message: z.string().min(1),
+    retryable: z.boolean(),
+    conversationId: z.uuid().optional(),
+    resetAt: z.iso.datetime({ offset: true }).optional().catch(undefined),
+  }),
 });
+
+// Texte d'un refus de quota ou de plafond (story 5.10) : {moment} en heure locale du navigateur, calculé
+// ici à partir de resetAt (le relais, qui ne connaît pas le fuseau, écrit un repli en UTC).
+function localizedMessage(error: ChatError): string {
+  if (!error.resetAt) return error.message;
+  if (error.code === "QUOTA_EXCEEDED") return t.quotaExceeded(formatResetMoment(error.resetAt));
+  if (error.code === "AI_DAILY_CAP_REACHED") return t.dailyCapReached(formatResetMoment(error.resetAt));
+  return error.message;
+}
 
 // Pannes de l'Assistant : titre « La réponse n'a pas pu être générée. » suivi du message. Les autres
 // refus (quota, plafond, double envoi, saisie, session) n'ont que leur message.
@@ -210,6 +232,9 @@ type AssistantViewProps = {
   conversation?: AssistantConversation;
   // 5 dernières Conversations, sous le champ tant qu'aucune Conversation n'est active (story 5.6).
   recent?: React.ReactNode;
+  // Quota du Collaborateur lu au chargement côté serveur (story 5.10, Q1 = A) ; null : lecture en
+  // échec, la page s'affiche normalement (le refus à l'envoi reste le filet).
+  quota?: QuotaState | null;
 };
 
 // Adresse d'une Conversation : seul ?mesure=1 est gardé (instrument de mesure de la 5.5).
@@ -226,7 +251,11 @@ const addressOf = (conversationId: string | null, measuring: boolean) =>
 // d'annonce), puis la réponse validée la remplace, en texte brut avec ses renvois ¹ ² et ses puces
 // numérotées (story 5.4), annoncée une seule fois ; un refus arrive d'un bloc (story 5.3) ; une panne
 // retire le texte provisoire. ?mesure=1 : instrument de mesure du flux.
-export function AssistantView({ title, conversation, recent }: AssistantViewProps = {}) {
+// Story 5.10 : quota atteint (lu au chargement, ou QUOTA_EXCEEDED à l'envoi) : bloc neutre avec le
+// moment local du rétablissement et « Ouvrir la Recherche », champ et « Envoyer » en aria-disabled
+// (raison reliée par aria-describedby), question gardée dans le champ ; réactivation sans rechargement
+// à resetAt (minuterie) ou au retour sur l'onglet.
+export function AssistantView({ title, conversation, recent, quota }: AssistantViewProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const raw = searchParams.get("question");
@@ -293,6 +322,38 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     return () => clearInterval(timer);
   }, [storedPending, router]);
 
+  // Quota atteint jusqu'à ce moment (resetAt du serveur, prochain 00:00 UTC), sinon null.
+  const [quotaUntil, setQuotaUntil] = useState<string | null>(() => quotaReachedUntil(quota));
+  // Nouvelle lecture du serveur (rafraîchissement) : elle fait foi ; une lecture en échec ne change rien.
+  const [syncedQuota, setSyncedQuota] = useState(quota);
+  if (quota !== syncedQuota) {
+    setSyncedQuota(quota);
+    if (quota) setQuotaUntil(quotaReachedUntil(quota));
+  }
+  const quotaReached = quotaUntil !== null;
+
+  // Réactivation sans rechargement (la page ne se fie qu'à resetAt) : minuterie jusqu'à resetAt, et
+  // contrôle au retour sur l'onglet (minuterie retardée par la mise en veille). Au retour sur l'onglet
+  // avant resetAt, le quota est relu (rafraîchissement du composant serveur) quand l'adresse affichée
+  // est bien celle de la page rendue (sinon le rafraîchissement ouvrirait une autre page).
+  const quotaRefreshable = conversation !== undefined || conversationId === null;
+  useEffect(() => {
+    if (quotaUntil === null) return;
+    const resetMs = Date.parse(quotaUntil);
+    const lift = () => setQuotaUntil((current) => (current === quotaUntil ? null : current));
+    const timer = setTimeout(lift, Math.max(0, resetMs - Date.now()));
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() >= resetMs) lift();
+      else if (quotaRefreshable) router.refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [quotaUntil, quotaRefreshable, router]);
+
   // « Envoyer » inactif jusqu'à l'issue (réponse validée, refus ou panne), y compris pour une question
   // enregistrée encore en cours.
   const busy = last?.reply.kind === "pending" || last?.reply.kind === "streaming";
@@ -302,8 +363,17 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
   const tooLong = questionLength > CHAT_MAX_QUESTION_LENGTH;
   const fieldIssue: ChatQuestionIssue | null = tooLong ? "tooLong" : emptyRefused ? "empty" : null;
 
-  const updateExchange = (exchangeId: string, reply: Reply, stored = false) =>
-    setExchanges((current) => current.map((exchange) => (exchange.id === exchangeId ? { ...exchange, reply, stored } : exchange)));
+  const updateExchange = (exchangeId: string, reply: Reply, stored = false, focusAlert = false) =>
+    setExchanges((current) =>
+      current.map((exchange) => (exchange.id === exchangeId ? { ...exchange, reply, stored, focusAlert } : exchange)),
+    );
+
+  // Focus « libre » : sur la page (body) ou dans la vue, jamais dans le panneau Source, la navigation ou
+  // ailleurs, où le Collaborateur l'a posé lui-même.
+  const focusIsFree = () => {
+    const active = document.activeElement;
+    return active === null || active === document.body || containerRef.current?.contains(active) === true;
+  };
 
   // Conversation créée par la première question (ou confirmée) : la page en prend l'adresse, sans
   // rechargement ni perte du texte affiché ; les questions suivantes y sont ajoutées.
@@ -314,7 +384,8 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     if (window.location.pathname !== conversationHref(id)) window.history.replaceState(null, "", addressOf(id, measuring));
   }
 
-  async function ask(question: string, exchangeId: string, clientRequestId: string) {
+  // previous : échange tel qu'il était avant « Réessayer » (rétabli si le quota refuse le réessai).
+  async function ask(question: string, exchangeId: string, clientRequestId: string, previous?: Exchange) {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -415,6 +486,24 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
       return;
     }
     if (outcome.conversationId) adoptConversation(outcome.conversationId);
+    // Story 5.10 : quota personnel refusé à l'envoi (autre onglet, ou lecture au chargement en échec) :
+    // bloc de limite atteinte ; la question n'entre pas dans le fil et revient dans le champ ; pour
+    // « Réessayer », l'échec précédent reste affiché (story 5.9).
+    if (reply.kind === "error" && reply.error.code === "QUOTA_EXCEEDED") {
+      controllerRef.current = null;
+      busyRef.current = false;
+      // Repli seulement si le serveur n'a pas donné resetAt.
+      setQuotaUntil(reply.error.resetAt ?? nextUtcMidnight());
+      if (previous) {
+        setExchanges((current) => current.map((exchange) => (exchange.id === exchangeId ? previous : exchange)));
+      } else {
+        setExchanges((current) => current.filter((exchange) => exchange.id !== exchangeId));
+        setValue((current) => (current === "" ? question : current));
+      }
+      return;
+    }
+    // Plafond global (AI_DAILY_CAP_REACHED) : heure locale du rétablissement, calculée ici.
+    if (reply.kind === "error") reply = { kind: "error", error: { ...reply.error, message: localizedMessage(reply.error) } };
     if (measuring) {
       const measure: Measure = {
         sentAt,
@@ -434,7 +523,8 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
     // Erreur sans « Réessayer » (saisie invalide, double envoi, quota, plafond, session) : la question
     // revient dans le champ s'il est resté vide, pour être corrigée ou renvoyée plus tard.
     if (reply.kind === "error" && !canRetry(reply.error)) setValue((current) => (current === "" ? question : current));
-    updateExchange(exchangeId, reply);
+    // Panne : le focus ira sur l'alerte seulement s'il est libre maintenant (sinon role="alert" la fait annoncer).
+    updateExchange(exchangeId, reply, false, reply.kind === "error" && focusIsFree());
   }
 
   // Question déjà en cours (409, story 5.9) : sur la page de cette Conversation, l'échange devient un
@@ -461,19 +551,26 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
   // Issue affichée d'une question envoyée ici : erreur → focus sur l'alerte ; réponse ou refus → le
   // focus reste dans le champ (ou y revient depuis « Envoyer » ou « Réessayer »), sauf s'il a été posé
   // ailleurs entre-temps. Un échange lu en base ne déplace pas le focus.
+  // Story 5.10 (Q3 = A) : pour une panne, la décision prise à son arrivée (focusAlert) est appliquée
+  // telle quelle, la même qui retire role="alert".
   const replyKind = last?.stored === false ? last.reply.kind : undefined;
   const lastId = last?.id;
+  const lastFocusAlert = last?.focusAlert === true;
   useEffect(() => {
     if (replyKind === undefined || replyKind === "pending" || replyKind === "streaming") return;
+    if (replyKind === "error") {
+      if (lastFocusAlert) alertRef.current?.focus();
+      return;
+    }
     const active = document.activeElement;
     const free = active === null || active === document.body || containerRef.current?.contains(active) === true;
     if (!free) return;
-    if (replyKind === "error") alertRef.current?.focus();
-    else if (active !== fieldRef.current) fieldRef.current?.focus();
-  }, [replyKind, lastId]);
+    if (active !== fieldRef.current) fieldRef.current?.focus();
+  }, [replyKind, lastId, lastFocusAlert]);
 
   function send() {
-    if (busyRef.current || busy) return;
+    // Limite quotidienne atteinte : rien n'est envoyé, la question reste dans le champ (story 5.10).
+    if (busyRef.current || busy || quotaReached) return;
     const issue = questionIssue(value);
     if (issue) {
       setEmptyRefused(issue === "empty");
@@ -493,8 +590,9 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
   // « Réessayer » (dernier échange seulement) : la question repart dans la même Conversation (Q3 = A),
   // avec le MÊME identifiant (story 5.9) : aucune bulle ni question en plus, le résultat remplace l'alerte.
   function retry() {
-    if (busyRef.current || last === undefined) return;
+    if (busyRef.current || last === undefined || quotaReached) return;
     busyRef.current = true;
+    const previous = last;
     const clientRequestId = last.clientRequestId ?? crypto.randomUUID();
     // L'alerte qui a le focus disparaît : le focus va dans le champ pendant l'attente.
     fieldRef.current?.focus();
@@ -504,7 +602,7 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
         exchange.id === last.id ? { ...exchange, clientRequestId, reply: { kind: "pending" }, stored: false } : exchange,
       ),
     );
-    void ask(last.question, last.id, clientRequestId);
+    void ask(last.question, last.id, clientRequestId, previous);
   }
 
   // « + Nouvelle Conversation » sur /assistant, alors qu'une Conversation y a été commencée : l'écran
@@ -601,6 +699,8 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
   const helpId = `${ASSISTANT_FIELD_ID}-aide`;
   const counterId = `${ASSISTANT_FIELD_ID}-compteur`;
   const errorId = `${ASSISTANT_FIELD_ID}-erreur`;
+  const quotaReasonId = `${ASSISTANT_FIELD_ID}-limite`;
+  const fieldDescription = `${quotaReached ? `${quotaReasonId} ` : ""}${helpId} ${counterId}${fieldIssue ? ` ${errorId}` : ""}`;
 
   return (
     // ≥ 1024 px : panneau Source à droite du fil, la Conversation reste visible et utilisable.
@@ -641,13 +741,19 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
                   isLast={isLast}
                   alertRef={isLast ? alertRef : undefined}
                   sources={sourceProps}
-                  onRetry={retry}
+                  onRetry={quotaReached ? undefined : retry}
                   onReformulate={() => reformulate(exchange.question)}
                 />
               );
             })}
           </ol>
         ) : null}
+
+        {/* Bloc de limite atteinte (story 5.10) : région toujours rendue, le bloc qui apparaît après un
+            refus à l'envoi y est annoncé ; affiché d'emblée au chargement. */}
+        <div aria-live="polite" data-quota-region className="empty:hidden">
+          {quotaUntil !== null ? <QuotaBlock resetAt={quotaUntil} /> : null}
+        </div>
 
         <form
           onSubmit={(event) => {
@@ -670,20 +776,34 @@ export function AssistantView({ title, conversation, recent }: AssistantViewProp
                 setEmptyRefused(false);
               }}
               onKeyDown={onKeyDown}
-              placeholder={t.placeholder}
+              placeholder={quotaReached ? t.quotaReason : t.placeholder}
               rows={2}
+              // Limite atteinte : champ en aria-disabled, en lecture seule (la question reste lisible et
+              // copiable), toujours focalisable ; raison reliée par aria-describedby.
+              aria-disabled={quotaReached || undefined}
+              readOnly={quotaReached}
               aria-invalid={fieldIssue !== null || undefined}
-              aria-describedby={`${helpId} ${counterId}${fieldIssue ? ` ${errorId}` : ""}`}
+              aria-describedby={fieldDescription}
               enterKeyHint="send"
-              className={`field-sizing-content max-h-[7.5rem] min-h-16 w-full min-w-0 resize-none rounded-md border bg-background px-3 py-2 text-[15px] text-foreground sm:max-h-[10.5rem] ${
+              className={`field-sizing-content max-h-[7.5rem] min-h-16 w-full min-w-0 resize-none rounded-md border px-3 py-2 text-[15px] text-foreground sm:max-h-[10.5rem] ${
                 tooLong ? "border-destructive" : "border-input"
-              }`}
+              } ${quotaReached ? "bg-surface" : "bg-background"}`}
             />
-            <Button type="submit" aria-disabled={busy || undefined} className="h-10 w-full aria-disabled:opacity-80 sm:w-auto">
+            <Button
+              type="submit"
+              aria-disabled={busy || quotaReached || undefined}
+              aria-describedby={quotaReached ? quotaReasonId : undefined}
+              className="h-10 w-full aria-disabled:opacity-80 sm:w-auto"
+            >
               {t.submit}
             </Button>
           </div>
           <div className="flex min-w-0 flex-wrap justify-between gap-x-4 gap-y-1 text-xs">
+            {quotaReached ? (
+              <p id={quotaReasonId} data-quota-reason className="font-medium text-muted-foreground">
+                {t.quotaReason}
+              </p>
+            ) : null}
             <p id={helpId} className="text-muted-foreground">
               {t.keyboardHelp}
             </p>
@@ -718,7 +838,8 @@ type ExchangeItemsProps = {
   isLast: boolean;
   alertRef?: React.Ref<HTMLDivElement>;
   sources: SourceChipsProps;
-  onRetry: () => void;
+  // Absent : « Réessayer » n'est pas proposé (limite quotidienne atteinte, story 5.10).
+  onRetry?: () => void;
   onReformulate: () => void;
 };
 
@@ -785,7 +906,17 @@ function ExchangeItems({ exchange, isLast, alertRef, sources, onRetry, onReformu
           ) : null}
           {reply.kind === "refusal" ? <RefusalActions variant={reply.variant} question={exchange.question} onReformulate={onReformulate} /> : null}
         </div>
-        {reply.kind === "error" ? <FailureAlert ref={alertRef} error={reply.error} onRetry={isLast ? onRetry : undefined} live={isLast} /> : null}
+        {/* Story 5.10 (Q3 = A) : l'alerte d'une question envoyée ici reçoit le focus (dernier échange) :
+            sans role="alert", pour n'être annoncée qu'une fois. */}
+        {reply.kind === "error" ? (
+          <FailureAlert
+            ref={alertRef}
+            error={reply.error}
+            onRetry={isLast ? onRetry : undefined}
+            live={isLast}
+            focused={isLast && !exchange.stored && exchange.focusAlert === true}
+          />
+        ) : null}
       </li>
     </>
   );
@@ -974,6 +1105,24 @@ function RefusalText({ variant }: { variant: RefusalVariant }) {
   );
 }
 
+// Bloc de limite atteinte (story 5.10, EXPERIENCE.md, « Quota atteint : Assistant ») : bloc neutre (pas
+// une alerte d'erreur, DESIGN.md), moment du rétablissement en heure locale du navigateur (fuseau fixe
+// au rendu serveur et à l'hydratation, celui du navigateur ensuite), lien « Ouvrir la Recherche ».
+function QuotaBlock({ resetAt }: { resetAt: string }) {
+  const timeZone = useDisplayTimeZone();
+  return (
+    <div data-quota-block className="flex min-w-0 flex-col items-start gap-3 rounded-lg border border-border bg-surface p-4 text-[15px] text-foreground">
+      <div className="flex min-w-0 items-start gap-3">
+        <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+        <p className="min-w-0 [overflow-wrap:anywhere]">{t.quotaExceeded(formatResetMoment(resetAt, new Date(), timeZone))}</p>
+      </div>
+      <Button asChild variant="outline" className="w-full sm:ms-8 sm:w-auto">
+        <Link href={SEARCH_PATH}>{t.openSearch}</Link>
+      </Button>
+    </div>
+  );
+}
+
 type RefusalActionsProps = { variant: RefusalVariant; question: string; onReformulate: () => void };
 
 // Boutons secondaires (contour), alignés sous le texte (après l'icône).
@@ -999,14 +1148,16 @@ function RefusalActions({ variant, question, onReformulate }: RefusalActionsProp
 
 // onRetry absent : « Réessayer » n'est proposé que sur le dernier échange du fil (story 5.6). live :
 // alerte annoncée (dernier échange) ; une panne plus ancienne du fil est affichée sans être annoncée.
-type FailureAlertProps = { error: ChatError; onRetry?: () => void; live?: boolean; ref?: React.Ref<HTMLDivElement> };
+// focused : l'alerte reçoit le focus à son apparition (ErrorAlert, sans role="alert").
+type FailureAlertProps = { error: ChatError; onRetry?: () => void; live?: boolean; focused?: boolean; ref?: React.Ref<HTMLDivElement> };
 
-function FailureAlert({ error, onRetry, live = true, ref }: FailureAlertProps) {
+function FailureAlert({ error, onRetry, live = true, focused = false, ref }: FailureAlertProps) {
   const failure = FAILURE_CODES.includes(error.code);
   return (
     <ErrorAlert
       ref={ref}
       live={live}
+      focused={focused}
       title={failure ? t.failedTitle : error.message}
       action={
         onRetry && canRetry(error) ? (

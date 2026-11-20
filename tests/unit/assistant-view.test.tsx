@@ -1,6 +1,7 @@
 ﻿// @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatResetMoment } from "@/lib/reset-moment";
 import { texts } from "@/lib/texts";
 
 // Page Assistant (E4, story 5.2b) : la vue n'appelle que POST /api/chat (simulé ici).
@@ -47,6 +48,14 @@ const chipView = (chip: HTMLElement) => [
   chip.querySelector(".sr-only")?.textContent,
 ];
 const counter = () => document.querySelector("[data-counter]")!;
+// Alerte de panne du fil (ErrorAlert). Story 5.10 (Q3 = A) : celle qui reçoit le focus n'a pas de
+// role="alert" (groupe nommé par son titre) ; elle est donc cherchée par son attribut.
+const queryAlertBox = () => document.querySelector<HTMLElement>("[data-error-alert]");
+const alertBox = () => {
+  const alert = queryAlertBox();
+  if (!alert) throw new Error("aucune alerte affichée");
+  return alert;
+};
 const NBSP = String.fromCharCode(0xa0);
 
 function type(value: string) {
@@ -253,7 +262,7 @@ describe("envoi", () => {
     expect(within(block).getByRole("link", { name: t.addDocument }).getAttribute("href")).toBe("/ajouter");
     expect(within(block).getAllByRole("button")).toHaveLength(1);
     expect(within(block).getAllByRole("link")).toHaveLength(2);
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(queryAlertBox()).toBeNull();
     expect(document.activeElement).toBe(field());
   });
 
@@ -376,7 +385,7 @@ describe("erreurs", () => {
       .mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
     render(<AssistantView />);
     await ask("Sous quel délai ?");
-    const alert = screen.getByRole("alert");
+    const alert = alertBox();
     expect(alert.textContent).toContain(t.failedTitle);
     expect(alert.textContent).toContain(t.failed);
     expect(document.activeElement).toBe(alert);
@@ -384,7 +393,7 @@ describe("erreurs", () => {
     expect(bubbles()).toHaveLength(1);
 
     fireEvent.click(within(alert).getByRole("button", { name: t.retry }));
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(queryAlertBox()).toBeNull();
     expect(screen.getByRole("status").textContent).toBe(t.pending);
     // L'alerte disparue, le focus est dans le champ pendant l'attente.
     expect(document.activeElement).toBe(field());
@@ -401,26 +410,26 @@ describe("erreurs", () => {
     expect(document.activeElement).toBe(field());
   });
 
-  it.each([
-    ["QUOTA_EXCEEDED", 429, texts.assistant.quotaExceeded("demain à 0 h 00 (UTC)")],
-    ["AI_DAILY_CAP_REACHED", 503, texts.assistant.dailyCapReached("demain à 0 h 00 (UTC)")],
-  ])("%s : texte du catalogue (heure UTC), sans « Réessayer », même si réessayable", async (code, status, message) => {
-    fetchMock().mockResolvedValue(failure(code, status, true, message, "2026-11-17T00:00:00.000Z"));
+  it("AI_DAILY_CAP_REACHED : texte du catalogue avec l'heure locale (story 5.10, sans « (UTC) »), sans « Réessayer », même si réessayable ; jamais le bloc de quota", async () => {
+    const resetAt = "2026-11-17T00:00:00.000Z";
+    fetchMock().mockResolvedValue(failure("AI_DAILY_CAP_REACHED", 503, true, t.dailyCapReached("demain à 0 h 00 (UTC)"), resetAt));
     render(<AssistantView />);
     await ask("Question");
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toBe(message);
-    expect(alert.textContent).toContain("(UTC)");
+    const alert = alertBox();
+    expect(alert.textContent).toBe(t.dailyCapReached(formatResetMoment(resetAt)));
+    expect(alert.textContent).not.toContain("(UTC)");
     expect(within(alert).queryByRole("button")).toBeNull();
     expect(document.activeElement).toBe(alert);
+    expect(document.querySelector("[data-quota-block]")).toBeNull();
+    expect(field().getAttribute("aria-disabled")).toBeNull();
   });
 
   it("409 REQUEST_IN_PROGRESS sans Conversation : « déjà en cours » avec « Réessayer », qui renvoie le même identifiant (story 5.9)", async () => {
     fetchMock().mockResolvedValueOnce(failure("REQUEST_IN_PROGRESS", 409, false, t.inProgress)).mockResolvedValueOnce(answer());
     render(<AssistantView />);
     await ask("Question");
-    expect(screen.getByRole("alert").textContent).toContain(t.inProgress);
-    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: t.retry }));
+    expect(alertBox().textContent).toContain(t.inProgress);
+    fireEvent.click(within(alertBox()).getByRole("button", { name: t.retry }));
     await flush();
     const [first, second] = bodies();
     expect(second.clientRequestId).toBe(first.clientRequestId);
@@ -432,23 +441,23 @@ describe("erreurs", () => {
     fetchMock().mockResolvedValue(failure("VALIDATION_FAILED", 400, false, t.invalidRequest));
     render(<AssistantView />);
     await ask("Question");
-    expect(screen.getByRole("alert").textContent).toBe(t.invalidRequest);
-    expect(screen.getByRole("alert").textContent).not.toContain(t.failed);
+    expect(alertBox().textContent).toBe(t.invalidRequest);
+    expect(alertBox().textContent).not.toContain(t.failed);
   });
 
   it("AI_CITATIONS_INVALID réessayable : message de réponse non vérifiable et « Réessayer »", async () => {
     fetchMock().mockResolvedValue(failure("AI_CITATIONS_INVALID", 502, true, t.unverifiable));
     render(<AssistantView />);
     await ask("Question");
-    expect(screen.getByRole("alert").textContent).toContain(t.unverifiable);
-    expect(within(screen.getByRole("alert")).getByRole("button", { name: t.retry })).toBeTruthy();
+    expect(alertBox().textContent).toContain(t.unverifiable);
+    expect(within(alertBox()).getByRole("button", { name: t.retry })).toBeTruthy();
   });
 
   it("AI_OUTPUT_INVALID non réessayable : pas de « Réessayer »", async () => {
     fetchMock().mockResolvedValue(failure("AI_OUTPUT_INVALID", 502, false, t.failed));
     render(<AssistantView />);
     await ask("Question");
-    expect(within(screen.getByRole("alert")).queryByRole("button")).toBeNull();
+    expect(within(alertBox()).queryByRole("button")).toBeNull();
   });
 
   it("401 : rafraîchissement (session expirée), sans « Réessayer »", async () => {
@@ -456,8 +465,8 @@ describe("erreurs", () => {
     render(<AssistantView />);
     await ask("Question");
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("alert").textContent).toBe(texts.session.expired);
-    expect(within(screen.getByRole("alert")).queryByRole("button")).toBeNull();
+    expect(alertBox().textContent).toBe(texts.session.expired);
+    expect(within(alertBox()).queryByRole("button")).toBeNull();
   });
 
   it.each([
@@ -468,7 +477,7 @@ describe("erreurs", () => {
     fetchMock().mockImplementation(respond);
     render(<AssistantView />);
     await ask("Question");
-    const alert = screen.getByRole("alert");
+    const alert = alertBox();
     expect(alert.textContent).toContain(t.failed);
     expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
   });
@@ -477,14 +486,14 @@ describe("erreurs", () => {
 describe("revue de la 5.2b", () => {
   it.each([
     ["VALIDATION_FAILED", 400, t.invalidRequest],
-    ["QUOTA_EXCEEDED", 429, t.quotaExceeded("demain à 0 h 00 (UTC)")],
+    // Sans resetAt (client ancien, repli du relais) : texte du serveur tel quel.
     ["AI_DAILY_CAP_REACHED", 503, t.dailyCapReached("demain à 0 h 00 (UTC)")],
     ["UNAUTHENTICATED", 401, texts.session.expired],
   ])("erreur %s sans « Réessayer » : la question revient dans le champ resté vide", async (code, status, message) => {
     fetchMock().mockResolvedValue(failure(code, status, false, message));
     render(<AssistantView />);
     await ask("  Ma question  ");
-    expect(screen.getByRole("alert").textContent).toBe(message);
+    expect(alertBox().textContent).toBe(message);
     expect(field().value).toBe("Ma question");
   });
 
@@ -623,7 +632,7 @@ describe("réponse progressive (story 5.5)", () => {
     await tick();
     expect(provisional()).toBeNull();
     expect(document.body.textContent).not.toContain("PERROQUET");
-    const alert = screen.getByRole("alert");
+    const alert = alertBox();
     expect(alert.textContent).toContain(t.unverifiable);
     expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
     expect(document.activeElement).toBe(alert);
@@ -644,7 +653,7 @@ describe("réponse progressive (story 5.5)", () => {
     finish(stream);
     await tick();
     expect(provisional()).toBeNull();
-    expect(screen.getByRole("alert").textContent).toContain(t.failed);
+    expect(alertBox().textContent).toContain(t.failed);
   });
 
   it("story 5.8, garde-fou des 17 s : JSON 504 AI_TIMEOUT reçu à la place du flux → panne normale avec « Réessayer », sans texte provisoire", async () => {
@@ -658,18 +667,21 @@ describe("réponse progressive (story 5.5)", () => {
     await ask("Question");
     await tick();
     expect(provisional()).toBeNull();
-    const alert = screen.getByRole("alert");
+    const alert = alertBox();
     expect(alert.textContent).toContain(t.failed);
     expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
     // Question conservée dans le fil.
     expect(bubbles()).toHaveLength(1);
   });
 
-  it("réponse JSON d'un bloc (refus avant le flux) : traitée comme avant", async () => {
-    fetchMock().mockResolvedValue(failure("QUOTA_EXCEEDED", 429, false, t.quotaExceeded("demain"), "2026-11-17T00:00:00.000Z"));
+  it("réponse JSON d'un bloc (refus avant le flux) : traitée comme avant (story 5.10 : quota → bloc de limite atteinte)", async () => {
+    // resetAt dans le futur : un resetAt déjà passé réactive aussitôt le champ (minuterie à 0).
+    const resetAt = new Date(Date.now() + 3_600_000).toISOString();
+    fetchMock().mockResolvedValue(failure("QUOTA_EXCEEDED", 429, false, t.quotaExceeded("demain"), resetAt));
     render(<AssistantView />);
     await ask("Question");
-    expect(screen.getByRole("alert").textContent).toBe(t.quotaExceeded("demain"));
+    expect(queryAlertBox()).toBeNull();
+    expect(document.querySelector("[data-quota-block]")?.textContent).toContain(t.quotaExceeded(formatResetMoment(resetAt)));
   });
 
   it("20 s sans premier affichage : requête abandonnée, alerte AI_TIMEOUT avec « Réessayer », question conservée", async () => {
@@ -690,7 +702,7 @@ describe("réponse progressive (story 5.5)", () => {
     expect(signal?.aborted).toBe(false);
     await act(() => vi.advanceTimersByTimeAsync(100));
     expect(signal?.aborted).toBe(true);
-    const alert = screen.getByRole("alert");
+    const alert = alertBox();
     expect(alert.textContent).toContain(t.failedTitle);
     expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
     expect(within(thread()).getByText("Question")).toBeTruthy();
@@ -703,7 +715,7 @@ describe("réponse progressive (story 5.5)", () => {
     render(<AssistantView />);
     await ask("Question");
     await act(() => vi.advanceTimersByTimeAsync(20_000));
-    expect(screen.getByRole("alert").textContent).toContain(t.failed);
+    expect(alertBox().textContent).toContain(t.failed);
 
     cleanup();
     const slow = controlledStream();
@@ -715,11 +727,11 @@ describe("réponse progressive (story 5.5)", () => {
     await act(() => vi.advanceTimersByTimeAsync(10));
     expect(provisional()?.textContent).toContain("Début");
     await act(() => vi.advanceTimersByTimeAsync(80_000));
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(queryAlertBox()).toBeNull();
     expect(CHAT_CLIENT_TIMEOUT_MS).toBe(90_000);
     await act(() => vi.advanceTimersByTimeAsync(5_000));
     expect(provisional()).toBeNull();
-    const alert = screen.getByRole("alert");
+    const alert = alertBox();
     expect(alert.textContent).toContain(t.failedTitle);
     expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
   });
@@ -828,7 +840,7 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     await flush();
     fireEvent.click(screen.getByRole("button", { name: t.retry }));
     await flush();
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(queryAlertBox()).toBeNull();
     expect(screen.getByRole("status").textContent).toBe(t.pending);
     expect(send().getAttribute("aria-disabled")).toBe("true");
     await act(async () => vi.advanceTimersByTime(5_000));
@@ -837,7 +849,7 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     // Le serveur relu : la réponse enregistrée remplace l'échec, une seule bulle par échange.
     const settled: Thread = [OLD[0], { ...OLD[1], reply: { kind: "answer", content: "Un avoir suit la même règle[S1].", sources: [SOURCE] } }];
     rerender(<AssistantView conversation={conversation(settled)} />);
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(queryAlertBox()).toBeNull();
     expect(bubbles()).toHaveLength(2);
     expect(document.body.textContent).toContain("Un avoir suit la même règle");
     await act(async () => vi.advanceTimersByTime(15_000));
@@ -852,7 +864,7 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     fireEvent.click(screen.getByRole("button", { name: t.retry }));
     await flush();
     rerender(<AssistantView conversation={conversation([OLD[0], { ...OLD[1], reply: { kind: "failure", code: "AI_TIMEOUT" } }])} />);
-    expect(within(screen.getByRole("alert")).getByRole("button", { name: t.retry })).toBeTruthy();
+    expect(within(alertBox()).getByRole("button", { name: t.retry })).toBeTruthy();
   });
 
   it("story 5.9 : 409 sur /assistant (Conversation inconnue de la page, abandon à 20 s) : la Conversation est ouverte à son adresse", async () => {
@@ -861,7 +873,7 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     await ask("Première question");
     expect(router.replace).toHaveBeenCalledWith(`/assistant/${CONVERSATION}`);
     expect(screen.getByRole("status").textContent).toBe(t.pending);
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(queryAlertBox()).toBeNull();
   });
 
   it("poursuivre : la question part avec le conversationId de la page", async () => {
@@ -883,7 +895,7 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     await act(async () => vi.advanceTimersByTime(5_000));
     expect(refresh).toHaveBeenCalledTimes(2);
     rerender(<AssistantView conversation={conversation([{ ...pending[0], reply: { kind: "failure", code: "AI_TIMEOUT" } }])} />);
-    expect(screen.getByRole("alert").textContent).toContain(t.failed);
+    expect(alertBox().textContent).toContain(t.failed);
     await act(async () => vi.advanceTimersByTime(15_000));
     expect(refresh).toHaveBeenCalledTimes(2);
   });
@@ -1042,5 +1054,208 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     render(<AssistantView />);
     await flush();
     expect(screen.getByRole("dialog", { name: texts.history.title })).toBeTruthy();
+  });
+});
+
+// Story 5.10 : quota lu au chargement (Q1 = A), bloc de limite atteinte, heure locale, réactivation sans
+// rechargement, QUOTA_EXCEEDED à l'envoi, alertes annoncées une seule fois (Q3 = A).
+describe("quota quotidien et états de l'Assistant (story 5.10)", () => {
+  const NOW = "2026-11-20T15:00:00.000Z";
+  const RESET = "2026-11-21T00:00:00.000Z";
+  const reached = { used: 60, limit: 60, resetAt: RESET };
+  const block = () => document.querySelector<HTMLElement>("[data-quota-block]");
+  const reasonOf = (element: HTMLElement) =>
+    (element.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent)
+      .filter(Boolean);
+  let originalTz: string | undefined;
+  let visibility: DocumentVisibilityState = "visible";
+
+  beforeEach(() => {
+    originalTz = process.env.TZ;
+    process.env.TZ = "Europe/Paris";
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date(NOW));
+    visibility = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+  });
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it("quota atteint au chargement : bloc neutre d'emblée, heure locale (Paris), « Ouvrir la Recherche », champ et « Envoyer » aria-disabled avec la raison, aucun envoi", async () => {
+    params = new URLSearchParams({ question: "Ma question préparée" });
+    render(<AssistantView quota={reached} />);
+    await flush();
+    expect(block()?.textContent).toContain(t.quotaExceeded("demain à 1 h 00"));
+    expect(block()?.textContent).not.toContain("(UTC)");
+    // Bloc neutre : jamais une alerte d'erreur.
+    expect(block()?.closest("[data-error-alert]")).toBeNull();
+    expect(queryAlertBox()).toBeNull();
+    const link = within(block()!).getByRole("link", { name: t.openSearch });
+    expect(link.getAttribute("href")).toBe("/recherche");
+
+    expect(field().getAttribute("aria-disabled")).toBe("true");
+    expect(field().readOnly).toBe(true);
+    expect(reasonOf(field())).toContain(t.quotaReason);
+    expect(send().getAttribute("aria-disabled")).toBe("true");
+    expect(reasonOf(send())).toEqual([t.quotaReason]);
+    // La question reste dans le champ ; ni Entrée ni « Envoyer » n'envoient.
+    expect(field().value).toBe("Ma question préparée");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    fireEvent.click(send());
+    await flush();
+    expect(fetchMock()).not.toHaveBeenCalled();
+    expect(field().value).toBe("Ma question préparée");
+  });
+
+  it("heure locale calculée dans le fuseau du navigateur : La Réunion → « demain à 4 h 00 » ; Paris après minuit → « aujourd'hui à 1 h 00 »", async () => {
+    process.env.TZ = "Indian/Reunion";
+    render(<AssistantView quota={reached} />);
+    await flush();
+    expect(block()?.textContent).toContain(t.quotaExceeded("demain à 4 h 00"));
+    cleanup();
+    process.env.TZ = "Europe/Paris";
+    vi.setSystemTime(new Date("2026-11-20T23:30:00.000Z"));
+    render(<AssistantView quota={reached} />);
+    await flush();
+    expect(block()?.textContent).toContain(t.quotaExceeded("aujourd'hui à 1 h 00"));
+  });
+
+  it("59 sur 60 ou lecture du quota en échec : page normale", async () => {
+    render(<AssistantView quota={{ used: 59, limit: 60, resetAt: RESET }} />);
+    await flush();
+    expect(block()).toBeNull();
+    expect(field().getAttribute("aria-disabled")).toBeNull();
+    expect(field().readOnly).toBe(false);
+    expect(send().getAttribute("aria-disabled")).toBeNull();
+    cleanup();
+    render(<AssistantView quota={null} />);
+    await flush();
+    expect(block()).toBeNull();
+    expect(field().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("réactivation à resetAt (minuterie), sans rechargement : bloc retiré, champ et « Envoyer » réactivés, question conservée", async () => {
+    params = new URLSearchParams({ question: "Ma question préparée" });
+    render(<AssistantView quota={reached} />);
+    await flush();
+    await act(async () => vi.advanceTimersByTime(Date.parse(RESET) - Date.parse(NOW) - 1_000));
+    expect(block()).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(1_000));
+    expect(block()).toBeNull();
+    expect(field().getAttribute("aria-disabled")).toBeNull();
+    expect(field().readOnly).toBe(false);
+    expect(send().getAttribute("aria-disabled")).toBeNull();
+    expect(field().value).toBe("Ma question préparée");
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("retour sur l'onglet après resetAt (minuterie retardée par la veille) : réactivé ; avant resetAt : quota relu (rafraîchissement), bloc gardé", async () => {
+    render(<AssistantView quota={reached} />);
+    await flush();
+    // Onglet caché puis revenu avant resetAt : le quota est relu côté serveur.
+    visibility = "hidden";
+    fireEvent(document, new Event("visibilitychange"));
+    expect(refresh).not.toHaveBeenCalled();
+    visibility = "visible";
+    fireEvent(document, new Event("visibilitychange"));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(block()).not.toBeNull();
+    // Horloge passée au-delà de resetAt sans que la minuterie ait tourné (veille).
+    vi.setSystemTime(new Date(Date.parse(RESET) + 60_000));
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    expect(block()).toBeNull();
+    expect(field().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("nouvelle lecture du serveur (rafraîchissement) : elle fait foi (compteur remis à zéro → réactivé) ; lecture en échec : rien ne change", async () => {
+    const { rerender } = render(<AssistantView quota={reached} />);
+    await flush();
+    expect(block()).not.toBeNull();
+    rerender(<AssistantView quota={null} />);
+    await flush();
+    expect(block()).not.toBeNull();
+    rerender(<AssistantView quota={{ used: 0, limit: 60, resetAt: RESET }} />);
+    await flush();
+    expect(block()).toBeNull();
+  });
+
+  it("QUOTA_EXCEEDED à l'envoi : bloc avec l'heure locale, la question reste dans le champ et n'entre pas dans le fil, aucune alerte", async () => {
+    fetchMock().mockResolvedValue(failure("QUOTA_EXCEEDED", 429, false, t.quotaExceeded("demain à 0 h 00 (UTC)"), RESET));
+    render(<AssistantView />);
+    await flush();
+    expect(block()).toBeNull();
+    await ask("  Ma question  ");
+    expect(block()?.textContent).toContain(t.quotaExceeded("demain à 1 h 00"));
+    expect(document.querySelector("[data-quota-region]")?.getAttribute("aria-live")).toBe("polite");
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.queryByRole("list", { name: t.threadLabel })).toBeNull();
+    expect(queryAlertBox()).toBeNull();
+    expect(field().value).toBe("Ma question");
+    expect(field().getAttribute("aria-disabled")).toBe("true");
+    expect(send().getAttribute("aria-disabled")).toBe("true");
+    // Réactivé à resetAt (serveur), sans rechargement ; la question est toujours là.
+    await act(async () => vi.advanceTimersByTime(Date.parse(RESET) - Date.parse(NOW)));
+    expect(block()).toBeNull();
+    expect(field().value).toBe("Ma question");
+  });
+
+  it("QUOTA_EXCEEDED sur « Réessayer » : l'échec précédent reste affiché (story 5.9), bloc de quota, « Réessayer » retiré", async () => {
+    fetchMock()
+      .mockResolvedValueOnce(failure("AI_UNAVAILABLE", 503, true, t.failed))
+      .mockResolvedValueOnce(failure("QUOTA_EXCEEDED", 429, false, t.quotaExceeded("demain"), RESET));
+    render(<AssistantView />);
+    await ask("Question");
+    fireEvent.click(within(alertBox()).getByRole("button", { name: t.retry }));
+    await flush();
+    expect(bubbles()).toHaveLength(1);
+    expect(alertBox().textContent).toContain(t.failed);
+    expect(within(alertBox()).queryByRole("button")).toBeNull();
+    expect(block()).not.toBeNull();
+  });
+
+  it("Q3 = A : focus posé hors de la vue (panneau Source, navigation) pendant la demande → la panne garde role=\"alert\", focus non déplacé", async () => {
+    let release!: (response: Response) => void;
+    fetchMock().mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    render(
+      <>
+        <button type="button">Dehors</button>
+        <AssistantView />
+      </>,
+    );
+    await ask("Question");
+    const outside = screen.getByRole("button", { name: "Dehors" });
+    outside.focus();
+    await act(async () => release(failure("AI_UNAVAILABLE", 503, true, t.failed)));
+    await flush();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(t.failedTitle);
+    expect(alert.getAttribute("aria-labelledby")).toBeNull();
+    expect(screen.queryByRole("group", { name: t.failedTitle })).toBeNull();
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it.each([
+    ["AI_BUDGET_EXHAUSTED", 503, false, t.budgetExhausted],
+    ["AI_UNAVAILABLE", 503, true, t.failed],
+    ["AI_TIMEOUT", 504, true, t.failed],
+  ])("%s : alerte de panne du catalogue, sans bloc de quota, question conservée, focus sur l'alerte, annoncée une seule fois (Q3 = A)", async (code, status, retryable, message) => {
+    fetchMock().mockResolvedValue(failure(code, status, retryable, message));
+    render(<AssistantView />);
+    await ask("Question");
+    expect(block()).toBeNull();
+    expect(field().getAttribute("aria-disabled")).toBeNull();
+    const alert = alertBox();
+    expect(alert.textContent).toContain(t.failedTitle);
+    expect(alert.textContent).toContain(message);
+    expect(bubbles()).toHaveLength(1);
+    expect(document.activeElement).toBe(alert);
+    // Le focus la fait lire : pas de role="alert" en plus, groupe nommé par son titre, décrit par son texte.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("group", { name: t.failedTitle })).toBe(alert);
+    expect(alert.getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.getElementById(alert.getAttribute("aria-describedby")!)?.textContent).toBe(message);
   });
 });

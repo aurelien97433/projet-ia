@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Account, type SeedConfig, seedMini } from "../../scripts/seed-demo";
-import { NOT_FOUND_MESSAGE, REFUSAL_HORS_CADRE, REFUSAL_INFO_ABSENTE } from "../../supabase/functions/chat/index.ts";
+import { handle, NOT_FOUND_MESSAGE, REFUSAL_HORS_CADRE, REFUSAL_INFO_ABSENTE } from "../../supabase/functions/chat/index.ts";
 import {
   FAKE_HORS_CADRE_MARKER,
   FAKE_IGNORED_TEXT,
@@ -14,6 +14,8 @@ import {
 } from "../../supabase/functions/_shared/fake-generation.ts";
 import { localProcessSecret, localSqlRows, localSupabase, uniqueEmail } from "../support/local-supabase";
 import { getConversation } from "../../src/server/conversations/get-conversation";
+import { getQuota } from "../../src/server/quota/get-quota";
+import { quotaReachedUntil } from "../../src/lib/quota";
 
 // Garde-fou du crédit d'IA et fonction chat (story 5.2a-2) sur Supabase local, avec la vectorisation et
 // la génération simulées (aucun appel à OpenAI) : réservation atomique, quota personnel, plafond
@@ -189,7 +191,9 @@ describe("garde-fou : accès", () => {
     expect((await anon.rpc("release_ai_call", { p_reservation_id: crypto.randomUUID() })).error).not.toBeNull();
   });
 
-  it("Collaborateur : ses seuls compteurs en lecture ; ni ceux de B, ni le compteur global, ni les limites, ni écriture", async () => {
+  // Story 5.10 (correction de la spec du 2026-11-20, option A) : le Collaborateur lit la seule limite
+  // ai_daily_quota (colonnes key et value, politique de lecture) ; le reste d'ai_limits reste fermé.
+  it("Collaborateur : ses seuls compteurs en lecture ; ni ceux de B, ni le compteur global ; des limites, seulement ai_daily_quota ; ni écriture", async () => {
     const a = await signUp("chat-acces-a");
     const b = await signUp("chat-acces-b");
     await reserve(a);
@@ -197,12 +201,47 @@ describe("garde-fou : accès", () => {
     const own = await a.client.from("ai_usage").select("user_id, count");
     expect(own.data).toEqual([{ user_id: a.id, count: 1 }]);
     expect((await a.client.from("ai_usage").select("*").eq("user_id", b.id)).data).toEqual([]);
-    for (const table of ["ai_usage_global", "ai_limits", "ai_reservations"]) {
+    for (const table of ["ai_usage_global", "ai_reservations"]) {
       expect((await a.client.from(table).select("*")).error?.code, table).toBe("42501");
     }
+    // ai_limits : la ligne ai_daily_quota seulement ; ai_global_daily_cap invisible, même demandée.
+    expect((await a.client.from("ai_limits").select("key, value")).data).toEqual([{ key: "ai_daily_quota", value: 60 }]);
+    expect((await a.client.from("ai_limits").select("key, value").eq("key", "ai_global_daily_cap")).data).toEqual([]);
     expect((await a.client.from("ai_usage").update({ count: 0 }).eq("user_id", a.id)).error?.code).toBe("42501");
     expect((await a.client.from("ai_limits").update({ value: 1_000 }).eq("key", "ai_daily_quota")).error?.code).toBe("42501");
+    expect((await a.client.from("ai_limits").insert({ key: "ai_daily_quota", value: 1_000 })).error?.code).toBe("42501");
+    expect((await a.client.from("ai_limits").delete().eq("key", "ai_daily_quota")).error?.code).toBe("42501");
+    expect(sqlNumber("select value from public.ai_limits where key = 'ai_daily_quota'")).toBe(60);
     expect((await userCount(a))).toBe(1);
+  });
+
+  it("ai_limits : droits de colonnes key et value pour authenticated seul (aucun droit sur la table entière, donc aucune autre colonne, présente ou future), aucune écriture ; rien pour anon ; politique limitée à ai_daily_quota", () => {
+    // Requête sur une seule ligne : localSqlRows la passe à la CLI dans une ligne de commande.
+    const rows = localSqlRows(
+      [
+        "select has_table_privilege('authenticated', 'public.ai_limits', 'select') as table_select,",
+        "has_column_privilege('authenticated', 'public.ai_limits', 'key', 'select') as key_select,",
+        "has_column_privilege('authenticated', 'public.ai_limits', 'value', 'select') as value_select,",
+        "has_table_privilege('authenticated', 'public.ai_limits', 'insert, update, delete, truncate') as authenticated_write,",
+        "has_any_column_privilege('authenticated', 'public.ai_limits', 'INSERT, UPDATE') as authenticated_column_write,",
+        "has_any_column_privilege('anon', 'public.ai_limits', 'select, insert, update') as anon_any,",
+        "has_table_privilege('anon', 'public.ai_limits', 'delete, truncate') as anon_write,",
+        "(select count(*) from pg_policies where schemaname = 'public' and tablename = 'ai_limits') as policies,",
+        "(select qual from pg_policies where schemaname = 'public' and tablename = 'ai_limits' and cmd = 'SELECT') as qual",
+      ].join(" "),
+    );
+    const flag = (value: unknown) => String(value) === "true";
+    const [row] = rows;
+    expect(flag(row.table_select)).toBe(false);
+    expect(flag(row.key_select)).toBe(true);
+    expect(flag(row.value_select)).toBe(true);
+    expect(flag(row.authenticated_write)).toBe(false);
+    // Droits de colonne en écriture (invisibles pour has_table_privilege) : aucun.
+    expect(flag(row.authenticated_column_write)).toBe(false);
+    expect(flag(row.anon_any)).toBe(false);
+    expect(flag(row.anon_write)).toBe(false);
+    expect(Number(row.policies)).toBe(1);
+    expect(String(row.qual)).toContain("ai_daily_quota");
   });
 });
 
@@ -997,5 +1036,142 @@ describe("fonction chat : idempotence (story 5.9)", () => {
     ]);
     expect(rows[1].id).toBe(failureId);
     expect(await userCount(user)).toBe(60);
+  });
+});
+
+// Story 5.10 : lecture du quota au chargement (composant serveur, jeton du Collaborateur, RLS), R6 de
+// la 5.9 et échéance pendant reserve_ai_call. Les deux derniers cas exécutent handle() de la fonction
+// chat dans ce processus, contre la base locale réelle (réservations, questions et compteurs réels) :
+// seul l'ordre ou le délai de certaines réponses HTTP est contrôlé, pour rendre la course déterministe.
+// SUPABASE_URL vaut l'hôte interne « kong » (génération et vectorisation simulées, pile locale) ;
+// les requêtes sont redirigées vers l'API locale.
+describe("story 5.10 : quota au chargement, R6, échéance pendant la réservation", () => {
+  const INTERNAL = "http://kong:8000";
+  const FIRST = "Combien de jours de congés payés un collaborateur a-t-il par an ?";
+  const realFetch = globalThis.fetch;
+  type Hook = (url: string, run: () => Promise<Response>) => Promise<Response>;
+  let hook: Hook = (_url, run) => run();
+
+  beforeEach(() => {
+    const env: Record<string, string> = { SUPABASE_URL: INTERNAL, GENERATION_FAKE: "1", EMBEDDINGS_FAKE: "1" };
+    vi.stubGlobal("Deno", { env: { get: (name: string) => env[name] } });
+    vi.stubGlobal("fetch", (input: string | URL, init?: RequestInit) => {
+      const url = String(input).replace(INTERNAL, localSupabase().url);
+      return hook(url, () => realFetch(url, init));
+    });
+  });
+  afterEach(() => {
+    hook = (_url, run) => run();
+    vi.unstubAllGlobals();
+  });
+
+  const handleRequest = (user: User, body: Record<string, unknown>, options: Parameters<typeof handle>[1] = {}) =>
+    handle(
+      new Request("http://localhost/functions/v1/chat", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${user.token}`, apikey: localSupabase().publishableKey, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      options,
+    );
+
+  it("lecture du quota : A au quota, B sous le quota ; chacun ne lit que son compteur, même avec un identifiant forgé ; B n'est jamais bloqué par A", async () => {
+    const a = await signUp("chat-quota-lecture-a");
+    const b = await signUp("chat-quota-lecture-b");
+    await Promise.all(Array.from({ length: 60 }, () => reserve(a)));
+    await reserve(b);
+
+    // Compteur du jour (RLS) : seulement la ligne du Compte de la session, même en visant l'autre Compte.
+    const day = new Date().toISOString().slice(0, 10);
+    expect((await a.client.from("ai_usage").select("user_id, count").eq("day_utc", day)).data).toEqual([{ user_id: a.id, count: 60 }]);
+    expect((await b.client.from("ai_usage").select("user_id, count").eq("day_utc", day)).data).toEqual([{ user_id: b.id, count: 1 }]);
+    expect((await b.client.from("ai_usage").select("count").eq("user_id", a.id)).data).toEqual([]);
+
+    const quotaA = await getQuota(a.client);
+    const quotaB = await getQuota(b.client);
+    // A : son propre compteur et la limite, « limite atteinte » jusqu'au prochain 00:00 UTC.
+    const resetAt = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1)).toISOString();
+    expect(quotaA).toEqual({ used: 60, limit: 60, resetAt });
+    expect(quotaReachedUntil(quotaA)).toBe(resetAt);
+    // B : jamais le compteur de A, jamais « limite atteinte ».
+    expect(quotaB).toEqual({ used: 1, limit: 60, resetAt });
+    expect(quotaReachedUntil(quotaB)).toBeNull();
+  });
+
+  it("échéance pendant reserve_ai_call : la réservation est validée en base, sa réponse lue après l'échéance → unité rendue, compteur du jour inchangé, AI_TIMEOUT", async () => {
+    const user = await signUp("chat-reserve-echeance");
+    const before = { usage: await userCount(user), global: globalCount() };
+    let reservation: { ok?: boolean; reservation_id?: string } | undefined;
+    const released: unknown[] = [];
+    hook = async (url, run) => {
+      if (url.endsWith("/rpc/release_ai_call")) {
+        const response = await run();
+        released.push(await response.clone().json());
+        return response;
+      }
+      if (!url.endsWith("/rpc/reserve_ai_call")) return run();
+      // Réservation exécutée et validée en base, réponse remise après l'échéance commune.
+      const response = await run();
+      reservation = await response.clone().json();
+      expect(await userCount(user)).toBe(before.usage + 1);
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      return response;
+    };
+    const response = await handleRequest(user, { question: FIRST, clientRequestId: crypto.randomUUID() }, { timeoutMs: 2_000 });
+    expect(response.status).toBe(504);
+    expect((await response.json()).error.code).toBe("AI_TIMEOUT");
+    expect(reservation?.ok).toBe(true);
+    expect(released).toEqual([true]);
+    expect(await userCount(user)).toBe(before.usage);
+    expect(globalCount()).toBe(before.global);
+    // Aucune Conversation ni question créée.
+    expect((await user.client.from("conversations").select("id")).data).toEqual([]);
+  });
+
+  it("R6 : deux « new » simultanées du même identifiant sur une question de suivi → le perdant (23505 après une reformulation qui a reçu une réponse) consomme son unité (AD-14)", async () => {
+    const user = await signUp("chat-r6");
+    const first = await chat(user, FIRST);
+    expect(first.status).toBe(200);
+    const conversationId = first.body.conversationId;
+    const before = await userCount(user);
+
+    // Les deux demandes passent le classement (begin_retry : « new ») avant toute insertion ; puis les
+    // add_question passent l'un après l'autre : le second reçoit 23505.
+    let classified = 0;
+    let bothClassified!: () => void;
+    const classifiedGate = new Promise<void>((resolve) => (bothClassified = resolve));
+    let insertChain = Promise.resolve();
+    hook = async (url, run) => {
+      if (url.endsWith("/rpc/begin_retry")) {
+        const response = await run();
+        classified += 1;
+        if (classified === 2) bothClassified();
+        return response;
+      }
+      if (url.endsWith("/rpc/add_question")) {
+        await classifiedGate;
+        const previous = insertChain;
+        let done!: () => void;
+        insertChain = new Promise<void>((resolve) => (done = resolve));
+        await previous;
+        try {
+          return await run();
+        } finally {
+          done();
+        }
+      }
+      return run();
+    };
+    const clientRequestId = crypto.randomUUID();
+    const body = { question: "Et qui valide la demande ?", clientRequestId, conversationId };
+    const responses = await Promise.all([handleRequest(user, body), handleRequest(user, body)]);
+    const statuses = responses.map((response) => response.status).sort();
+    expect(statuses).toEqual([200, 409]);
+    const loser = responses.find((response) => response.status === 409)!;
+    expect((await loser.json()).error.code).toBe("REQUEST_IN_PROGRESS");
+    // Gagnant : +1 (réponse) ; perdant : +1 (reformulation reçue, consommée). Avant la 5.10 : +1 seulement.
+    expect(await userCount(user)).toBe(before + 2);
+    // Une seule question de suivi enregistrée.
+    expect((await user.client.from("messages").select("id").eq("client_request_id", clientRequestId).eq("role", "user")).data).toHaveLength(1);
   });
 });
