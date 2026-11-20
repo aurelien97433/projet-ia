@@ -101,7 +101,8 @@ describe("questions-mini.json", () => {
     expect(questions.searchQueries).toHaveLength(6);
     expect(questions.searchOutOfBase).toHaveLength(3);
     expect(questions.contradiction.expectedDocuments).toHaveLength(2);
-    expect(questions.followUps).toHaveLength(2);
+    // Story 5.8 : f3 = UJ-3 (« Comment poser mes congés ? » puis « Et combien de temps à l'avance dois-je faire la demande ? »).
+    expect(questions.followUps).toHaveLength(3);
   });
 
   it("identifiants uniques", () => {

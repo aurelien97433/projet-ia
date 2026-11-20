@@ -9,6 +9,7 @@ import {
   FAKE_INVALID_CITATION_MARKER,
   FAKE_INVALID_MARKER,
   FAKE_NO_CITATION_MARKER,
+  FAKE_REWRITE_FAILURE_MARKER,
   FAKE_SLOW_STREAM_MARKER,
 } from "../../supabase/functions/_shared/fake-generation.ts";
 import { localProcessSecret, localSqlRows, localSupabase, uniqueEmail } from "../support/local-supabase";
@@ -679,5 +680,92 @@ describe("fonction chat : Conversation poursuivie (story 5.6)", () => {
     const failure = await follow(measure, `Combien de jours de congés payés par an ? ${FAKE_NO_CITATION_MARKER} suivi`, conversationId, true);
     expect(failure.text).toContain("event: error");
     expect(failure.text).toMatch(new RegExp(`event: error\\ndata: .*"conversationId":"${conversationId}"`));
+  });
+});
+
+// Story 5.8 : questions de suivi, avec la reformulation simulée (question précédente + nouvelle
+// question) : question autonome enregistrée pour une question de suivi, nulle pour une première
+// question ; panne simulée → unité rendue, question et échec enregistrés, error avec la Conversation.
+describe("fonction chat : questions de suivi (story 5.8)", () => {
+  const FIRST = "Combien de jours de congés payés un collaborateur a-t-il par an ?";
+  async function follow(user: User, question: string, conversationId: string, stream = false, clientRequestId = crypto.randomUUID()) {
+    const response = await fetch(`${localSupabase().url}/functions/v1/chat`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${user.token}`,
+        apikey: localSupabase().publishableKey,
+        "Content-Type": "application/json",
+        ...(stream ? { Accept: "text/event-stream" } : {}),
+      },
+      body: JSON.stringify({ question, clientRequestId, conversationId }),
+    });
+    return { status: response.status, text: await response.text() };
+  }
+  const questionsOf = async (user: User, conversationId: string) =>
+    (
+      await user.client
+        .from("messages")
+        .select("content, standalone_question")
+        .eq("conversation_id", conversationId)
+        .eq("role", "user")
+        .order("created_at")
+    ).data!;
+
+  it("première question : standalone_question nulle ; question de suivi : question autonome enregistrée, réponse dans la même Conversation, unité consommée une seule fois", async () => {
+    const user = await signUp("chat-suivi-autonome");
+    const first = await chat(user, FIRST);
+    expect(first.status).toBe(200);
+    expect(first.body.message.kind).toBe("answer");
+    const conversationId = first.body.conversationId;
+    const before = await userCount(user);
+
+    const next = await follow(user, "Et qui valide la demande ?", conversationId);
+    expect(next.status).toBe(200);
+    expect((JSON.parse(next.text) as ChatBody).message.kind).toBe("answer");
+    expect(await questionsOf(user, conversationId)).toEqual([
+      { content: FIRST, standalone_question: null },
+      { content: "Et qui valide la demande ?", standalone_question: `${FIRST} Et qui valide la demande ?` },
+    ]);
+    // Reformulation non comptée : +1 pour la question de suivi seulement.
+    expect(await userCount(user)).toBe(before + 1);
+  });
+
+  it("Conversation sans échange réglé (échec seul) : aucune reformulation, standalone_question nulle", async () => {
+    const user = await signUp("chat-suivi-echec");
+    const failed = await chat(user, `${FIRST} ${FAKE_NO_CITATION_MARKER}`);
+    expect(failed.body.error.code).toBe("AI_CITATIONS_INVALID");
+    const { data: conversations } = await user.client.from("conversations").select("id");
+    const conversationId = conversations![0].id as string;
+    expect((await follow(user, "Et qui valide la demande ?", conversationId)).status).toBe(200);
+    expect((await questionsOf(user, conversationId)).map((row) => row.standalone_question)).toEqual([null, null]);
+  });
+
+  it("reformulation en panne (simulée) : compteur inchangé, question et échec AI_UNAVAILABLE enregistrés et rattachés, error avec conversationId (flux), 503 (JSON)", async () => {
+    const user = await signUp("chat-suivi-panne");
+    const first = await chat(user, FIRST);
+    const conversationId = first.body.conversationId;
+    const before = { usage: await userCount(user), global: globalCount() };
+
+    const streamRequestId = crypto.randomUUID();
+    const streamed = await follow(user, `Et ensuite ? ${FAKE_REWRITE_FAILURE_MARKER}`, conversationId, true, streamRequestId);
+    expect(streamed.status).toBe(200);
+    expect(streamed.text).not.toContain("event: delta");
+    expect(streamed.text).toMatch(new RegExp(`event: error\ndata: .*"code":"AI_UNAVAILABLE".*"conversationId":"${conversationId}"`));
+    const json = await follow(user, `Et après ? ${FAKE_REWRITE_FAILURE_MARKER}`, conversationId);
+    expect(json.status).toBe(503);
+    expect(JSON.parse(json.text).error).toMatchObject({ code: "AI_UNAVAILABLE", retryable: true });
+
+    expect(await userCount(user)).toBe(before.usage);
+    expect(globalCount()).toBe(before.global);
+    const { data } = await user.client
+      .from("messages")
+      .select("role, kind, error_code, standalone_question, client_request_id")
+      .eq("conversation_id", conversationId)
+      .order("created_at");
+    expect(data!.slice(2, 4)).toEqual([
+      { role: "user", kind: "question", error_code: null, standalone_question: null, client_request_id: streamRequestId },
+      { role: "assistant", kind: "failure", error_code: "AI_UNAVAILABLE", standalone_question: null, client_request_id: streamRequestId },
+    ]);
+    expect(data).toHaveLength(6);
   });
 });

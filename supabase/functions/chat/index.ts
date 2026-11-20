@@ -10,9 +10,12 @@
 // Ordre : validation ; Conversation à poursuivre (story 5.6 : lue avec le jeton, RLS ; absente ou d'un
 // autre Compte → 404 NOT_FOUND, sans réservation) ; rejeu (même clientRequestId, avant toute
 // réservation) ; réservation du quota du Compte et du plafond global (avant tout appel à OpenAI) ;
-// Conversation et question (start_conversation, ou add_question pour une Conversation poursuivie) ;
-// vectorisation, match_passages, relecture des Documents ; aucun Passage → appel court qui départage
-// les deux refus (story 5.3) ; sinon consignes et génération (diffusée en mode flux), marqueur en première ligne (AD-10) ;
+// question de suivi (story 5.8, Conversation poursuivie avec au moins un échange réglé) : 3 derniers
+// échanges lus avec le jeton, reformulation en question autonome (rewriteFollowUp, 10 s pris sur le
+// premier affichage ; échec → question et échec enregistrés, unité rendue) ; Conversation et question
+// (start_conversation, ou add_question avec la question autonome pour une Conversation poursuivie) ;
+// vectorisation de la question autonome (sinon de la question), match_passages, relecture des
+// Documents ; aucun Passage → appel court qui départage les deux refus (story 5.3) ; sinon consignes et génération (diffusée en mode flux), marqueur en première ligne (AD-10) ;
 // citations validées, texte réécrit avec les renvois [S{n}] (story 5.4) ; enregistrement atomique.
 // Un refus enregistre le message standard du catalogue, jamais le texte du modèle. Tout échec après
 // la réservation est enregistré (kind = failure). L'unité n'est rendue que si aucun appel facturable
@@ -24,6 +27,7 @@ import {
   embed,
   generateAnswer,
   type GenerationResult,
+  rewriteFollowUp,
   streamAnswer,
   type StreamResult,
 } from "../_shared/ai.ts";
@@ -32,11 +36,13 @@ import {
 // fournisseur ne le transmette (story 5.5).
 type ModelResult = GenerationResult | StreamResult;
 import {
+  buildHistory,
   type ChatRequest,
   type GenerationState,
   conversationTitle,
   type DocumentRow,
   isDocumentRow,
+  isHistoryRow,
   isReleasable,
   parseChatRequest,
   parseReservation,
@@ -48,6 +54,7 @@ import {
   CHAT_FIRST_DISPLAY_MS,
   CHAT_GENERATION_FIRST_CHUNK_TIMEOUT_MS,
   CHAT_GENERATION_MAX_TIMEOUT_MS,
+  CHAT_HISTORY_READ_LIMIT,
   CHAT_JSON_GENERATION_MAX_TIMEOUT_MS,
   CHAT_JSON_TIMEOUT_MS,
   CHAT_MAX_PASSAGES,
@@ -56,12 +63,19 @@ import {
   EMBEDDING_MODEL,
   EMBEDDING_VERSION,
   readEnv,
+  REWRITE_FIRST_DISPLAY_MARGIN_MS,
+  REWRITE_TIMEOUT_MS,
 } from "../_shared/config.ts";
 import { AiError, type ErrorCode, errorResponse, logEvent, logInfo } from "../_shared/errors.ts";
 import { generationDeps } from "../_shared/fake-generation.ts";
 import { readCitations } from "../_shared/rag/citations.ts";
 import { MARKER_MAX_LENGTH, type Marker, readMarker } from "../_shared/rag/marker.ts";
-import { buildChatMessages, buildRefusalMessages } from "../_shared/rag/prompt.ts";
+import {
+  buildFollowUpChatMessages,
+  buildRefusalMessages,
+  buildRewriteMessages,
+  type HistoryExchange,
+} from "../_shared/rag/prompt.ts";
 import { createStreamMask } from "../_shared/rag/stream-mask.ts";
 import { isMatchRow, type MatchRow, searchVectorization } from "../_shared/search.ts";
 
@@ -188,6 +202,19 @@ async function conversationExists(target: Target, conversationId: string, signal
   const rows = await get(target, `conversations?select=id&id=eq.${conversationId}&limit=1`, "conversation_check", signal);
   if (!Array.isArray(rows)) throw new ChatError("INTERNAL", 500, true, "conversation_check_invalid_rows");
   return rows.length > 0;
+}
+
+// Story 5.8 (Q2 = A) : derniers messages de la Conversation, lus avec le jeton (RLS), remis dans l'ordre
+// de created_at ; buildHistory en tire les 3 derniers échanges réglés.
+async function readHistory(target: Target, conversationId: string, signal: AbortSignal): Promise<HistoryExchange[]> {
+  const rows = await get(
+    target,
+    `messages?select=role,kind,content,client_request_id,created_at&conversation_id=eq.${conversationId}&order=created_at.desc&limit=${CHAT_HISTORY_READ_LIMIT}`,
+    "history",
+    signal,
+  );
+  if (!Array.isArray(rows) || !rows.every(isHistoryRow)) throw new ChatError("INTERNAL", 500, true, "history_invalid_rows");
+  return buildHistory([...rows].reverse(), { refusal_info_absente: REFUSAL_INFO_ABSENTE, refusal_hors_cadre: REFUSAL_HORS_CADRE });
 }
 
 async function matchPassages(target: Target, vector: number[], minSimilarity: number, signal: AbortSignal): Promise<MatchRow[]> {
@@ -369,6 +396,15 @@ type Outcome =
 
 type LogDetails = Record<string, string | number | boolean | undefined>;
 
+// Demande acceptée (unité réservée, question enregistrée). Story 5.8 : historique transmis à la
+// génération, question autonome (recherche) ou échec de la reformulation à rendre en error.
+type Accepted = {
+  input: ChatRequest;
+  history: HistoryExchange[];
+  standaloneQuestion: string | null;
+  rewriteError: unknown;
+};
+
 export type HandleOptions = {
   timeoutMs?: number;
   generationTimeoutMs?: number;
@@ -376,6 +412,8 @@ export type HandleOptions = {
   // Mode flux : premier événement affiché (delta, refusal, done ou error) au plus tard ce délai après
   // la réception de la demande (CHAT_FIRST_DISPLAY_MS).
   firstDisplayMs?: number;
+  // Reformulation d'une question de suivi (story 5.8) : REWRITE_TIMEOUT_MS (10 s) par défaut.
+  rewriteTimeoutMs?: number;
   cleanupTimeoutMs?: number;
   // Travail poursuivi après l'envoi des en-têtes (mode flux) : EdgeRuntime.waitUntil en production.
   waitUntil?: (promise: Promise<unknown>) => void;
@@ -412,10 +450,14 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   // libération inchangée (unité rendue avant tout envoi au fournisseur, consommée après). Le navigateur
   // n'abandonne qu'à 20 s : l'écran ne montre jamais une panne pour une réponse que chat enregistre.
   let firstDisplayExpired = false;
+  // Garde-fou du premier affichage (story 5.8) : réponse JSON ou événement error envoyé aussitôt à
+  // l'échéance, selon que les en-têtes du flux sont partis ou non (voir la fin de handle).
+  let onFirstDisplayExpired: (() => void) | null = null;
   const firstDisplayTimer = streaming
     ? setTimeout(() => {
         firstDisplayExpired = true;
         controller.abort();
+        onFirstDisplayExpired?.();
       }, firstDisplayMs)
     : undefined;
   const displayed = () => clearTimeout(firstDisplayTimer);
@@ -485,9 +527,10 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   const streamDetails = (): LogDetails =>
     streaming ? { first_delta_ms: firstDeltaMs ?? undefined, deltas } : {};
 
-  // Étapes avant toute génération : refus en JSON avec leur statut HTTP, dans les deux modes. Null :
-  // demande acceptée (rendue), unité réservée, Conversation et question créées.
-  const accept = async (): Promise<Response | ChatRequest> => {
+  // Étapes avant toute génération : refus en JSON avec leur statut HTTP, dans les deux modes. Sinon :
+  // demande acceptée, unité réservée, Conversation et question créées ; pour une question de suivi,
+  // historique, question autonome ou échec de la reformulation (story 5.8).
+  const accept = async (): Promise<Response | Accepted> => {
     await within(verifySession(target, signal));
 
     stage = "validation";
@@ -519,24 +562,94 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     }
     reservationId = reservation.reservationId;
 
+    // Question de suivi (story 5.8, AD-12) : seulement pour une Conversation poursuivie qui a au moins
+    // un échange réglé ; après la réservation (aucun appel au fournisseur sans unité réservée), avant
+    // l'enregistrement de la question (Q1 = A). Échec de la reformulation : la question est enregistrée
+    // sans question autonome, puis l'échec (answer). Règle de libération d'AD-14 (décision de
+    // l'utilisateur du 2026-11-19), comme callModel : aucune réponse du fournisseur → unité rendue ;
+    // réponse reçue inexploitable ou délai après envoi (ou échéance commune dépassée) → consommée.
+    let history: HistoryExchange[] = [];
+    let standaloneQuestion: string | null = null;
+    let rewriteError: unknown = null;
+    let rewriteAttempted = false;
+    if (input.conversationId) {
+      stage = "history";
+      history = await within(readHistory(target, input.conversationId, signal));
+      if (history.length > 0) {
+        stage = "rewrite";
+        rewriteAttempted = true;
+        // 10 s au plus, pris sur l'échéance du premier affichage en mode flux (la génération reçoit le
+        // temps restant), moins une marge pour enregistrer la question, et sur l'échéance globale.
+        const rewriteMs = Math.max(
+          1,
+          Math.min(
+            options.rewriteTimeoutMs ?? REWRITE_TIMEOUT_MS,
+            remaining(),
+            streaming ? firstDisplayLeft() - REWRITE_FIRST_DISPLAY_MARGIN_MS : Infinity,
+          ),
+        );
+        const rewriteStarted = Date.now();
+        try {
+          const rewritten = await within(
+            rewriteFollowUp(buildRewriteMessages({ question: input.question, history }), {
+              deps: withSignal(generationDeps(), signal),
+              timeoutMs: rewriteMs,
+            }),
+          );
+          standaloneQuestion = rewritten.question;
+          logInfo("chat_rewrite_done", {
+            exchanges: history.length,
+            model: rewritten.model,
+            input_tokens: rewritten.usage.inputTokens,
+            output_tokens: rewritten.usage.outputTokens,
+            rewrite_ms: Date.now() - rewriteStarted,
+          });
+        } catch (error) {
+          rewriteError = error;
+          if (
+            error instanceof AiError &&
+            !((error.outcome === "no_response" || error.outcome === undefined) && !signal.aborted)
+          ) {
+            generation = "billed";
+          }
+          logEvent("chat_rewrite_failed", {
+            code: error instanceof AiError ? error.code : "unknown",
+            exchanges: history.length,
+            rewrite_ms: Date.now() - rewriteStarted,
+          });
+        }
+      }
+    }
+
     // Nouvelle Conversation (titre = première question), ou question ajoutée à la Conversation poursuivie
-    // (story 5.6, add_question : security invoker, date du dernier échange avancée).
+    // (story 5.6, add_question : security invoker, date du dernier échange avancée), avec sa question
+    // autonome (story 5.8). Dès qu'une reformulation a été tentée (réussie ou non), la question est
+    // enregistrée avec le délai de nettoyage, hors de l'échéance commune : si celle-ci tombe pendant
+    // l'enregistrement, la question existe quand même et l'échec y est rattaché (error avec conversationId).
     stage = "conversation";
+    const cleanupRecord = rewriteAttempted || signal.aborted;
+    const questionSignal = cleanupRecord ? AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS) : signal;
+    const guarded = <T>(promise: Promise<T>): Promise<T> => (cleanupRecord ? promise : within(promise));
     let startedConversation: unknown;
     try {
-      startedConversation = await within(
+      startedConversation = await guarded(
         input.conversationId
           ? rpc(
               target,
               "add_question",
-              { p_conversation_id: input.conversationId, p_question: input.question, p_client_request_id: input.clientRequestId },
-              signal,
+              {
+                p_conversation_id: input.conversationId,
+                p_question: input.question,
+                p_client_request_id: input.clientRequestId,
+                ...(standaloneQuestion ? { p_standalone_question: standaloneQuestion } : {}),
+              },
+              questionSignal,
             )
           : rpc(
               target,
               "start_conversation",
               { p_title: conversationTitle(input.question), p_question: input.question, p_client_request_id: input.clientRequestId },
-              signal,
+              questionSignal,
             ),
       );
     } catch (error) {
@@ -552,7 +665,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     if (typeof conversation !== "string") throw new ChatError("INTERNAL", 500, true, "conversation_invalid_body");
     conversationId = conversation;
     questionRequestId = input.clientRequestId;
-    return input;
+    return { input, history, standaloneQuestion, rewriteError };
   };
 
   // Morceaux du fournisseur → texte provisoire (story 5.5) : rien n'est envoyé avant la fin de la
@@ -597,13 +710,25 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
 
   // Recherche, génération, marqueur, citations, enregistrement. Ne lève jamais : un échec est
   // enregistré et rendu comme une issue « error ».
-  const answer = async (input: ChatRequest, onDelta: (text: string) => void): Promise<Outcome> => {
+  const answer = async (
+    { input, history, standaloneQuestion, rewriteError }: Accepted,
+    onDelta: (text: string) => void,
+  ): Promise<Outcome> => {
     try {
+      // Story 5.8 : reformulation échouée (délai, panne, sortie invalide) : question déjà enregistrée,
+      // échec enregistré et unité rendue (aucune génération envoyée), error avec la Conversation.
+      if (rewriteError !== null) {
+        stage = "rewrite";
+        throw rewriteError;
+      }
+
+      // Recherche sur la question autonome d'une question de suivi (story 5.8), sinon sur la question.
+      const searched = standaloneQuestion ?? input.question;
       stage = "embed";
       const vectorization = searchVectorization("chat");
       const embedStarted = Date.now();
       const { vectors } = await within(
-        embed([input.question], { deps: withSignal(vectorization.deps, signal), timeoutMs: remaining() }),
+        embed([searched], { deps: withSignal(vectorization.deps, signal), timeoutMs: remaining() }),
       );
 
       stage = "match";
@@ -673,7 +798,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
         stage = "classify";
         // Mode flux : l'appel court ne dépasse pas l'échéance du premier affichage.
         const classified = await callModel((deps, timeoutMs) =>
-          classifyRefusal(buildRefusalMessages(input.question), {
+          classifyRefusal(buildRefusalMessages(searched), {
             deps,
             timeoutMs: streaming ? Math.min(timeoutMs, firstDisplayLeft()) : timeoutMs,
           }),
@@ -687,7 +812,8 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       }
 
       stage = "generate";
-      const messages = buildChatMessages({ question: input.question, passages: passages.map((passage) => passage.chat) });
+      // Story 5.8 : Passages, 3 derniers échanges (données, jamais source de faits) et question d'origine.
+      const messages = buildFollowUpChatMessages({ question: input.question, passages: passages.map((passage) => passage.chat), history });
       let generated: ModelResult;
       if (streaming) {
         const filter = streamFilter(onDelta);
@@ -793,12 +919,42 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     }
   };
 
-  let accepted: Response | ChatRequest;
-  try {
-    accepted = await accept();
-  } catch (error) {
-    const failed = await fail(error);
-    accepted = errorResponse(failed.code, messageFor(failed.code), failed.retryable, failed.status);
+  // Garde-fou du premier affichage (mode flux, décision de l'utilisateur du 2026-11-19) : le premier
+  // événement part au plus firstDisplayMs après la réception, quelle que soit la durée des écritures en
+  // base (question, échec, libération), reformulation comprise. Échéance pendant l'acceptation : réponse
+  // JSON 504 AI_TIMEOUT aussitôt ; en-têtes déjà partis : événement error aussitôt. Le travail en cours
+  // continue en tâche de fond jusqu'à son terme (question et échec enregistrés, libération selon
+  // AD-14) ; son issue n'est jamais envoyée en plus.
+  const acceptance = (async (): Promise<Response | Accepted> => {
+    try {
+      return await accept();
+    } catch (error) {
+      const failed = await fail(error);
+      return errorResponse(failed.code, messageFor(failed.code), failed.retryable, failed.status);
+    }
+  })();
+  let accepted: Response | Accepted | "expired";
+  if (streaming) {
+    const reached = new Promise<"expired">((resolve) => {
+      onFirstDisplayExpired = () => resolve("expired");
+    });
+    accepted = await Promise.race([acceptance, reached]);
+    onFirstDisplayExpired = null;
+  } else {
+    accepted = await acceptance;
+  }
+  if (accepted === "expired") {
+    const rest = (async () => {
+      try {
+        const late = await acceptance;
+        if (!(late instanceof Response)) await answer(late, () => {});
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    options.waitUntil?.(rest.catch(() => {}));
+    logEvent("chat_first_display_guard", { phase: "accept", stage, duration_ms: Date.now() - started });
+    return errorResponse("AI_TIMEOUT", messageFor("AI_TIMEOUT"), true, 504);
   }
   if (accepted instanceof Response) {
     clearTimeout(timer);
@@ -822,6 +978,20 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   // navigateur se déconnecte (AD-17) : réponse ou échec enregistré, unité consommée ou rendue.
   const events = eventStream();
   events.opened();
+  // Garde-fou, en-têtes partis : error AI_TIMEOUT aussitôt (avec la Conversation), flux fermé ; rien de
+  // ce que calcule ensuite le travail en cours n'est envoyé.
+  let guardSent = false;
+  onFirstDisplayExpired = () => {
+    guardSent = true;
+    events.send("error", {
+      code: "AI_TIMEOUT",
+      message: messageFor("AI_TIMEOUT"),
+      retryable: true,
+      ...(conversationId ? { conversationId } : {}),
+    });
+    events.close();
+    logEvent("chat_first_display_guard", { phase: "stream", stage, duration_ms: Date.now() - started });
+  };
   const work = (async () => {
     try {
       const outcome = await answer(input, (text) => events.send("delta", { text }));
@@ -843,7 +1013,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
           ...(conversationId ? { conversationId } : {}),
         });
       }
-      if (events.disconnected()) logInfo("chat_stream_disconnected", { outcome: outcome.type, duration_ms: Date.now() - started });
+      if (events.disconnected() && !guardSent) logInfo("chat_stream_disconnected", { outcome: outcome.type, duration_ms: Date.now() - started });
     } finally {
       clearTimeout(timer);
       displayed();

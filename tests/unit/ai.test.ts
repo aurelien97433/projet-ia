@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkModelAccess, embed, type AiDeps } from "../../supabase/functions/_shared/ai.ts";
+import { checkModelAccess, embed, rewriteFollowUp, type AiDeps } from "../../supabase/functions/_shared/ai.ts";
 import {
   AI_MAX_RETRIES,
   EMBEDDING_BATCH_SIZE,
   EMBEDDING_DIMENSION,
   EMBEDDING_MODEL,
   EMBEDDING_VERSION,
+  DEFAULT_GENERATION_MODEL,
+  GENERATION_SAMPLING,
+  REWRITE_MAX_COMPLETION_TOKENS,
+  REWRITE_TIMEOUT_MS,
 } from "../../supabase/functions/_shared/config.ts";
 import { AiError } from "../../supabase/functions/_shared/errors.ts";
 
@@ -257,5 +261,122 @@ describe("checkModelAccess", () => {
   it("clé invalide : erreur, pas un simple « false »", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     await expectAiError(checkModelAccess(["gpt-5.4-mini"], { deps: fakeDeps(providerError(401, "invalid_api_key")) }), "AI_UNAVAILABLE");
+  });
+});
+
+// Story 5.8 (AD-12) : reformulation d'une question de suivi, même modèle que la génération, sortie
+// d'une ligne de 1 à 2 000 caractères, délai de 10 s pour l'appel entier ; échec rendu en AI_TIMEOUT ou
+// AI_UNAVAILABLE, réessayable.
+describe("rewriteFollowUp", () => {
+  const MESSAGES = [
+    { role: "system" as const, content: "Consignes de reformulation." },
+    { role: "user" as const, content: "Question confidentielle" },
+  ];
+  const completion = (content: unknown, finishReason = "stop") =>
+    json(200, {
+      model: "gpt-5.4-mini-2026-03-17",
+      choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: finishReason }],
+      usage: { prompt_tokens: 50, completion_tokens: 12 },
+    });
+  const depsOf = (...responses: Response[]) => {
+    const queue = [...responses];
+    return {
+      apiKey: FAKE_KEY as AiDeps["apiKey"],
+      sleep: vi.fn(async () => {}),
+      fetch: vi.fn<typeof fetch>(async () => queue.shift() ?? json(500, {})),
+    };
+  };
+  const failure = async (promise: Promise<unknown>) => {
+    const error = await promise.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AiError);
+    return error as AiError;
+  };
+
+  it("sortie valide : même modèle, raisonnement et échantillonnage que la génération, sortie bornée, question normalisée sur une ligne", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = depsOf(completion("  Qui valide une facture\n au-delà de 10 000 euros ?  "));
+    const result = await rewriteFollowUp(MESSAGES, { deps });
+    expect(result.question).toBe("Qui valide une facture au-delà de 10 000 euros ?");
+    expect(result.usage).toEqual({ inputTokens: 50, outputTokens: 12 });
+    expect(JSON.parse(String(deps.fetch.mock.calls[0][1]?.body))).toEqual({
+      model: DEFAULT_GENERATION_MODEL,
+      messages: MESSAGES,
+      reasoning_effort: "none",
+      max_completion_tokens: REWRITE_MAX_COMPLETION_TOKENS,
+      ...GENERATION_SAMPLING,
+    });
+    expect(REWRITE_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it("2 000 caractères acceptés ; vide, plus de 2 000, tronquée ou filtrée : AI_UNAVAILABLE réessayable, sans texte journalisé", async () => {
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await rewriteFollowUp(MESSAGES, { deps: depsOf(completion("x".repeat(2_000))) })).question).toHaveLength(2_000);
+    for (const response of [completion(" \n "), completion("x".repeat(2_001)), completion("Qui", "length"), completion("Qui", "content_filter"), completion(null)]) {
+      const error = await failure(rewriteFollowUp(MESSAGES, { deps: depsOf(response) }));
+      expect(error.code).toBe("AI_UNAVAILABLE");
+      expect(error.retryable).toBe(true);
+    }
+    expect(logs.mock.calls.flat().map(String).join(" ")).not.toContain("confidentielle");
+  });
+
+  it("panne (5xx répétés, refus 4xx) : AI_UNAVAILABLE réessayable, aucune réponse (no_response) ; une seule nouvelle tentative", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = depsOf(json(503, {}), json(503, {}), completion("jamais lue"));
+    const unavailable = await failure(rewriteFollowUp(MESSAGES, { deps }));
+    expect(unavailable).toMatchObject({ code: "AI_UNAVAILABLE", retryable: true, outcome: "no_response" });
+    expect(deps.fetch).toHaveBeenCalledTimes(2);
+    const rejected = await failure(rewriteFollowUp(MESSAGES, { deps: depsOf(providerError(400, "invalid_request")) }));
+    expect(rejected).toMatchObject({ code: "AI_UNAVAILABLE", retryable: true, outcome: "no_response" });
+  });
+
+  it("plafond du fournisseur : AI_BUDGET_EXHAUSTED non réessayable, comme la génération ; aucune réponse (no_response)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = depsOf(providerError(429, "insufficient_quota", "insufficient_quota"));
+    const error = await failure(rewriteFollowUp(MESSAGES, { deps }));
+    expect(error).toMatchObject({ code: "AI_BUDGET_EXHAUSTED", retryable: false, outcome: "no_response" });
+    expect(deps.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("issue pour la règle de libération : sortie reçue inexploitable → response_received ; délai pendant une requête envoyée → timeout ; délai pendant l'attente avant la nouvelle tentative → no_response", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await failure(rewriteFollowUp(MESSAGES, { deps: depsOf(completion("x".repeat(2_001))) }))).outcome).toBe("response_received");
+    expect((await failure(rewriteFollowUp(MESSAGES, { deps: depsOf(completion("Qui", "length")) }))).outcome).toBe("response_received");
+    const hanging = {
+      apiKey: FAKE_KEY as AiDeps["apiKey"],
+      sleep: vi.fn(async () => {}),
+      fetch: vi.fn<typeof fetch>((_, init) => new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("interrompu", "AbortError"))))),
+    };
+    expect(await failure(rewriteFollowUp(MESSAGES, { deps: hanging, timeoutMs: 50 }))).toMatchObject({ code: "AI_TIMEOUT", outcome: "timeout" });
+    const waiting = { ...depsOf(json(503, {})), sleep: () => new Promise<void>(() => {}) };
+    expect(await failure(rewriteFollowUp(MESSAGES, { deps: waiting, timeoutMs: 50 }))).toMatchObject({ code: "AI_TIMEOUT", outcome: "no_response" });
+  });
+
+  it("délai pour l'appel entier, nouvelles tentatives comprises : AI_TIMEOUT, appel en cours interrompu", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let aborted = false;
+    const deps = {
+      apiKey: FAKE_KEY as AiDeps["apiKey"],
+      // Attente entre tentatives immédiate, première tentative en 503 aussitôt : la seconde part à coup sûr
+      // avant l'échéance de 150 ms, même sous charge (minuteries réelles retardées dans la suite complète).
+      sleep: () => Promise.resolve(),
+      fetch: vi.fn<typeof fetch>(
+        (_, init) =>
+          new Promise((resolve, reject) => {
+            // Première tentative : 503 immédiat ; la seconde ne répond jamais.
+            if (vi.mocked(deps.fetch).mock.calls.length === 1) resolve(json(503, {}));
+            init?.signal?.addEventListener("abort", () => {
+              aborted = true;
+              reject(new DOMException("interrompu", "AbortError"));
+            });
+          }),
+      ),
+    };
+    const started = Date.now();
+    const error = await failure(rewriteFollowUp(MESSAGES, { deps, timeoutMs: 150 }));
+    expect(error.code).toBe("AI_TIMEOUT");
+    expect(error.retryable).toBe(true);
+    expect(Date.now() - started).toBeLessThan(150 + 100);
+    expect(deps.fetch).toHaveBeenCalledTimes(2);
+    expect(aborted).toBe(true);
   });
 });

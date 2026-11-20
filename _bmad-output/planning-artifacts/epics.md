@@ -1522,6 +1522,8 @@ afin de converser naturellement avec l'Assistant.
 **Quand** je pose la seconde question (3 essais)
 **Alors** chaque réponse cite « Procédure congés et absences » comme Source
 
+*Note du 2026-11-19 (décision de l'utilisateur, story 5.8) : la question « et si je pose moins de 3 jours ? » n'a pas de réponse dans le mini Jeu (« Procédure congés et absences » ne contient pas cette règle). En 5.8, le scénario UJ-3 de `test:followup:live` pose « Et combien de temps à l'avance dois-je faire la demande ? » (attendu : 2 semaines). La question exacte d'UJ-3 est mesurée en 7.2 avec le Jeu complet (voir 7.1a).*
+
 **Étant donné** la première question d'une Conversation
 **Quand** elle est traitée
 **Alors** aucune reformulation n'est faite
@@ -1529,6 +1531,8 @@ afin de converser naturellement avec l'Assistant.
 **Étant donné** un échec de la reformulation (délai de 10 s ou panne)
 **Quand** il survient
 **Alors** l'alerte de panne s'affiche avec « Réessayer », sans quota consommé
+
+*Note du 2026-11-19 (décision de l'utilisateur, revue de la 5.8) : « sans quota consommé » vaut pour une panne sans réponse facturée (réseau, 5xx, délai avant envoi). Une reformulation dont la réponse facturée est inexploitable, ou qui dépasse son délai après l'envoi, consomme l'unité (règle d'AD-14, comme la génération) : sinon, des appels facturés pouvaient être déclenchés en boucle hors quota. Plafond du fournisseur pendant la reformulation : message de budget épuisé, sans « Réessayer ».*
 
 **Étant donné** le mini Jeu (5 questions dans la base et 3 hors base de `demo/questions-mini.json`)
 **Quand** je lance `npm run measure:assistant -- --mini` (avec les Comptes de mesure, chacun dans son quota normal)
@@ -1758,6 +1762,8 @@ afin que les mesures finales ne dépendent pas d'une rédaction faite dans la de
 **Étant donné** chaque question dans la base
 **Quand** je la relis
 **Alors** sa réponse figure bien dans le Document attendu, et chaque question hors base n'a de réponse dans aucun Document (relecture consignée)
+
+*Note du 2026-11-19 (décision de l'utilisateur, story 5.8) : le Document de congés du Jeu complet doit contenir la règle des congés de moins de 3 jours, pour que la question exacte d'UJ-3 (« comment poser mes congés ? » puis « et si je pose moins de 3 jours ? ») ait une réponse sourcée ; elle sera mesurée en 7.2. Le mini Jeu ne la contient pas (la 5.8 mesure « Et combien de temps à l'avance dois-je faire la demande ? »).*
 
 **Étant donné** `demo/jeu-demonstration.json`
 **Quand** je l'ouvre

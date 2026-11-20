@@ -709,3 +709,75 @@ describe("story 5.6 : add_question et conversation_list", () => {
     expect(byId).toEqual({ [crossed.id]: true, [reversed.id]: false });
   });
 });
+
+// Story 5.8 (Q1 = A) : add_question enregistre la question autonome d'une question de suivi. Ancienne
+// signature supprimée (jamais de surcharge), appel sans le paramètre (chat en production avant son
+// redéploiement) accepté ; mêmes droits qu'en 5.6.
+describe("story 5.8 : add_question avec la question autonome", () => {
+  it("UNE seule signature (avec p_standalone_question), security invoker, search_path vide, EXECUTE à authenticated seul (ni anon, ni service_role, ni public)", () => {
+    const rows = localSqlRows(
+      "select pg_get_function_identity_arguments(p.oid) as args, p.prosecdef as definer, p.proconfig::text as config, has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec, has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec, has_function_privilege('service_role', p.oid, 'EXECUTE') as service_exec, not exists (select 1 from aclexplode(p.proacl) x where x.grantee = 0) as no_public from pg_proc p where p.proname = 'add_question' and p.pronamespace = 'public'::regnamespace",
+    );
+    expect(rows).toEqual([
+      {
+        args: "p_conversation_id uuid, p_question text, p_client_request_id uuid, p_standalone_question text",
+        definer: false,
+        config: '{"search_path=\\"\\""}',
+        auth_exec: true,
+        anon_exec: false,
+        service_exec: false,
+        no_public: true,
+      },
+    ]);
+  });
+
+  it("avec la question autonome : enregistrée sur la question ; sans le paramètre (forme du chat de la 5.7) : accepté, question autonome nulle", async () => {
+    const conv = await conversation(a, "Suivi");
+    await question(a, conv.id);
+    const withStandalone = await a.client.rpc("add_question", {
+      p_conversation_id: conv.id,
+      p_question: "Et au-delà de 10 000 euros ?",
+      p_client_request_id: crypto.randomUUID(),
+      p_standalone_question: "Qui valide une facture au-delà de 10 000 euros ?",
+    });
+    expect(withStandalone.error).toBeNull();
+    const legacy = await a.client.rpc("add_question", {
+      p_conversation_id: conv.id,
+      p_question: "Et pour un avoir ?",
+      p_client_request_id: crypto.randomUUID(),
+    });
+    expect(legacy.error).toBeNull();
+    const { data } = await a.client
+      .from("messages")
+      .select("content, standalone_question")
+      .eq("conversation_id", conv.id)
+      .order("created_at");
+    expect(data!.slice(1)).toEqual([
+      { content: "Et au-delà de 10 000 euros ?", standalone_question: "Qui valide une facture au-delà de 10 000 euros ?" },
+      { content: "Et pour un avoir ?", standalone_question: null },
+    ]);
+  });
+
+  it("contrainte existante : question autonome vide ou de plus de 2 000 caractères refusée, rien d'écrit ; B ne peut pas l'utiliser sur la Conversation de A", async () => {
+    const conv = await conversation(a, "Suivi contraint");
+    await question(a, conv.id);
+    for (const standalone of ["   ", "x".repeat(2_001)]) {
+      const { error } = await a.client.rpc("add_question", {
+        p_conversation_id: conv.id,
+        p_question: "Et ensuite ?",
+        p_client_request_id: crypto.randomUUID(),
+        p_standalone_question: standalone,
+      });
+      expect(error?.code).toBe("23514");
+    }
+    const foreign = await b.client.rpc("add_question", {
+      p_conversation_id: conv.id,
+      p_question: "Et ensuite ?",
+      p_client_request_id: crypto.randomUUID(),
+      p_standalone_question: "Question de B",
+    });
+    expect(foreign.error?.code).toBe(FK);
+    const { data } = await admin.from("messages").select("id").eq("conversation_id", conv.id);
+    expect(data).toHaveLength(1);
+  });
+});

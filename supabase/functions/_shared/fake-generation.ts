@@ -4,12 +4,13 @@
 // active seulement si GENERATION_FAKE=1 ET si SUPABASE_URL vise l'hôte local ; ailleurs, rejetée et
 // journalisée. Story 5.3 : sortie précédée du marqueur (AD-10), repères de test pour les refus et le
 // marqueur invalide, appel court simulé. Story 5.5 : avec stream: true, réponse diffusée en morceaux
-// (marqueur et repères coupés), espacés avec FAKE_SLOW_STREAM_MARKER.
+// (marqueur et repères coupés), espacés avec FAKE_SLOW_STREAM_MARKER. Story 5.8 : reformulation de
+// suivi simulée (fakeRewrite), panne avec FAKE_REWRITE_FAILURE_MARKER.
 import type { AiDeps } from "./ai.ts";
-import { readEnv } from "./config.ts";
+import { CHAT_MAX_QUESTION_LENGTH, readEnv } from "./config.ts";
 import { logEvent, logInfo } from "./errors.ts";
 import { isLocalStack } from "./fake-embeddings.ts";
-import { REFUSAL_SYSTEM_PROMPT } from "./rag/prompt.ts";
+import { REFUSAL_SYSTEM_PROMPT, REWRITE_QUESTION_PREFIX, REWRITE_SYSTEM_PROMPT } from "./rag/prompt.ts";
 
 // Repères placés dans la question (texte neutralisé dans les consignes, sans chevron ni esperluette) :
 // réponse simulée sans aucune citation (cas AI_CITATIONS_INVALID).
@@ -25,6 +26,9 @@ export const FAKE_INVALID_MARKER = "[simulation:marqueur-invalide]";
 // Story 5.5 : morceaux espacés de FAKE_SLOW_STREAM_DELAY_MS (texte provisoire observable à l'écran).
 export const FAKE_SLOW_STREAM_MARKER = "[simulation:flux-lent]";
 export const FAKE_SLOW_STREAM_DELAY_MS = 400;
+
+// Story 5.8 : reformulation simulée en panne (503 du fournisseur, à chaque tentative) : AI_UNAVAILABLE.
+export const FAKE_REWRITE_FAILURE_MARKER = "[simulation:reformulation-en-panne]";
 
 // Texte du modèle simulé après un marqueur de refus : jamais affiché ni enregistré.
 export const FAKE_IGNORED_TEXT = "Texte simulé du modèle, à ignorer.";
@@ -104,10 +108,35 @@ export function fakeStreamResponse(chunks: string[], finishReason = "stop", dela
   return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 }
 
+const unescape = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
+// Reformulation simulée (story 5.8) : question autonome déterministe, question de l'échange précédent le
+// plus récent suivie de la nouvelle question, sur une ligne, 2 000 caractères au plus ; null si la
+// nouvelle question porte FAKE_REWRITE_FAILURE_MARKER (panne simulée).
+export function fakeRewrite(userMessage: string): string | null {
+  const index = userMessage.lastIndexOf(REWRITE_QUESTION_PREFIX);
+  const question = unescape(index === -1 ? userMessage : userMessage.slice(index + REWRITE_QUESTION_PREFIX.length));
+  if (question.includes(FAKE_REWRITE_FAILURE_MARKER)) return null;
+  const previous = [...userMessage.matchAll(/<question>([\s\S]*?)<\/question>/g)].at(-1)?.[1] ?? "";
+  const standalone = `${unescape(previous)} ${question}`.replace(/\s+/g, " ").trim();
+  return Array.from(standalone).slice(0, CHAT_MAX_QUESTION_LENGTH).join("");
+}
+
 const fakeFetch: typeof fetch = (_input, init) => {
   const { messages, stream } = JSON.parse(String(init?.body)) as { messages: { role: string; content: string }[]; stream?: boolean };
   const system = messages.find((message) => message.role === "system")?.content ?? "";
   const user = messages.find((message) => message.role === "user")?.content ?? "";
+  if (system === REWRITE_SYSTEM_PROMPT) {
+    const rewritten = fakeRewrite(user);
+    if (rewritten === null) return Promise.resolve(Response.json({ error: { type: "server_error" } }, { status: 503 }));
+    return Promise.resolve(
+      Response.json({
+        model: "simulation",
+        choices: [{ index: 0, message: { role: "assistant", content: rewritten }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 0, completion_tokens: 0 },
+      }),
+    );
+  }
   const content = system === REFUSAL_SYSTEM_PROMPT ? fakeRefusal(user) : fakeAnswer(user);
   if (stream === true) {
     const delayMs = questionOf(user).includes(FAKE_SLOW_STREAM_MARKER) ? FAKE_SLOW_STREAM_DELAY_MS : 0;

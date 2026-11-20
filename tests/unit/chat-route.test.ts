@@ -391,6 +391,16 @@ describe("relayChatStream (story 5.5)", () => {
     expect(((await response.json()) as { error: { code: string } }).error.code).toBe(code);
   });
 
+  it("story 5.8, garde-fou des 17 s : JSON 504 AI_TIMEOUT de chat avant les en-têtes du flux → relayé tel quel (504, AI_TIMEOUT réessayable, texte du catalogue)", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({ error: { code: "AI_TIMEOUT", message: "Le service d'IA ne répond pas pour le moment. Votre question est conservée.", retryable: true } }, { status: 504 }),
+    );
+    const response = await relayChatStream(request, TOKEN, undefined, TARGET);
+    expect(response.status).toBe(504);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.json()).toEqual(appError("AI_TIMEOUT", texts.assistant.failed, true));
+  });
+
   it("401 de la passerelle : UNAUTHENTICATED en JSON", async () => {
     fetchMock.mockResolvedValue(Response.json({ msg: "Invalid JWT" }, { status: 401 }));
     const response = await relayChatStream(request, TOKEN, undefined, TARGET);

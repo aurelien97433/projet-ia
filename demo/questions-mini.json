@@ -68,6 +68,16 @@
       ],
       "expected": "responsable d'équipe",
       "expectedSource": "procedure-conges"
+    },
+    {
+      "id": "f3",
+      "journey": "UJ-3",
+      "turns": [
+        "Comment poser mes congés ?",
+        "Et combien de temps à l'avance dois-je faire la demande ?"
+      ],
+      "expected": "2 semaines",
+      "expectedSource": "procedure-conges"
     }
   ],
   "promptInjection": {

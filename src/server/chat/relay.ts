@@ -9,7 +9,10 @@ import { texts } from "@/lib/texts";
 export const CHAT_RELAY_TIMEOUT_MS = 70_000;
 // Relais du flux (story 5.5, AD-16) : 25 s jusqu'aux en-têtes de chat (envoyés dès la demande acceptée,
 // démarrage à froid compris) ; le corps n'est pas borné ici : chat s'arrête à 85 s, le navigateur à
-// 90 s, la route à maxDuration (120 s).
+// 90 s, la route à maxDuration (120 s). Story 5.8 (garde-fou des 17 s, AD-16) : chat envoie ses
+// en-têtes, ou une réponse JSON 504 AI_TIMEOUT relayée telle quelle, au plus 17 s après la réception,
+// reformulation et écritures en base comprises (elles continuent en tâche de fond) : marge d'au moins
+// 8 s sur ces 25 s.
 export const CHAT_STREAM_HEADERS_TIMEOUT_MS = 25_000;
 
 // En-têtes du flux : variante de base validée en 5.0 (docs/mesures/flux-vercel.md). B1 (plan B d'AD-16,

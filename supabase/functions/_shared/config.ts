@@ -56,6 +56,21 @@ export const CHAT_GENERATION_MAX_TIMEOUT_MS = 70_000;
 export const CHAT_JSON_TIMEOUT_MS = 60_000;
 export const CHAT_JSON_GENERATION_MAX_TIMEOUT_MS = 40_000;
 export const CHAT_CLEANUP_TIMEOUT_MS = 5_000;
+// Questions de suivi (story 5.8, AD-12) : reformulation en question autonome à partir des 3 derniers
+// échanges réglés, réponses tronquées à 1 500 caractères. Délai de 10 s pour la reformulation (toutes
+// tentatives comprises), pris sur l'échéance du premier affichage (CHAT_FIRST_DISPLAY_MS) en mode
+// flux : la génération reçoit le temps restant. Sortie d'une ligne, 1 à 2 000 caractères
+// (CHAT_MAX_QUESTION_LENGTH, contrainte de messages.standalone_question).
+export const REWRITE_TIMEOUT_MS = 10_000;
+// Mode flux : la reformulation s'arrête au plus tard 500 ms avant l'échéance du premier affichage,
+// marge pour enregistrer la question (add_question) avant que cette échéance ne tombe.
+export const REWRITE_FIRST_DISPLAY_MARGIN_MS = 500;
+export const REWRITE_MAX_COMPLETION_TOKENS = 800;
+export const CHAT_HISTORY_EXCHANGES = 3;
+export const CHAT_HISTORY_ANSWER_MAX_LENGTH = 1_500;
+// Messages relus pour reconstituer l'historique (les plus récents) : de quoi couvrir 3 échanges réglés
+// même après plusieurs échecs.
+export const CHAT_HISTORY_READ_LIMIT = 60;
 // Recherche de l'Assistant (AD-9) : 8 Passages au plus (CHAT_MAX_PASSAGES), 3 par Document.
 export const CHAT_PASSAGES_PER_DOCUMENT = 3;
 // Titre d'une Conversation : la question, 120 caractères au plus (story 5.1).

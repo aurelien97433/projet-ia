@@ -642,6 +642,24 @@ describe("réponse progressive (story 5.5)", () => {
     expect(screen.getByRole("alert").textContent).toContain(t.failed);
   });
 
+  it("story 5.8, garde-fou des 17 s : JSON 504 AI_TIMEOUT reçu à la place du flux → panne normale avec « Réessayer », sans texte provisoire", async () => {
+    fetchMock().mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: "AI_TIMEOUT", message: t.failed, retryable: true } }), {
+        status: 504,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    render(<AssistantView />);
+    await ask("Question");
+    await tick();
+    expect(provisional()).toBeNull();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(t.failed);
+    expect(within(alert).getByRole("button", { name: t.retry })).toBeTruthy();
+    // Question conservée dans le fil.
+    expect(bubbles()).toHaveLength(1);
+  });
+
   it("réponse JSON d'un bloc (refus avant le flux) : traitée comme avant", async () => {
     fetchMock().mockResolvedValue(failure("QUOTA_EXCEEDED", 429, false, t.quotaExceeded("demain"), "2026-11-17T00:00:00.000Z"));
     render(<AssistantView />);

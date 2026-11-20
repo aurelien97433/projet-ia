@@ -16,6 +16,9 @@ import {
   GENERATION_TIMEOUT_MS,
   generationModel,
   MODEL_CHECK_TIMEOUT_MS,
+  CHAT_MAX_QUESTION_LENGTH,
+  REWRITE_MAX_COMPLETION_TOKENS,
+  REWRITE_TIMEOUT_MS,
   REFUSAL_MAX_COMPLETION_TOKENS,
   OPENAI_BASE_URL,
   readEnv,
@@ -270,6 +273,73 @@ async function complete(
     model: typeof parsed?.model === "string" ? parsed.model : model,
     usage: { inputTokens: count(parsed?.usage?.prompt_tokens), outputTokens: count(parsed?.usage?.completion_tokens) },
   };
+}
+
+export type RewriteResult = GenerationResult & { question: string };
+
+// Reformulation d'une question de suivi en question autonome (story 5.8, AD-12) : mêmes modèle,
+// échantillonnage, raisonnement, nouvelles tentatives et contrôles de fin que generateAnswer (sortie
+// vide, filtrée ou tronquée refusée) ; sortie normalisée sur une ligne (espaces réduits), 1 à 2 000
+// caractères. Délai de timeoutMs (10 s par défaut) pour l'appel entier, nouvelles tentatives comprises.
+// Échec rendu en AI_TIMEOUT (délai), AI_BUDGET_EXHAUSTED (plafond du fournisseur, non réessayable,
+// comme la génération) ou AI_UNAVAILABLE réessayable (panne, sortie invalide), avec l'issue de l'appel
+// (outcome) pour la règle de libération d'AD-14 appliquée par chat (décision de l'utilisateur du
+// 2026-11-19) : aucune réponse → unité rendue ; réponse reçue inexploitable ou délai après envoi →
+// unité consommée. Ni les consignes ni la question ne sont journalisées.
+export async function rewriteFollowUp(messages: ChatMessage[], options: AiOptions = {}): Promise<RewriteResult> {
+  const timeoutMs = options.timeoutMs ?? REWRITE_TIMEOUT_MS;
+  const controller = new AbortController();
+  // Requêtes envoyées au fournisseur et encore sans réponse : un délai qui tombe pendant l'une d'elles
+  // est un délai après envoi ; pendant l'attente avant une nouvelle tentative, aucune réponse.
+  let inFlight = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const outcome = inFlight > 0 ? "timeout" : "no_response";
+      controller.abort();
+      logEvent("ai_timeout", { operation: "rewrite_follow_up", duration_ms: timeoutMs, sent: outcome === "timeout" });
+      reject(new AiError("AI_TIMEOUT", true, "délai de reformulation dépassé", undefined, undefined, outcome));
+    }, timeoutMs);
+  });
+  const base = options.deps?.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const deps: Partial<AiDeps> = {
+    ...options.deps,
+    fetch: async (input, init) => {
+      inFlight += 1;
+      try {
+        return await base(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal });
+      } finally {
+        inFlight -= 1;
+      }
+    },
+  };
+  try {
+    const result = await Promise.race([
+      complete("rewrite_follow_up", messages, REWRITE_MAX_COMPLETION_TOKENS, { deps, timeoutMs }, false),
+      expired,
+    ]);
+    const question = result.text.replace(/\s+/g, " ").trim();
+    if (question === "" || question.length > CHAT_MAX_QUESTION_LENGTH) {
+      logEvent("ai_output_invalid", { operation: "rewrite_follow_up", reason: question === "" ? "empty" : "too_long", length: question.length });
+      throw new AiError("AI_UNAVAILABLE", true, "reformulation inexploitable", undefined, undefined, "response_received");
+    }
+    return { ...result, question };
+  } catch (error) {
+    if (!(error instanceof AiError)) throw error;
+    if (error.code === "AI_BUDGET_EXHAUSTED") throw error;
+    if ((error.code === "AI_TIMEOUT" || error.code === "AI_UNAVAILABLE") && error.retryable) throw error;
+    throw new AiError(
+      error.code === "AI_TIMEOUT" ? "AI_TIMEOUT" : "AI_UNAVAILABLE",
+      true,
+      `reformulation en échec (${error.code})`,
+      error.providerCode,
+      error.providerParam,
+      error.outcome,
+    );
+  } finally {
+    clearTimeout(timer);
+    expired.catch(() => {});
+  }
 }
 
 const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);

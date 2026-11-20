@@ -1,8 +1,14 @@
 // Fonction chat (story 5.2a-2) : validation de la demande, titre de la Conversation, Passages retenus
 // et Sources à enregistrer. Fonctions pures, sans type Deno : importées par chat et testées par Vitest.
-import { CHAT_MAX_PASSAGES, CHAT_MAX_QUESTION_LENGTH, CHAT_TITLE_MAX_LENGTH } from "./config.ts";
+import {
+  CHAT_HISTORY_ANSWER_MAX_LENGTH,
+  CHAT_HISTORY_EXCHANGES,
+  CHAT_MAX_PASSAGES,
+  CHAT_MAX_QUESTION_LENGTH,
+  CHAT_TITLE_MAX_LENGTH,
+} from "./config.ts";
 import type { CitedSource } from "./rag/citations.ts";
-import type { ChatPassage } from "./rag/prompt.ts";
+import type { ChatPassage, HistoryExchange } from "./rag/prompt.ts";
 import type { MatchRow } from "./search.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -126,4 +132,72 @@ export type GenerationState = "not_sent" | "no_response" | "billed";
 
 export function isReleasable(state: GenerationState): boolean {
   return state !== "billed";
+}
+
+// Questions de suivi (story 5.8, Q2 = A). Message de la Conversation relu avec le jeton (RLS).
+export type HistoryRow = {
+  role: "user" | "assistant";
+  kind: string;
+  content: string | null;
+  client_request_id: string | null;
+  created_at: string;
+};
+
+export function isHistoryRow(value: unknown): value is HistoryRow {
+  const row = value as Record<string, unknown> | null;
+  return (
+    typeof row === "object" &&
+    row !== null &&
+    (row.role === "user" || row.role === "assistant") &&
+    typeof row.kind === "string" &&
+    (row.content === null || typeof row.content === "string") &&
+    (row.client_request_id === null || typeof row.client_request_id === "string") &&
+    typeof row.created_at === "string"
+  );
+}
+
+// Renvois [S{n}] (5.4) et repères bruts [P…] des réponses d'avant la 5.4 (mêmes formes que
+// CITATION_LIKE et RENVOI_LIKE de citations.ts), retirés avec les espaces qui les précèdent.
+const HISTORY_MARK_CANDIDATE = /[^\S\n]*(\[[PS][^[\]\n]{0,40}\])/g;
+const HISTORY_MARK = /^\[(?:P[\sP\d,;\-–]*|S[\sS\d,;\-–]*)\]$/;
+
+export function cleanHistoryAnswer(content: string): string {
+  const stripped = content.replace(HISTORY_MARK_CANDIDATE, (match, token: string) => (HISTORY_MARK.test(token) ? "" : match)).trim();
+  return Array.from(stripped).slice(0, CHAT_HISTORY_ANSWER_MAX_LENGTH).join("");
+}
+
+export type RefusalTexts = { refusal_info_absente: string; refusal_hors_cadre: string };
+
+// Les 3 derniers échanges réglés (réponse ou refus enregistré), dans l'ordre : question puis réponse
+// nettoyée et tronquée, ou texte standard du refus ; échecs et questions sans issue exclus. Rattachement
+// d'un message de l'Assistant à sa question : même client_request_id ; sinon (messages d'avant la 5.6)
+// dernière question qui le précède (mêmes règles que le fil, src/lib/conversation-thread.ts). Une
+// réponse ou un refus l'emporte sur un échec ; le plus récent l'emporte. rows : dans l'ordre de created_at.
+export function buildHistory(rows: HistoryRow[], refusals: RefusalTexts): HistoryExchange[] {
+  type Group = { question: string; settled: HistoryRow | null };
+  const groups: Group[] = [];
+  const byRequest = new Map<string, Group>();
+  for (const row of rows) {
+    if (row.role === "user") {
+      const group: Group = { question: row.content ?? "", settled: null };
+      groups.push(group);
+      if (row.client_request_id) byRequest.set(row.client_request_id, group);
+      continue;
+    }
+    const target = (row.client_request_id ? byRequest.get(row.client_request_id) : undefined) ?? groups.at(-1);
+    if (!target || row.kind === "failure" || row.kind === "question") continue;
+    target.settled = row;
+  }
+  const exchanges: HistoryExchange[] = [];
+  for (const { question, settled } of groups) {
+    if (!settled || question.trim() === "") continue;
+    let answer: string;
+    if (settled.kind === "refusal_info_absente") answer = refusals.refusal_info_absente;
+    else if (settled.kind === "refusal_hors_cadre") answer = refusals.refusal_hors_cadre;
+    else if (settled.kind === "answer") answer = cleanHistoryAnswer(settled.content ?? "");
+    else continue;
+    if (answer === "") continue;
+    exchanges.push({ question, answer });
+  }
+  return exchanges.slice(-CHAT_HISTORY_EXCHANGES);
 }
