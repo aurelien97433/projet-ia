@@ -2,7 +2,7 @@
 title: 'Story 5.8 : Questions de suivi'
 type: 'feature'
 created: '2026-11-19'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '0d1af43f84d66e70fffae5137c86eabbb47e2de1'
@@ -200,3 +200,22 @@ Relecteur séparé unique (2026-11-19) : aucun bloquant ; axes quota (ordre), in
 **Diagnostic :** ce test, répété 24 fois seul à 8 workers, réussit 24 fois sur 24 ; il n'échoue que dans la suite complète. À l'état de base (code de la 5.8 et 4 tests unitaires qui l'importent mis de côté, edge runtime redémarré), la suite complète échoue de la même façon (370 passés, 1 échec, même test, même assertion). La 5.8 n'est donc pas en cause : le focus est posé côté navigateur (`PageTitle`), et la 5.8 ne change dans `src/` qu'un commentaire de `relay.ts`. Une passe avec traces, plus lente, a produit 5 échecs de délai différents (dont `ajouter-fichier` à 375 px : Document « prêt », zone de texte encore vide). Arbre restauré à l'identique (empreintes contrôlées).
 
 **Réserve acceptée par l'utilisateur :** défaut e2e antérieur à la 5.8, à corriger en 7.3 (`deferred-work.md`).
+
+## Déploiement et vérification en production (2026-11-20)
+
+Commit `9905dc2`. `deploy:supabase` par l'utilisateur : migration `20261119150000_follow_up.sql` appliquée, `chat` (66 kB), `process-document` et `semantic-search` redéployées (elles importent `_shared`). Contrôle distant en lecture seule : une seule signature `add_question(uuid,text,uuid,text)`, `p_standalone_question text default null`, `security invoker`, `search_path` vide, `EXECUTE` à `authenticated` seul (ni `anon` ni `service_role`). Push de `9905dc2`.
+
+Tests réels (Compte de mesure 1) :
+- `npm run test:search:live` : réussi (6 requêtes au bon rang, 3 hors base sans résultat), `docs/mesures/recherche-live.md`.
+- `npm run test:followup:live` : **14 sur 14**, compteur 0 → 14 (cohérent), termes interdits 0 sur 14 ; i1 : Document piège parmi les Sources de la question de suivi (Passage piège atteint, sans fuite), `docs/mesures/suivi-live.md`.
+- `npm run test:chat:live` (non-régression) : **14 sur 15**, compteur 14 → 29 (cohérent), `docs/mesures/assistant-live.md`. Écart : h1 #1 (« Quel est le budget marketing de NexaWorks pour 2027 ? ») classé `refusal_hors_cadre` au lieu de `refusal_info_absente` ; h1 #2 et #3 conformes.
+
+**Diagnostic de h1 #1 :** le code de la 5.8 n'est pas sur ce chemin. Entre `0d1af43` et `9905dc2`, la consigne de l'appel court, `buildRefusalMessages`, l'échantillonnage (`temperature` 0, `seed`), `reasoning_effort` et la sortie bornée sont inchangés (`ai.ts` et `config.ts` sans ligne retirée) ; la question transmise devient `standaloneQuestion ?? input.question`, soit la question d'origine pour une première question (pas de `conversationId`, donc ni historique ni reformulation). Base distante, lecture seule : h1 #1 dans une nouvelle Conversation de 2 messages, sans question autonome, refus enregistré en 925 ms sans code d'erreur (un seul appel au modèle). h1 avait réussi 15 sur 15 dans les 5 passages archivés depuis la 5.3 (et 6 sur 6 en base le 2026-11-19). Cause retenue : variabilité du modèle sur une question frontière (« budget » lu comme hors cadre ; la consigne ne dit pas qu'une question qui nomme NexaWorks n'est jamais hors cadre). Les journaux de `chat` en production n'ont pas été lus (la CLI 3 ne les expose pas).
+
+**Vérification manuelle du site par l'utilisateur (`9905dc2`) :** Note de test « Prête » puis supprimée ; dans une Conversation, « Comment poser mes congés ? » puis la question de suivi « Et combien de temps à l'avance dois-je faire la demande ? » : réponse « 2 semaines », Source « Procédure congés et absences ». Conforme.
+
+**Réserves acceptées par l'utilisateur à la clôture :**
+- h1 #1 hors cadre (14 sur 15) : consigne de refus renforcée (texte validé le 2026-11-20) et son test unitaire en **première tâche de la 5.9**, qui redéploie `chat` et rejoue `test:chat:live` (`deferred-work.md`).
+- Test e2e `search-page` « parcours réel au clavier » instable sous charge, antérieur à la 5.8 : story 7.3 (`deferred-work.md`).
+
+Story `done` le 2026-11-20.
