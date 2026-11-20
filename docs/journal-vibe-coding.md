@@ -1787,3 +1787,16 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 **Écart h1 #1 : variabilité, pas régression.** « Quel est le budget marketing de NexaWorks pour 2027 ? » a été classé hors cadre au lieu d'« information absente » sur le premier essai ; les deux autres étaient conformes. Avant de conclure, l'utilisateur a demandé une comparaison de l'appel court entre la base et la 5.8 : consigne, échantillonnage et sortie bornée inchangés ; pour une première question, la question transmise reste la question d'origine. La base distante, lue en lecture seule, confirme le chemin : nouvelle Conversation, aucune question autonome, refus en 925 ms, un seul appel. h1 avait réussi 15 fois sur 15 depuis la 5.3. La consigne renforcée (« une question qui nomme NexaWorks n'est jamais hors cadre », « en cas de doute, information absente ») est validée, mais reportée en première tâche de la 5.9, qui redéploie `chat` de toute façon : pas de cycle de déploiement séparé.
 
 **Statut.** Story 5.8 `done` le 2026-11-20, avec deux réserves écrites : h1 #1 (5.9) et le test e2e `search-page` instable sous charge (7.3).
+
+## Story 5.9 : idempotence des questions (2026-11-20, en cours)
+
+**h1 : le mauvais chemin diagnostiqué en 5.8.** Après le déploiement de la 5.9, `test:chat:live` donne 13 sur 15 : h1 #1 et #3 sont classés hors cadre malgré la nouvelle consigne de l'appel court. L'utilisateur a relevé que ce n'était plus de la variabilité (21 sur 21 jusqu'au 19/11) et demandé par quel chemin passait h1. Mesure en lecture seule : 5 Passages au-dessus du seuil (0,43 à 0,55), donc génération complète avec `CHAT_SYSTEM_PROMPT` ; la consigne de l'appel court ne pouvait pas s'appliquer, et le diagnostic de la 5.8, qui comparait l'appel court, visait le mauvais chemin. Sur le bon chemin, l'entrée du modèle est identique depuis la 5.4. L'utilisateur a ensuite lu les journaux de `chat` :
+
+| Version de `chat` | h1 : chemin | `passages` | `input_tokens` (h1) | Résultat h1 | o1 : `input_tokens` (appel court) |
+|---|---|---|---|---|---|
+| v7 (19/11) | génération complète | 5 | 1 504 | `refusal_info_absente` ×3 | 185 |
+| v8 (19/11) | génération complète | 5 | 1 504 | `refusal_info_absente` ×3 | 185 |
+| v9 (5.8, 20/11 matin) | génération complète | 5 | 1 504 | `refusal_hors_cadre` ×1 sur 3 | 185 |
+| v10 (5.9, 20/11 soir) | génération complète | 5 | 1 504 | `refusal_hors_cadre` ×2 sur 3 | 229 |
+
+Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passages), `temperature` 0 et `seed` : non-déterminisme du modèle sur une question frontière, pas une régression. Le passage de 185 à 229 tokens pour o1 confirme que la consigne du matin ne touchait que l'appel court. Correctif : la même règle dans la ligne des refus de `CHAT_SYSTEM_PROMPT`, avec un test mot pour mot. Leçon : avant de comparer un chemin de code, vérifier par une mesure que la question l'emprunte vraiment.

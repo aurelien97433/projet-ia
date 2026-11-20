@@ -165,3 +165,22 @@ Relecteur séparé unique (2026-11-20, décision de l'utilisateur du 2026-11-16,
 ## Vérification complète (2026-11-20, après les correctifs de revue)
 
 `npx supabase db reset` lancé par l'utilisateur (migration `20261120090000` rejouée depuis une base vide : une seule signature de `begin_retry`, `save_assistant_answer`, `record_assistant_failure` et `add_question`, déclencheur `messages_stamp_replaced_failure` présent), edge runtime redémarré. `npm test` sous PowerShell (95 fichiers, 1 953 tests), `npm run lint`, `npx tsc --noEmit`, `npm run build:ci` (dont `check:secrets --static`), `npm run check:secrets`, `npm run test:e2e` à 8 workers (373 passés, 19 ignorés par conception, 0 échec) : vert. Décisions de revue de l'utilisateur (2026-11-20) : R2 option A, R1 et R5 corrigés, R3 accepté (AD-16), R4 rejeté, R6 reporté en 5.10. Reste : commit sur accord, `deploy:supabase` (migration + `chat`), contrôle distant en lecture seule, push, `test:chat:live` (h1 et non-régression), vérification en production, clôture.
+
+## Production : h1 et consigne de la génération (2026-11-20)
+
+`c59c236` déployé (migration `20261120090000`, `chat` 72 kB), contrôle distant conforme, poussé. `test:followup:live` : 14 sur 14 (compteur 44 → 58). `test:chat:live` : **13 sur 15**, h1 #1 et #3 en `refusal_hors_cadre` malgré la consigne de la tâche 1 (compteur 29 → 44).
+
+**Diagnostic (lecture seule) :** h1 passe par la **génération complète**, pas par l'appel court : mesure ponctuelle (h1 vectorisé par la fonction locale `measure-embed`, `match_passages` en production avec les paramètres de `chat`, session du Compte de mesure 1) : 5 Passages au-dessus du seuil de 0,40 (« Compte rendu client : Atelier Lumen » 0,545, « Procédure de facturation » 0,501, « Note de réunion : finance de mars » 0,500, « FAQ comptabilité » 0,449, « Procédure congés et absences » 0,428) ; o1 : aucun (appel court). Aucun Document modifié depuis le 2026-11-10. La consigne de la tâche 1 (`REFUSAL_SYSTEM_PROMPT`) n'a donc jamais été appliquée à h1 ; le diagnostic de la 5.8 (appel court comparé) visait le mauvais chemin (corrigé à la clôture). Sur ce chemin, l'entrée du modèle est identique depuis la 5.4 (`CHAT_SYSTEM_PROMPT` et `buildChatMessages` inchangés ; sans historique, `buildFollowUpChatMessages` renvoie les mêmes messages).
+
+**Journaux de `chat` lus par l'utilisateur (19/11 au 20/11)** : `model` = `gpt-5.4-mini-2026-03-17` partout (aucun changement de version côté fournisseur).
+
+| Version de `chat` | h1 : chemin | `passages` | `input_tokens` (h1) | Résultat h1 | o1 : `input_tokens` (appel court) |
+|---|---|---|---|---|---|
+| v7 (19/11) | génération complète | 5 | 1 504 | `refusal_info_absente` ×3 | 185 |
+| v8 (19/11) | génération complète | 5 | 1 504 | `refusal_info_absente` ×3 | 185 |
+| v9 (5.8, 20/11 matin) | génération complète | 5 | 1 504 | `refusal_hors_cadre` ×1 sur 3 | 185 |
+| v10 (5.9, 20/11 soir) | génération complète | 5 | 1 504 | `refusal_hors_cadre` ×2 sur 3 | 229 |
+
+Conclusion de l'utilisateur : même entrée, même modèle, `temperature` 0 et `seed` → **non-déterminisme du modèle sur une question frontière**, pas une régression de notre code. Le passage de 185 à 229 `input_tokens` pour o1 en v10 confirme que la consigne du matin ne s'applique qu'à l'appel court.
+
+**Correctif (décision de l'utilisateur du 2026-11-20) :** même règle dans la ligne des refus de `CHAT_SYSTEM_PROMPT` (« une question qui nomme NexaWorks n'est jamais hors cadre » ; « Entre ces deux refus, en cas de doute, choisissez REFUS_INFO_ABSENTE », borné aux deux refus pour ne pas pousser au refus quand les Passages permettent de répondre) ; test unitaire de la consigne entière, ligne par ligne ; `npm test` (95 fichiers, 1 954 tests), `tsc` verts. Commit local séparé, puis redéploiement de `chat` par l'utilisateur, compteur du Compte de mesure 1 remis à zéro et un seul rejeu de `test:chat:live`.

@@ -23,7 +23,9 @@ export const CHAT_SYSTEM_PROMPT = [
   "Avant de répondre, comparez les Passages entre eux. Si plusieurs Passages donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. »",
   "La première ligne de votre sortie contient uniquement l'un de ces marqueurs, seul, sans autre texte ni ponctuation : REPONSE, REFUS_INFO_ABSENTE ou REFUS_HORS_CADRE.",
   "REPONSE : les Passages permettent de répondre ; la réponse commence à la ligne suivante.",
-  "REFUS_INFO_ABSENTE : la question porte sur NexaWorks, mais les Passages ne contiennent pas l'information. REFUS_HORS_CADRE : culture générale, demande personnelle ou question sans rapport avec NexaWorks. Après un refus, n'écrivez rien d'autre.",
+  // Story 5.9 (décision de l'utilisateur du 2026-11-20) : h1 passe par ce chemin (Passages au-dessus du
+  // seuil) ; même règle que l'appel court pour départager les deux refus.
+  "REFUS_INFO_ABSENTE : la question porte sur NexaWorks ou sur une information d'entreprise (procédure, règle, projet, client, budget, chiffre interne, organisation), mais les Passages ne contiennent pas l'information ; une question qui nomme NexaWorks n'est jamais hors cadre. REFUS_HORS_CADRE : culture générale, demande personnelle ou question sans rapport avec NexaWorks. Entre ces deux refus, en cas de doute, choisissez REFUS_INFO_ABSENTE. Après un refus, n'écrivez rien d'autre.",
 ].join("\n");
 
 // Appel court (story 5.3) : aucun Passage au-dessus du seuil ; le modèle ne répond jamais à la
