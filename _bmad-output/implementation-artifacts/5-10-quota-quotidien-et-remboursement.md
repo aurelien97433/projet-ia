@@ -2,7 +2,7 @@
 title: 'Stories 5.10 + 5.11 : Quota quotidien, remboursement et états de l''Assistant'
 type: 'feature'
 created: '2026-11-20'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'f84bb5740231f1f665a36a6b1b6cf8fcba3c13d1'
@@ -153,3 +153,16 @@ Relecteur séparé unique (2026-11-20, décision de l'utilisateur du 2026-11-16)
 ## Vérification complète (2026-11-20, après les correctifs de revue)
 
 `npx supabase db reset` lancé par l'utilisateur (migrations rejouées depuis une base vide ; `ai_limits` : `SELECT` des colonnes `key` et `value` pour `authenticated` seulement, une politique `key = 'ai_daily_quota'`), edge runtime redémarré. `npm test` sous PowerShell (98 fichiers, 1 992 tests), `npm run lint`, `npx tsc --noEmit`, `npm run build:ci` (dont `check:secrets --static`), `npm run check:secrets`, `npm run test:e2e` à 8 workers (381 passés, 19 ignorés par conception, 0 échec ; aucun `quota_read_failed` dans les journaux du serveur) : vert. Tri de revue : C1, C2 et C6 corrigés, C3 rejeté avec note dans AD-16, C4 et C5 rejetés, C7 reporté en 7.3. Reste : commit sur accord, `deploy:supabase` (migration `20261120150000_ai_limits_read.sql` + `chat`), contrôle distant en lecture seule des droits et de la politique sur `ai_limits`, push, `test:chat:live`, vérification en production, clôture.
+
+## Déploiement et vérification en production (2026-11-20)
+
+Commit `b53355e`. `deploy:supabase` par l'utilisateur : migration `20261120150000_ai_limits_read.sql` appliquée, `chat` redéployée (73 kB), `process-document` et `semantic-search` inchangées. Contrôle distant en lecture seule (`has_column_privilege`, la vue `information_schema.column_privileges` n'étant pas visible du rôle de lecture seule) : `authenticated` lit seulement `key` et `value` (les deux seules colonnes), aucun `INSERT`, `UPDATE` ni `DELETE` ; `anon` rien ; une seule politique « Le Collaborateur lit la limite quotidienne d'IA » (`authenticated`, `SELECT`, `key = 'ai_daily_quota'`) ; RLS active. Push de `b53355e`.
+
+Vérification par l'utilisateur :
+- `npm run test:chat:live` : **15 sur 15**, compteur du Compte de mesure 1 15 → 30 (cohérent), `docs/mesures/assistant-live.md`.
+- Heures des Conversations affichées en heure de La Réunion (fuseau du navigateur).
+- Compte de l'utilisateur mis à 60 par SQL : bloc « limite atteinte » dès le chargement de l'Assistant, avec l'heure locale, champ désactivé, lien « Ouvrir la Recherche ».
+- Remise à 0 : le champ se réactive seul au retour sur l'onglet, sans rechargement.
+- Compte de mesure 1 : une requête « mise à 60 » lui avait d'abord été appliquée par erreur (elle ne visait pas le compte connecté sur le site) ; remis à 0 et contrôlé par un select.
+
+Conforme. Stories 5.10 et 5.11 `done` le 2026-11-20.

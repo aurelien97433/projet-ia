@@ -1790,7 +1790,7 @@ Le premier lancement sur 16.4.3 n'a exécuté aucun test : le build s'est arrêt
 
 **Statut.** Story 5.8 `done` le 2026-11-20, avec deux réserves écrites : h1 #1 (5.9) et le test e2e `search-page` instable sous charge (7.3).
 
-## Story 5.9 : idempotence des questions (2026-11-20, en cours)
+## Story 5.9 : idempotence des questions (2026-11-20)
 
 **h1 : le mauvais chemin diagnostiqué en 5.8.** Après le déploiement de la 5.9, `test:chat:live` donne 13 sur 15 : h1 #1 et #3 sont classés hors cadre malgré la nouvelle consigne de l'appel court. L'utilisateur a relevé que ce n'était plus de la variabilité (21 sur 21 jusqu'au 19/11) et demandé par quel chemin passait h1. Mesure en lecture seule : 5 Passages au-dessus du seuil (0,43 à 0,55), donc génération complète avec `CHAT_SYSTEM_PROMPT` ; la consigne de l'appel court ne pouvait pas s'appliquer, et le diagnostic de la 5.8, qui comparait l'appel court, visait le mauvais chemin. Sur le bon chemin, l'entrée du modèle est identique depuis la 5.4. L'utilisateur a ensuite lu les journaux de `chat` :
 
@@ -1810,3 +1810,15 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Revue et vérification.** Un relecteur séparé (décision du 2026-11-16) : aucun bloquant ; deux constats moyens tranchés par l'utilisateur. R1 : un échec tardif du `chat` d'origine pouvait masquer une réclamation en cours et laisser deux réessais appeler le fournisseur (reproduit en SQL par le relecteur) ; corrigé. R2 : l'enregistrement du résultat, sorti de l'échéance commune pour ne jamais être coupé, rompait la chaîne « 85 s < 90 s » ; option A, ses 5 s sont réservées dans l'échéance. Le `db reset` a été refusé deux fois par le contrôle des permissions de l'agent ; l'utilisateur l'a lancé lui-même avant la vérification complète (1 953 tests, e2e 373 passés, 0 échec).
 
 **Statut.** Story 5.9 `done` le 2026-11-20.
+
+## Stories 5.10 et 5.11 : quota quotidien et états de l'Assistant (2026-11-20)
+
+**Mode essentiel.** Le quota côté serveur existait et était testé depuis la 5.2a-2 (réservation atomique, 61ᵉ appel refusé, tableau d'AD-14, plafond du fournisseur). La spec s'est limitée à ce qui manquait pour la démonstration : le quota lu au chargement de l'Assistant (bloc « limite atteinte » d'emblée, heure locale, réactivation à 00:00 UTC et au retour sur l'onglet) et les reports qui la concernaient (unité rendue à tort après deux demandes de suivi simultanées, échéance pendant la réservation, heure en UTC, alertes lues deux fois, date d'ajout des Documents).
+
+**Erreur de la spec, relevée par l'agent.** La spec prévoyait de lire la limite dans `ai_limits` avec le jeton du Collaborateur ; la 5.2a-2 avait retiré tout droit sur cette table, et la lecture échouait donc toujours : le bloc n'apparaissait qu'au refus à l'envoi. L'agent n'a rien ajouté (une migration est dans l'« Ask First ») et a soumis trois options. Décision de l'utilisateur : une migration qui ouvre la lecture des colonnes `key` et `value` de la seule ligne `ai_daily_quota` à `authenticated`, rien pour `anon`, aucune écriture ; la spec a été corrigée avec une note datée.
+
+**Revue.** Un relecteur séparé, avec l'exigence de l'utilisateur sur le cloisonnement : aucun compteur d'un autre Compte lisible, même avec un identifiant forgé, et aucun bloc affiché pour B quand A est au quota. Conforme, vérifié jusque dans un navigateur (A puis B dans le même onglet). Constat moyen corrigé : une alerte qui devait recevoir le focus perdait son `role="alert"` même quand le focus ne bougeait pas finalement (panneau Source ouvert), et restait muette ; la décision est désormais prise une seule fois, à l'arrivée de la panne. Corrigé aussi : la réservation de nouveau bornée par le temps restant (et non 5 s) ; tests des rôles accessibles et des droits par colonne.
+
+**Production.** Migration et `chat` déployées ; contrôle distant des droits sur `ai_limits`, fait avec `has_column_privilege` parce que la vue standard des droits par colonne n'est pas visible du rôle de lecture seule. `test:chat:live` 15 sur 15. Vérification par l'utilisateur : bloc d'emblée avec l'heure locale sur son compte mis au quota, réactivation au retour sur l'onglet, heures en heure de La Réunion. Incident : la première requête « mise à 60 » visait le Compte de mesure 1 et non le compte connecté sur le site ; l'utilisateur l'a relevé, et les deux comptes ont été remis à 0. Leçon : pour une vérification manuelle, nommer le compte avec lequel l'utilisateur est connecté avant de donner une requête qui le modifie.
+
+**Statut.** Stories 5.10 et 5.11 `done` le 2026-11-20.
