@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   assertReports,
+  confirmRemote,
   type DocumentReport,
+  type ExistingState,
+  formatPlan,
+  loadFullSet,
+  loadMiniSet,
   parseArguments,
+  planAction,
+  type SeedPlan,
   parseSeedEnv,
   requestIdFor,
   SeedError,
@@ -111,13 +118,101 @@ describe("parseArguments", () => {
     expect(failure(() => parseArguments(argv))).toContain("option non reconnue ou incomplète");
   });
 
-  it("exige --mini", () => {
-    expect(failure(() => parseArguments([]))).toContain("--mini");
+  // Story 7.1b : sans --mini, Jeu complet.
+  it("--mini facultatif ; lit --remote, --yes et --seed-file", () => {
+    expect(parseArguments([])).toEqual({ mini: false, remote: false, yes: false, seedFile: ".env.seed" });
+    expect(parseArguments(["--mini"])).toEqual({ mini: true, remote: false, yes: false, seedFile: ".env.seed" });
+    expect(parseArguments(["--remote", "--yes", "--seed-file", "autre"])).toEqual({ mini: false, remote: true, yes: true, seedFile: "autre" });
+  });
+});
+
+// Story 7.1b : action décidée par une seule fonction, pour le plan et pour l'écriture.
+describe("planAction", () => {
+  const document = { title: "Procédure congés et absences", category: "procedure" };
+  const state = (overrides: Partial<ExistingState> = {}): ExistingState => ({
+    title: document.title,
+    category: document.category,
+    status: "ready",
+    sameText: true,
+    passages: 3,
+    effectiveStatus: "ready",
+    ...overrides,
   });
 
-  it("lit --remote et --seed-file", () => {
-    expect(parseArguments(["--mini"])).toEqual({ remote: false, seedFile: ".env.seed" });
-    expect(parseArguments(["--mini", "--remote", "--seed-file", "autre"])).toEqual({ remote: true, seedFile: "autre" });
+  it.each<[string, ExistingState | null, string]>([
+    ["absent", null, "créé"],
+    ["prêt, même texte, Passages", state(), "déjà prêt"],
+    ["prêt, autre titre", state({ title: "Ancien titre" }), "titre ou Catégorie à jour"],
+    ["prêt, texte modifié", state({ sameText: false }), "mis à jour"],
+    ["en erreur, même texte", state({ status: "error", effectiveStatus: "error" }), "repris"],
+    ["prêt sans Passage", state({ passages: 0 }), "repris"],
+    ["en cours vivant, même texte", state({ status: "processing", effectiveStatus: "processing" }), "déjà en cours"],
+    ["en cours vivant, texte modifié", state({ status: "processing", effectiveStatus: "processing", sameText: false }), "mis à jour"],
+    ["en cours expiré", state({ status: "processing", effectiveStatus: "error" }), "repris"],
+  ])("%s → %s", (_, existing, expected) => {
+    expect(planAction(document, existing)).toBe(expected);
+  });
+});
+
+describe("formatPlan", () => {
+  const plan: SeedPlan = {
+    accounts: [
+      { label: "Auteur A (Claire Martin)", exists: true },
+      { label: "Compte de mesure 3", exists: false },
+    ],
+    documents: [
+      { title: "Procédure congés et absences", author: "Karim Benali", action: "mis à jour" },
+      { title: "FAQ du support interne", author: "Karim Benali", action: "créé" },
+      { title: "FAQ comptabilité", author: "Claire Martin", action: "déjà prêt" },
+    ],
+    outside: [{ title: "Note personnelle", author: "Camille", status: "ready" }],
+  };
+
+  it("cible, Comptes, résumé et action par Document, Documents hors manifeste jamais supprimés", () => {
+    const text = formatPlan(plan, "lkjjtcfegplipalraqml.supabase.co (Jeu complet)").join("\n");
+    expect(text).toContain("rien n'est encore écrit");
+    expect(text).toContain("cible : lkjjtcfegplipalraqml.supabase.co (Jeu complet)");
+    expect(text).toContain("Documents du Jeu (3) : 1 à créer, 1 inchangé, 1 texte mis à jour (retraité)");
+    expect(text).toContain("Procédure congés et absences (Karim Benali) : texte mis à jour (retraité)");
+    expect(text).toContain("Compte de mesure 3 : à créer");
+    expect(text).toContain("Documents hors manifeste (1, affichés seulement, jamais supprimés)");
+    expect(text).toContain("Note personnelle (Camille, ready)");
+    expect(text).not.toMatch(/@/);
+  });
+
+  it("aucun Document hors manifeste : dit explicitement", () => {
+    expect(formatPlan({ ...plan, outside: [] }, "h").join("\n")).toContain("Documents hors manifeste : aucun.");
+  });
+});
+
+describe("confirmRemote", () => {
+  it("--yes : confirmé sans question", async () => {
+    const ask = vi.fn();
+    await expect(confirmRemote(true, false, ask)).resolves.toBe(true);
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("« oui » seulement (casse et espaces ignorés) ; toute autre réponse refuse", async () => {
+    await expect(confirmRemote(false, true, async () => " Oui ")).resolves.toBe(true);
+    for (const answer of ["", "o", "yes", "non"]) await expect(confirmRemote(false, true, async () => answer)).resolves.toBe(false);
+  });
+
+  it("sans terminal interactif ni --yes : refus explicite, aucune question", async () => {
+    const ask = vi.fn();
+    await expect(confirmRemote(false, false, ask)).rejects.toThrow("--yes");
+    expect(ask).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadFullSet", () => {
+  it("15 Documents, le mini Jeu en sous-ensemble avec les mêmes clés, titres et textes", () => {
+    const full = loadFullSet();
+    const mini = loadMiniSet();
+    expect(full.documents).toHaveLength(15);
+    for (const document of mini.documents) {
+      const same = full.documents.find((candidate) => candidate.key === document.key);
+      expect(same, document.key).toEqual(document);
+    }
   });
 });
 

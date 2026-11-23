@@ -208,6 +208,12 @@ where day_utc = (now() at time zone 'utc')::date;
 
 Les compteurs des Comptes (`ai_usage`) ne sont pas modifiés : un Compte jetable reste à sa limite personnelle jusqu'à 00:00 UTC. Si le blocage se répète, relever temporairement `ai_global_daily_cap` reste possible, au prix d'un coût maximal plus élevé.
 
+## Préchargement du Jeu complet (`seed:demo`, story 7.1b)
+
+`npm run seed:demo -- --remote` (sans `--mini`) précharge les 15 Documents de `demo/jeu-demonstration.json` sur le projet distant, avec les mêmes Comptes et la même clé naturelle que le mini Jeu (les 9 Documents communs sont reconnus, jamais dupliqués). **Avant toute écriture**, le script affiche le plan, calculé en lecture seule : la cible, les Comptes (existants réalignés ou à créer), l'action prévue pour chaque Document (à créer, texte mis à jour et retraité, inchangé…) et les Documents **hors manifeste** (titre, Auteur affiché, Statut), affichés seulement, **jamais supprimés**. Sur une cible distante, il n'écrit rien sans la saisie de « oui » au terminal (`--yes` la remplace ; sans terminal interactif et sans `--yes`, il s'arrête). Il ne génère aucun Résumé et n'appelle jamais OpenAI : un Document dont le texte change (« Procédure congés et absences » au premier passage) a un Résumé obsolète, à regénérer sur le site.
+
+Premier passage attendu en production : 6 à créer, 1 texte mis à jour (retraité), 8 inchangés. Relance : 15 inchangés. Un Document en erreur est repris sur la même ligne à la relance. Contrôles après coup : contrôle distant en lecture seule (15 Documents prêts sans doublon, Passages, version du texte de la Procédure congés, Documents hors manifeste, fichiers orphelins, taille de la base), puis `npm run test:search:live` et `npm run test:chat:live`.
+
 ## Préchargement du mini Jeu (`seed:demo`)
 
 `npm run seed:demo -- --mini` crée 2 Comptes de démo, 3 Comptes de mesure et 9 Notes (`demo/documents/`, dont une Note longue à 5 Passages), déclenche `process-document` comme Next.js et attend *prêt*. Il est relançable sans doublon, ne supprime jamais rien, n'appelle jamais OpenAI et n'affiche ni identifiant ni secret. Sa dernière ligne, `contrôle final réussi`, confirme que chaque Document est *prêt* et a des Passages ; avec `--remote`, elle confirme aussi que les vecteurs sont réels.

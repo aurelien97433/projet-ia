@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { type Account, loadMiniSet, requestIdFor, type SeedConfig, seedMini } from "../../scripts/seed-demo";
+import { type Account, loadFullSet, loadMiniSet, requestIdFor, type SeedConfig, type SeedPlan, seedMini } from "../../scripts/seed-demo";
 import { localProcessSecret, localSupabase, uniqueEmail } from "../support/local-supabase";
 
 // Préchargement réel sur Supabase local (vecteurs simulés) : Comptes jetables, supprimés à la fin.
@@ -319,4 +319,47 @@ describe("ligne de commande", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("introuvable");
   });
+});
+
+// Story 7.1b : Jeu complet sur Supabase local (vecteurs simulés), après le mini Jeu du beforeAll.
+describe("Jeu complet (story 7.1b) sur Supabase local", () => {
+  const full = loadFullSet();
+
+  it("plan affiché puis refus de confirmation : rien n'est écrit", async () => {
+    const authorIds = [await userId(config.demoA.email), await userId(config.demoB.email)] as string[];
+    const before = (await documentsOf(authorIds)).length;
+    const lines: string[] = [];
+    let seen: SeedPlan | undefined;
+    await expect(
+      seedMini(config, {
+        set: full,
+        log: (line) => lines.push(line),
+        confirm: async (plan) => {
+          seen = plan;
+          return false;
+        },
+      }),
+    ).rejects.toThrow("rien n'a été écrit");
+    expect(seen!.documents.filter((document) => document.action === "créé")).toHaveLength(6);
+    expect(seen!.documents.filter((document) => document.action === "déjà prêt")).toHaveLength(9);
+    expect(lines.join("\n")).toContain("Documents du Jeu (15) : 6 à créer, 9 inchangé");
+    expect(lines.join("\n")).not.toContain(config.demoA.email);
+    expect((await documentsOf(authorIds)).length).toBe(before);
+  });
+
+  it("confirmé : 15 Documents prêts sans doublon ; relance : 15 inchangés, aucun retraitement", async () => {
+    const reports = await seedMini(config, { set: full, ...quiet, confirm: async () => true });
+    expect(reports).toHaveLength(15);
+    expect(reports.filter((report) => report.action === "créé")).toHaveLength(6);
+    const authorIds = [await userId(config.demoA.email), await userId(config.demoB.email)] as string[];
+    const rows = await documentsOf(authorIds);
+    expect(rows).toHaveLength(15);
+    expect(new Set(rows.map((row) => `${row.author_id}:${row.client_request_id}`)).size).toBe(15);
+
+    let replan: SeedPlan | undefined;
+    const again = await seedMini(config, { set: full, ...quiet, confirm: async (plan) => ((replan = plan), true) });
+    expect(replan!.documents.every((document) => document.action === "déjà prêt")).toBe(true);
+    expect(again.every((report) => report.action === "déjà prêt")).toBe(true);
+    expect(await documentsOf(authorIds)).toHaveLength(15);
+  }, 180_000);
 });

@@ -1,10 +1,15 @@
-// Préchargement du Jeu de démonstration (story 2.8, AD-21) : npm run seed:demo -- --mini [--remote]
+// Préchargement du Jeu de démonstration (story 2.8, AD-21) : npm run seed:demo -- [--mini] [--remote] [--yes]
 // Les variables viennent du seul fichier .env.seed, que Next.js ne lit pas. Le script crée les Comptes
 // et les Documents avec la clé service_role, puis déclenche process-document comme Next.js. Il
 // n'appelle jamais OpenAI, ne lit aucune clé OpenAI, et n'affiche ni identifiant ni secret.
+// Story 7.1b : sans --mini, Jeu complet (demo/jeu-demonstration.json). Avant toute écriture, le plan
+// (cible, Comptes, action par Document, Documents hors manifeste) est calculé en lecture seule et
+// affiché ; sur une cible distante, rien n'est écrit sans « oui » au terminal (ou --yes). Le script ne
+// supprime jamais rien.
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { normalizeText } from "../supabase/functions/_shared/rag/normalize.ts";
@@ -100,8 +105,8 @@ export type DemoDocument = {
 
 export type DemoSet = { authors: Record<"A" | "B", string>; documents: DemoDocument[] };
 
-export function loadMiniSet(demoDir = DEMO_DIR): DemoSet {
-  const manifest = JSON.parse(readFileSync(path.join(demoDir, "documents-mini.json"), "utf8")) as {
+function loadSet(demoDir: string, manifestFile: string): DemoSet {
+  const manifest = JSON.parse(readFileSync(path.join(demoDir, manifestFile), "utf8")) as {
     authors: DemoSet["authors"];
     documents: (Omit<DemoDocument, "text"> & { file: string })[];
   };
@@ -113,6 +118,49 @@ export function loadMiniSet(demoDir = DEMO_DIR): DemoSet {
     })),
   };
 }
+
+export function loadMiniSet(demoDir = DEMO_DIR): DemoSet {
+  return loadSet(demoDir, "documents-mini.json");
+}
+
+// Story 7.1b : Jeu complet (15 Documents), mêmes clés que le mini Jeu pour les 9 Documents communs.
+export function loadFullSet(demoDir = DEMO_DIR): DemoSet {
+  return loadSet(demoDir, "jeu-demonstration.json");
+}
+
+// Action prévue pour un Document du Jeu (story 7.1b) : décidée par cette seule fonction, pour le plan
+// affiché comme pour l'écriture.
+export type PlannedAction = "créé" | "déjà prêt" | "titre ou Catégorie à jour" | "déjà en cours" | "mis à jour" | "repris";
+
+export type ExistingState = {
+  title: string;
+  category: string;
+  status: string;
+  sameText: boolean;
+  passages: number;
+  effectiveStatus: string;
+};
+
+export function planAction(document: Pick<DemoDocument, "title" | "category">, existing: ExistingState | null): PlannedAction {
+  if (!existing) return "créé";
+  if (existing.status === "ready" && existing.sameText && existing.passages > 0) {
+    return existing.title === document.title && existing.category === document.category ? "déjà prêt" : "titre ou Catégorie à jour";
+  }
+  // Statut effectif calculé par la base (AD-6) : une tentative encore vivante n'est pas remplacée,
+  // sinon sa vectorisation serait payée pour rien.
+  if (existing.effectiveStatus === "processing" && existing.sameText) return "déjà en cours";
+  return existing.sameText ? "repris" : "mis à jour";
+}
+
+// Libellés du plan affiché avant toute écriture.
+export const PLAN_LABELS: Record<PlannedAction, string> = {
+  créé: "à créer",
+  "déjà prêt": "inchangé",
+  "titre ou Catégorie à jour": "titre ou Catégorie à mettre à jour",
+  "déjà en cours": "traitement déjà en cours",
+  "mis à jour": "texte mis à jour (retraité)",
+  repris: "à reprendre (retraité)",
+};
 
 // Attend la fin du traitement : prêt, ou échec explicite en erreur ou au-delà du délai.
 export async function waitForReady(
@@ -166,17 +214,54 @@ type Target = { id: string; attemptId: string };
 
 type Prepared = { id: string; target: Target | null; wait: boolean; action: string };
 
-async function prepareDocument(admin: SupabaseClient, document: DemoDocument, authorId: string): Promise<Prepared> {
-  const clientRequestId = requestIdFor(document.key);
+type ExistingRow = { id: string; text_version: number };
+
+// Lecture seule : ligne existante du Document (clé naturelle : Auteur + identifiant de demande) et
+// état utile à planAction. Auteur encore inexistant : aucune ligne.
+async function readExisting(
+  admin: SupabaseClient,
+  document: DemoDocument,
+  authorId: string | undefined,
+): Promise<{ row: ExistingRow; state: ExistingState } | null> {
+  if (!authorId) return null;
   const { data: existing, error } = await admin
     .from("documents")
     .select("id, title, category, status, content_text, text_version")
     .eq("author_id", authorId)
-    .eq("client_request_id", clientRequestId)
+    .eq("client_request_id", requestIdFor(document.key))
     .maybeSingle();
   if (error) throw new SeedError(`lecture de « ${document.title} » impossible (${error.code}).`);
+  if (!existing) return null;
+  const { count, error: countError } = await admin
+    .from("passages")
+    .select("id", { count: "exact", head: true })
+    .eq("document_id", existing.id);
+  if (countError) throw new SeedError(`lecture des Passages de « ${document.title} » impossible (${countError.code}).`);
+  const { data: view, error: viewError } = await admin
+    .from("documents_list")
+    .select("effective_status")
+    .eq("id", existing.id)
+    .single();
+  if (viewError) throw new SeedError(`lecture de « ${document.title} » impossible (${viewError.code}).`);
+  return {
+    row: { id: existing.id, text_version: existing.text_version },
+    state: {
+      title: existing.title,
+      category: existing.category,
+      status: existing.status,
+      sameText: existing.content_text === document.text,
+      passages: count ?? 0,
+      effectiveStatus: view.effective_status,
+    },
+  };
+}
 
-  if (!existing) {
+async function prepareDocument(admin: SupabaseClient, document: DemoDocument, authorId: string): Promise<Prepared> {
+  const clientRequestId = requestIdFor(document.key);
+  const found = await readExisting(admin, document, authorId);
+  const action = planAction(document, found?.state ?? null);
+
+  if (!found) {
     const { data, error: insertError } = await admin
       .from("documents")
       .insert({
@@ -189,39 +274,21 @@ async function prepareDocument(admin: SupabaseClient, document: DemoDocument, au
       .select("id, attempt_id")
       .single();
     if (insertError || !data) throw new SeedError(`création de « ${document.title} » impossible (${insertError?.code}).`);
-    return { id: data.id, target: { id: data.id, attemptId: data.attempt_id }, wait: true, action: "créé" };
+    return { id: data.id, target: { id: data.id, attemptId: data.attempt_id }, wait: true, action };
   }
 
-  const sameText = existing.content_text === document.text;
-  const { count, error: countError } = await admin
-    .from("passages")
-    .select("id", { count: "exact", head: true })
-    .eq("document_id", existing.id);
-  if (countError) throw new SeedError(`lecture des Passages de « ${document.title} » impossible (${countError.code}).`);
-
-  if (existing.status === "ready" && sameText && (count ?? 0) > 0) {
-    if (existing.title === document.title && existing.category === document.category) {
-      return { id: existing.id, target: null, wait: false, action: "déjà prêt" };
-    }
+  const existing = found.row;
+  const sameText = found.state.sameText;
+  if (action === "déjà prêt") return { id: existing.id, target: null, wait: false, action };
+  if (action === "titre ou Catégorie à jour") {
     const { error: renameError } = await admin
       .from("documents")
       .update({ title: document.title, category: document.category })
       .eq("id", existing.id);
     if (renameError) throw new SeedError(`mise à jour de « ${document.title} » impossible (${renameError.code}).`);
-    return { id: existing.id, target: null, wait: false, action: "titre ou Catégorie à jour" };
+    return { id: existing.id, target: null, wait: false, action };
   }
-
-  // Statut effectif calculé par la base (AD-6) : une tentative encore vivante n'est pas remplacée,
-  // sinon sa vectorisation serait payée pour rien.
-  const { data: view, error: viewError } = await admin
-    .from("documents_list")
-    .select("effective_status")
-    .eq("id", existing.id)
-    .single();
-  if (viewError) throw new SeedError(`lecture de « ${document.title} » impossible (${viewError.code}).`);
-  if (view.effective_status === "processing" && sameText) {
-    return { id: existing.id, target: null, wait: true, action: "déjà en cours" };
-  }
+  if (action === "déjà en cours") return { id: existing.id, target: null, wait: true, action };
 
   // Reprise sur la même ligne : texte modifié, erreur, Passages absents ou tentative expirée.
   const attemptId = randomUUID();
@@ -240,7 +307,7 @@ async function prepareDocument(admin: SupabaseClient, document: DemoDocument, au
     })
     .eq("id", existing.id);
   if (updateError) throw new SeedError(`reprise de « ${document.title} » impossible (${updateError.code}).`);
-  return { id: existing.id, target: { id: existing.id, attemptId }, wait: true, action: sameText ? "repris" : "mis à jour" };
+  return { id: existing.id, target: { id: existing.id, attemptId }, wait: true, action };
 }
 
 // Déclenchement impossible : comme l'abandon de Next.js, le Document ne reste pas en cours.
@@ -317,12 +384,89 @@ export function assertReports(reports: DocumentReport[], requireRealEmbeddings: 
   }
 }
 
+// Plan calculé en lecture seule avant toute écriture (story 7.1b).
+export type SeedPlan = {
+  accounts: { label: string; exists: boolean }[];
+  documents: { title: string; author: string; action: PlannedAction }[];
+  // Documents présents sur la cible mais absents du Jeu : affichés seulement, jamais supprimés.
+  outside: { title: string; author: string; status: string }[];
+};
+
+export async function planSeed(admin: SupabaseClient, config: SeedConfig, set: DemoSet): Promise<SeedPlan> {
+  const accounts = [
+    { label: `Auteur A (${set.authors.A})`, account: config.demoA },
+    { label: `Auteur B (${set.authors.B})`, account: config.demoB },
+    ...config.measure.map((account, index) => ({ label: `Compte de mesure ${index + 1}`, account })),
+  ];
+  const ids = new Map<string, string | undefined>();
+  for (const { account } of accounts) ids.set(account.email, await findUserId(admin, account.email));
+  const authorIds = { A: ids.get(config.demoA.email), B: ids.get(config.demoB.email) };
+
+  const documents: SeedPlan["documents"] = [];
+  for (const document of set.documents) {
+    const found = await readExisting(admin, document, authorIds[document.author]);
+    documents.push({ title: document.title, author: set.authors[document.author], action: planAction(document, found?.state ?? null) });
+  }
+
+  const { data: rows, error } = await admin.from("documents").select("title, status, author_id, client_request_id");
+  if (error) throw new SeedError(`lecture des Documents impossible (${error.code}).`);
+  const expected = new Set(
+    set.documents.flatMap((document) => {
+      const authorId = authorIds[document.author];
+      return authorId ? [`${authorId}:${requestIdFor(document.key)}`] : [];
+    }),
+  );
+  const others = ((rows ?? []) as { title: string; status: string; author_id: string; client_request_id: string | null }[]).filter(
+    (row) => !expected.has(`${row.author_id}:${row.client_request_id}`),
+  );
+  const names = new Map<string, string>();
+  const otherAuthors = [...new Set(others.map((row) => row.author_id))];
+  if (otherAuthors.length > 0) {
+    const { data: profiles, error: profileError } = await admin.from("profiles").select("id, display_name").in("id", otherAuthors);
+    if (profileError) throw new SeedError(`lecture des profils impossible (${profileError.code}).`);
+    for (const profile of (profiles ?? []) as { id: string; display_name: string | null }[]) {
+      names.set(profile.id, profile.display_name ?? "(sans nom)");
+    }
+  }
+  return {
+    accounts: accounts.map(({ label, account }) => ({ label, exists: ids.get(account.email) !== undefined })),
+    documents,
+    outside: others
+      .map((row) => ({ title: row.title, author: names.get(row.author_id) ?? "(sans nom)", status: row.status }))
+      .sort((a, b) => a.title.localeCompare(b.title, "fr")),
+  };
+}
+
+// Plan affiché : cible, Comptes, action par Document, Documents hors manifeste. Ni e-mail ni secret.
+export function formatPlan(plan: SeedPlan, host: string): string[] {
+  const count = (action: PlannedAction) => plan.documents.filter((document) => document.action === action).length;
+  const summary = (Object.keys(PLAN_LABELS) as PlannedAction[])
+    .filter((action) => count(action) > 0)
+    .map((action) => `${count(action)} ${PLAN_LABELS[action]}`)
+    .join(", ");
+  return [
+    `seed:demo — plan (rien n'est encore écrit) ; cible : ${host}`,
+    "Comptes :",
+    ...plan.accounts.map((account) => `  - ${account.label} : ${account.exists ? "existant, réaligné (mot de passe du fichier, e-mail confirmé)" : "à créer"}`),
+    `Documents du Jeu (${plan.documents.length}) : ${summary}`,
+    ...plan.documents.map((document) => `  - ${document.title} (${document.author}) : ${PLAN_LABELS[document.action]}`),
+    plan.outside.length === 0
+      ? "Documents hors manifeste : aucun."
+      : `Documents hors manifeste (${plan.outside.length}, affichés seulement, jamais supprimés) :`,
+    ...plan.outside.map((document) => `  - ${document.title} (${document.author}, ${document.status})`),
+  ];
+}
+
 export type SeedOptions = {
   set?: DemoSet;
   requireRealEmbeddings?: boolean;
   log?: (line: string) => void;
   timeoutMs?: number;
   pollMs?: number;
+  // Cible affichée dans le plan.
+  host?: string;
+  // Appelée après l'affichage du plan, avant toute écriture : faux → arrêt, rien d'écrit.
+  confirm?: (plan: SeedPlan) => Promise<boolean>;
 };
 
 export async function seedMini(config: SeedConfig, options: SeedOptions = {}): Promise<DocumentReport[]> {
@@ -330,6 +474,12 @@ export async function seedMini(config: SeedConfig, options: SeedOptions = {}): P
   const admin = createClient(config.url, config.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  const plan = await planSeed(admin, config, set);
+  for (const line of formatPlan(plan, options.host ?? new URL(config.url).host)) log(line);
+  if (options.confirm && !(await options.confirm(plan))) {
+    throw new SeedError("préchargement annulé : rien n'a été écrit.");
+  }
 
   const authors = {
     A: await ensureAccount(admin, config.demoA, set.authors.A),
@@ -376,28 +526,54 @@ export async function seedMini(config: SeedConfig, options: SeedOptions = {}): P
 
 // --seed-file et non --env-file : tsx transmet --env-file à Node, qui chargerait alors le fichier
 // dans process.env.
-export function parseArguments(argv: string[]): { remote: boolean; seedFile: string } {
-  const options = { mini: false, remote: false, seedFile: SEED_ENV_FILE };
+export function parseArguments(argv: string[]): { mini: boolean; remote: boolean; yes: boolean; seedFile: string } {
+  const options = { mini: false, remote: false, yes: false, seedFile: SEED_ENV_FILE };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--mini") options.mini = true;
     else if (argument === "--remote") options.remote = true;
+    else if (argument === "--yes") options.yes = true;
     else if (argument === "--seed-file" && argv[index + 1]) options.seedFile = argv[(index += 1)];
     // Une option ignorée pourrait envoyer le script vers le mauvais projet.
     else throw new SeedError(`option non reconnue ou incomplète : ${argument}.`);
   }
-  if (!options.mini) throw new SeedError("indiquez --mini : le Jeu complet arrive avec la story 7.1b.");
-  return { remote: options.remote, seedFile: options.seedFile };
+  return options;
+}
+
+// Confirmation d'une écriture distante : « oui » tapé au terminal, ou --yes. Sans terminal interactif
+// et sans --yes : refus (rien n'est écrit).
+export async function confirmRemote(
+  yes: boolean,
+  interactive: boolean,
+  ask: (question: string) => Promise<string>,
+): Promise<boolean> {
+  if (yes) return true;
+  if (!interactive) throw new SeedError("cible distante sans terminal interactif : relancez avec --yes pour confirmer. Rien n'a été écrit.");
+  return (await ask("Taper « oui » pour écrire sur cette cible : ")).trim().toLowerCase() === "oui";
+}
+
+async function askTerminal(question: string): Promise<string> {
+  const terminal = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await terminal.question(question);
+  } finally {
+    terminal.close();
+  }
 }
 
 async function main(): Promise<void> {
   try {
-    const { remote, seedFile } = parseArguments(process.argv.slice(2));
+    const { mini, remote, yes, seedFile } = parseArguments(process.argv.slice(2));
     if (!existsSync(seedFile)) throw new SeedError(`${seedFile} est introuvable. Procédure : docs/environnements.md.`);
     const config = parseSeedEnv(readFileSync(seedFile, "utf8"));
     const host = targetHost(config.url, remote);
-    console.log(`seed:demo — cible : ${host}`);
-    await seedMini(config, { requireRealEmbeddings: remote });
+    const local = LOCAL_HOSTS.has(host);
+    await seedMini(config, {
+      set: mini ? loadMiniSet() : loadFullSet(),
+      requireRealEmbeddings: remote,
+      host: `${host} (${mini ? "mini Jeu" : "Jeu complet"})`,
+      confirm: local ? undefined : () => confirmRemote(yes, Boolean(process.stdin.isTTY), askTerminal),
+    });
   } catch (error) {
     if (!(error instanceof SeedError)) throw error;
     console.error(`seed:demo — échec : ${error.message}`);
