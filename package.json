@@ -17,6 +17,7 @@
     "test:chat:live": "tsx scripts/test-chat-live.ts",
     "test:followup:live": "tsx scripts/test-followup-live.ts",
     "test:summary:live": "tsx scripts/test-summary-live.ts",
+    "test:uj2:live": "playwright test --config playwright.live.config.ts --repeat-each=3 --workers=1",
     "measure:search": "tsx scripts/measure-search.ts",
     "load:1mo": "tsx scripts/load-test-1mo.ts",
     "check:env": "tsx scripts/check-env.ts",

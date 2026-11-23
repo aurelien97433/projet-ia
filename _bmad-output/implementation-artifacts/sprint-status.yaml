@@ -31,7 +31,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-23-2026 13:30
+last_updated: 11-23-2026 15:45
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -92,7 +92,7 @@ development_status:
 
   epic-6: in-progress
   6-1-générer-et-conserver-le-résumé: done  # P0 · dépend de : 5.10 (quota)
-  6-2-parcours-uj-2-de-bout-en-bout: ready-for-dev  # P0 · dépend de : 6.1, 2.6a, 2.6b, 3.4
+  6-2-parcours-uj-2-de-bout-en-bout: review  # P0 · dépend de : 6.1, 2.6a, 2.6b, 3.4
   epic-6-retrospective: optional
 
   epic-7: in-progress

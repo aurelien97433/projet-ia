@@ -2,9 +2,10 @@
 title: 'Story 6.2 : Parcours UJ-2 de bout en bout'
 type: 'test'
 created: '2026-11-23'
-status: 'ready-for-dev'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
+baseline_commit: '2c6a5e89f16b87c75e447c886fac84b1aaecec9f'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/6-1-générer-et-conserver-le-résumé.md'
   - '{project-root}/demo/jeu-demonstration.json'
@@ -46,7 +47,7 @@ context:
 
 ## Décisions de l'utilisateur (2026-11-23)
 
-Spec validée. **Q2 = A** (Compte de mesure 1), **Q3 = A** (mode local dans `npm run test:e2e`). **Q1** : réponse reçue sous la forme du modèle (« publique / protégée par Vercel » non tranché) ; la configuration live gère donc les deux cas : `VERCEL_AUTOMATION_BYPASS_SECRET` **facultatif** dans `.env.seed`, envoyé (en-tête `x-vercel-protection-bypass`) seulement s'il est présent, jamais journalisé ; sans lui, une page d'authentification Vercel fait échouer le test dès la connexion avec un message explicite (« production protégée par Vercel : poser VERCEL_AUTOMATION_BYPASS_SECRET »). Rappels : aucune trace, vidéo ni capture en mode production ; mot de passe dans aucun rapport ni journal ; un défaut qui oblige à modifier l'application est présenté à l'utilisateur avant toute correction.
+Spec validée. **Q2 = A** (Compte de mesure 1), **Q3 = A** (mode local dans `npm run test:e2e`). **Q1 (tranchée le 2026-11-23)** : production vérifiée en fenêtre privée par l'utilisateur : elle s'ouvre directement sur la page de connexion NexaMind AI, elle est **publique** ; aucun secret ni en-tête de contournement Vercel (décision : retiré de la spec et de la configuration). Rappels : aucune trace, vidéo ni capture en mode production ; mot de passe dans aucun rapport ni journal ; un défaut qui oblige à modifier l'application est présenté à l'utilisateur avant toute correction.
 
 ## Questions à trancher avant le code (tranchées, voir ci-dessus)
 
@@ -70,17 +71,17 @@ Spec validée. **Q2 = A** (Compte de mesure 1), **Q3 = A** (mode local dans `npm
 ## Code Map
 
 - `tests/e2e/uj-2.spec.ts` (nouveau) -- parcours au clavier, deux modes (local / production), nettoyage.
-- `playwright.live.config.ts` (nouveau) -- `baseURL` = `UJ2_LIVE_URL`, aucun `webServer`, pas de `globalSetup` local, trace/vidéo/captures désactivées, projet ordinateur seul, en-tête de contournement Vercel si Q1 l'exige.
+- `playwright.live.config.ts` (nouveau) -- `baseURL` = `UJ2_LIVE_URL`, aucun `webServer`, pas de `globalSetup` local, trace/vidéo/captures désactivées, projet ordinateur seul.
 - `tests/e2e/support/` -- connexion au clavier, lecture de `.env.seed` (réutiliser le chargement de `scripts/test-search-live.ts` › `openLiveSession`), écriture du rapport.
 - `package.json` -- `test:uj2:live` ; `docs/environnements.md` -- commande, variables de `.env.seed`, coût ; `docs/mesures/uj2-live.md` (écrit par l'exécution de l'utilisateur).
 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Fonctions de parcours au clavier et nettoyage, partagées par les deux modes.
-- [ ] Mode local dans la suite e2e (Q3) : vert sur les deux largeurs, trois fois de suite (`--repeat-each=3`).
-- [ ] Configuration live, script `test:uj2:live`, rapport ; `docs/environnements.md`.
-- [ ] Revue ciblée (par Claude, aucun code de production touché) : clavier seul, aucun secret capturé, nettoyage borné au titre marqué, compteur.
+- [x] Fonctions de parcours au clavier et nettoyage, partagées par les deux modes.
+- [x] Mode local dans la suite e2e (Q3) : vert sur les deux largeurs, trois fois de suite (`--repeat-each=3`).
+- [x] Configuration live, script `test:uj2:live`, rapport ; `docs/environnements.md`.
+- [x] Revue ciblée (par Claude, aucun code de production touché) : clavier seul, aucun secret capturé, nettoyage borné au titre marqué, compteur. (2026-11-23 : aucun `click` ; seul l'hôte Supabase est journalisé ; nettoyage filtré par `author_id` et titre marqué, en base et dans le test ; compteur lu par la session ; `service_role` seulement pour créer le Compte temporaire local, comme les autres e2e.)
 
 **Acceptance Criteria:**
 - Given la pile locale, when `npm run test:e2e` s'exécute, then `uj-2.spec.ts` passe sur les deux largeurs, au clavier seul, sans laisser de Document.
@@ -90,7 +91,7 @@ Spec validée. **Q2 = A** (Compte de mesure 1), **Q3 = A** (mode local dans `npm
 
 ## Design Notes
 
-Le risque principal n'est pas le code mais l'environnement : protection Vercel (Q1), données de test laissées en production, mot de passe capturé dans une trace. Le titre marqué et le nettoyage par la session du Compte (jamais `service_role`) bornent ce qui peut être supprimé. **Estimation : 3 à 4 h.** Relecteur séparé : seulement si un défaut oblige à toucher le code de production ; sinon revue ciblée par Claude.
+Le risque principal n'est pas le code mais l'environnement : données de test laissées en production, mot de passe capturé dans une trace. Le titre marqué et le nettoyage par la session du Compte (jamais `service_role`) bornent ce qui peut être supprimé. **Estimation : 3 à 4 h.** Relecteur séparé : seulement si un défaut oblige à toucher le code de production ; sinon revue ciblée par Claude.
 
 ## Verification
 
@@ -101,3 +102,32 @@ Le risque principal n'est pas le code mais l'environnement : protection Vercel (
 
 **Manual checks:**
 - Après le passage réel : Bibliothèque de production sans Document « — test UJ-2 ».
+
+## Implementation Notes
+
+**2026-11-23 (implémentation ; rien commité, rien poussé, `test:uj2:live` non lancé) :**
+- **Aucun code de production modifié** (ni `src/`, ni `supabase/`, ni `scripts/`). Aucun défaut révélé par le test.
+- `tests/e2e/uj-2.spec.ts` : un test, 9 `test.step` (1. Connexion … 9. Cas limite), clavier seul (focus posé puis Entrée, Échap, flèches, frappe ; aucun `click`). Mode lu dans `config.metadata.uj2Live` (posé par la configuration live). Fixture de worker `uj2` : local → Compte temporaire (`createAccount`) et sa session (clé publique) ; production → Compte de mesure 1 de `.env.seed` et sa session. Nettoyage par la session du Compte en `afterEach`, `afterAll` et à la fin du worker, avec contrôle « 0 Document marqué restant ». Compteur `ai_usage` +2 vérifié dans les deux modes. Résumé : la requête `/api/documents/*/summary` est retenue le temps d'observer « Génération du Résumé… » (simulation locale instantanée). Connexion refusée : champ mot de passe vidé avant l'instantané d'échec de Playwright.
+- **Choix non dicté par la spec (mode local)** : plusieurs Notes Dorval identiques coexistent quand les workers tournent en parallèle (vecteurs simulés identiques). Un repère unique est ajouté à la fin de la Note (« Référence du test : uj2… ») et à la question locale (« Pendant combien de temps une réservation est-elle conservée au comptoir des Pharmacies Dorval ? uj2… ») : le Passage du Document créé passe devant les autres copies. La Note de production est collée telle quelle.
+- `tests/e2e/support/uj2.ts` : titres marqués, lecture du Jeu (`journeys.UJ-2`, termes interdits de `contradiction`), lecture de `.env.seed` (`UJ2_LIVE_URL` https exigée, Compte de mesure 1), cible Supabase et session, nettoyage, compteur, aides clavier. **Écart avec la Code Map** : `openLiveSession` de `scripts/test-search-live.ts` ne peut pas être importé (les scripts lisent `import.meta`, refusé par Playwright dans ce projet CommonJS) ; ses règles (projet lié, https, clé publique seulement, session du Compte) sont reprises à l'identique dans `uj2.ts`, sans modifier `scripts/`.
+- `tests/e2e/support/uj2-live-reporter.ts` : rapport `docs/mesures/uj2-live.md` (`-2`, `-3`… si présent) : date, cible sans l'URL de production, hôte Supabase, résultat et durée de chaque exécution, durée de chaque étape, compteur avant et après, première ligne de chaque échec avec URL, e-mail et mot de passe masqués.
+- `playwright.live.config.ts` : `baseURL` = `UJ2_LIVE_URL`, aucun `webServer` ni `globalSetup`, trace/vidéo/captures `off`, `retries: 0`, 1 worker, projet ordinateur 1 280 px seul, aucun contournement Vercel (production publique, décision Q1). Sans `UJ2_LIVE_URL`, refus explicite au chargement.
+- `package.json` : `test:uj2:live` ; `docs/environnements.md` : commande, `UJ2_LIVE_URL`, coût.
+- **Vérification locale** : `npx playwright test tests/e2e/uj-2.spec.ts --repeat-each=3` 6 sur 6 (6 workers en parallèle) ; échec forcé après la création du Document → nettoyage effectué, 0 Document marqué en base ; `npm run test:e2e` à 8 workers : 393 passés, 19 ignorés, 0 échec ; `npm run lint`, `npx tsc --noEmit`, `npm run check:secrets` verts ; `playwright test --config playwright.live.config.ts --list` sans `UJ2_LIVE_URL` → « UJ2_LIVE_URL absente de .env.seed ».
+- **Reste à faire** : `UJ2_LIVE_URL` dans `.env.seed` (utilisateur) ; commit et push sur accord ; `npm run test:uj2:live` par l'utilisateur ; contrôle manuel de la Bibliothèque de production ; clôture.
+
+## Review Triage Log
+
+Revue ciblée par Claude (2026-11-23 ; aucun code de production modifié, donc pas de relecteur séparé, conformément à la spec).
+
+| Point | Verdict | Preuve |
+| --- | --- | --- |
+| Clavier seul | conforme | aucun `click` dans `uj-2.spec.ts` ; focus puis Entrée, Échap, flèches, saisie. |
+| Aucun secret enregistré | conforme | `playwright.live.config.ts` : `trace`, `video`, `screenshot` à `off`, reporter `list` et rapport maison ; mot de passe saisi par `keyboard.type` (jamais journalisé), champ vidé avant l'instantané d'échec ; rapport : URL, hôte, e-mail et mot de passe masqués ; `test-results/` ignoré par Git. |
+| Nettoyage borné | conforme | `cleanupMarkedDocuments` : session du Compte, `author_id` = le Compte et titre contenant « — test UJ-2 », fichiers associés ; contrôle « 0 restant » ; échec forcé vérifié par l'agent. |
+| Contournement Vercel | retiré | aucune occurrence de `VERCEL_AUTOMATION_BYPASS_SECRET` ni d'en-tête de contournement (les « BYPASS » de `docs/environnements.md` sont des en-têtes de cache relevés en 1.4). |
+| Copie de la lecture de `.env.seed` | accepté (low) | `openLiveSession` utilise `import.meta`, refusé par Playwright ici ; règles recopiées dans `tests/e2e/support/uj2.ts` ; risque de divergence noté. |
+| Passage de minuit UTC | accepté (low) | le contrôle « compteur +2 » échouerait si une exécution chevauche 00:00 UTC (04:00 à La Réunion) : ne pas lancer `test:uj2:live` vers 4 h. |
+| Fichier orphelin | accepté (low) | échec entre le dépôt de `vide.txt` et l'import : fichier sans Document dans Storage ; rare, nettoyable au tableau de bord. |
+
+**Vérification locale (Claude, 2026-11-23) :** `npx playwright test tests/e2e/uj-2.spec.ts --repeat-each=3` : 6 sur 6 (2 largeurs × 3) ; `tsc`, `eslint`, `check:secrets` verts. Suite e2e complète à 8 workers (agent) : 393 passés, 19 ignorés, 0 échec.
