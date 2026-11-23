@@ -1,28 +1,28 @@
 # Recherche réelle — test:search:live (story 4.1a)
 
-- Date : 2026-11-23T07:54:36.479Z
+- Date : 2026-11-23T12:04:06.494Z
 - Cible : lkjjtcfegplipalraqml.supabase.co
 - Compte : Compte de mesure 1 de .env.seed
 - Seuil : celui du projet distant (RAG_MIN_SIMILARITY, 0,40 par défaut) ; similarités non exposées par la fonction
 - Résultat : réussi
-- Durée médiane : 573 ms ; maximale : 4643 ms
+- Durée médiane : 667 ms ; maximale : 1138 ms
 
 ## Requêtes pertinentes (bon Document dans les 3 premiers)
 
 | Id | Requête | Rang du bon Document | Durée | Conforme |
 | --- | --- | --- | --- | --- |
-| r1 | émettre une facture après livraison | 1 (4 résultats) | 4643 ms | oui |
-| r2 | remboursement des notes de frais | 1 (2 résultats) | 1616 ms | oui |
-| r3 | prévenir son responsable en cas de maladie | 1 (1 résultats) | 642 ms | oui |
-| r4 | décisions du projet de catalogue en ligne | 1 (1 résultats) | 870 ms | oui |
-| r5 | ton à adopter avec un client en retard de paiement | 1 (1 résultats) | 555 ms | oui |
-| r6 | revue après un incident critique | 1 (1 résultats) | 665 ms | oui |
+| r1 | émettre une facture après livraison | 1 (5 résultats) | 1138 ms | oui |
+| r2 | remboursement des notes de frais | 2 (3 résultats) | 682 ms | oui |
+| r3 | prévenir son responsable en cas de maladie | 2 (2 résultats) | 810 ms | oui |
+| r4 | décisions du projet de catalogue en ligne | 1 (4 résultats) | 636 ms | oui |
+| r5 | ton à adopter avec un client en retard de paiement | 1 (1 résultats) | 603 ms | oui |
+| r6 | revue après un incident critique | 1 (2 résultats) | 801 ms | oui |
 
 ## Requêtes hors base (aucun résultat attendu)
 
 | Id | Requête | Résultats | Durée | Conforme |
 | --- | --- | --- | --- | --- |
-| s1 | recette du gâteau au chocolat | 0 | 509 ms | oui |
-| s2 | assurance du véhicule de fonction | 0 | 513 ms | oui |
-| s3 | plan d'évacuation en cas d'incendie | 0 | 556 ms | oui |
-| tarte | recette de la tarte aux pommes | 0 | 573 ms | oui |
+| s1 | recette du gâteau au chocolat | 0 | 635 ms | oui |
+| s2 | assurance du véhicule de fonction | 0 | 552 ms | oui |
+| s3 | plan d'évacuation en cas d'incendie | 0 | 760 ms | oui |
+| tarte | recette de la tarte aux pommes | 0 | 667 ms | oui |

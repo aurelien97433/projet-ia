@@ -2,7 +2,7 @@
 title: 'Story 7.1b : Précharger le Jeu de démonstration complet'
 type: 'chore'
 created: '2026-11-23'
-status: 'in-review'
+status: 'done'
 route: 'direct'
 review_loop_iteration: 0
 baseline_commit: '0448a6792503473fa36483ce751c5ed9f8686a68'
@@ -89,3 +89,7 @@ Revue ciblée par Claude (aucun code de l'application modifié).
 | Lecture de tous les Documents par `planSeed` | accepté (low) | limite de 1 000 lignes de PostgREST ; la production en compte une vingtaine. |
 
 **Vérification (2026-11-23) :** `npm test` 104 fichiers, 2 162 tests verts ; `npm run lint`, `npx tsc --noEmit`, `npm run check:secrets` verts.
+
+**Préchargement en production et contrôle distant (2026-11-23) :** `npm run seed:demo -- --remote` par l'utilisateur : plan conforme (6 à créer, 1 texte mis à jour, 8 inchangés, aucun Document hors manifeste), « oui » tapé, `contrôle final réussi : 15 Documents prêts, 42 Passages`. Contrôle distant en lecture seule (Claude, `supabase db query --read-only`) : CONFORME. 15 Documents, 15 `ready`, 0 doublon de clé naturelle, chaque titre unique ; 42 Passages (de 1 à 17 par Document ; 17 pour le guide d'accueil), tous `text-embedding-3-small`, 0 Passage orphelin ; « Procédure congés et absences » en version 2 du texte, avec « au moins 5 jours avant la date de départ » ; 0 fichier dans le bucket `documents`, donc 0 orphelin ; taille de la base : 17 MB (17 503 923 octets ; `passages` 3 784 kB, `documents` 232 kB). Résumés à jour : FAQ comptabilité, Guide des relances clients, Note de réunion finance de mars, Procédure de facturation ; Procédure congés : Résumé obsolète (version 1), à regénérer sur le site.
+
+**Contrôles après coup et clôture (2026-11-23) :** `test:search:live` réussi (médiane 667 ms), mais r2 et r3 passent du rang 1 au rang 2 : le « Guide d'accueil des nouveaux arrivants » passe devant (r2 : devant la FAQ comptabilité ; r3 : devant la Procédure congés et absences), relevé en lecture seule par Claude ; reporté à la 7.2 (`deferred-work.md`). `test:chat:live` 15 sur 15 (h1 information absente ×3, o1 hors cadre ×3, c1 deux Sources ×3), compteur du Compte de mesure 1 25 → 40 : aucun changement de comportement avec les 6 nouveaux Documents. Résumé de la « Procédure congés et absences » regénéré sur le site par l'utilisateur ; relu par l'utilisateur : conforme, il mentionne la règle des congés de moins de 3 jours (demande 5 jours avant, validation par le responsable d'équipe), aucun fait inventé. Statut `done`.

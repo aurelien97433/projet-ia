@@ -1860,3 +1860,13 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Résultat.** Local : 6 sur 6 (deux largeurs, trois fois), suite e2e complète 393 passés, 0 échec. Production : 3 sur 3 (48,9 s, 37,1 s, 35,5 s), compteur +2 à chaque exécution, Bibliothèque de production vérifiée sans Document de test restant. Première vérification de SM-3, consignée dans `docs/mesures/uj2-live.md`.
 
 **Statut.** Story 6.2 `done` le 2026-11-23 ; Epic 6 `done`.
+
+## Story 7.1b : préchargement du Jeu complet (2026-11-23)
+
+**Ce qui a été livré.** `seed:demo` précharge désormais le Jeu complet (sans `--mini`), avec la même clé naturelle que le mini Jeu : les Documents déjà présents sont reconnus, jamais dupliqués. Ajouts demandés par l'utilisateur : avant toute écriture, le script affiche un plan calculé en lecture seule (cible, Comptes, action prévue pour chaque Document, Documents hors manifeste), puis attend « oui » au terminal ; il ne supprime jamais rien. En relisant le script, le plan a dû passer avant le réalignement des Comptes, qui était déjà une écriture. Une même fonction décide de l'action, pour le plan affiché comme pour l'écriture.
+
+**Production.** Plan lu par l'utilisateur (6 à créer, 1 texte mis à jour, 8 inchangés, aucun Document hors manifeste), « oui » tapé : 15 Documents prêts, 42 Passages. Contrôle distant en lecture seule conforme : aucun doublon, aucun orphelin, Procédure congés en version 2 avec la règle des 5 jours, base de 17 MB. Le Résumé de la Procédure congés, devenu obsolète, a été regénéré sur le site et relu par l'utilisateur : conforme, il mentionne la règle des congés de moins de 3 jours, aucun fait inventé.
+
+**Effet sur la Recherche.** `test:search:live` reste vert, mais r2 et r3 passent au rang 2 : le Guide d'accueil, qui reprend les notes de frais et les absences, passe devant la FAQ comptabilité et la Procédure congés. Reporté à la 7.2, qui remesure le seuil sur 15 Documents. `test:chat:live` : 15 sur 15, sans changement pour h1, o1 et c1.
+
+**Statut.** Story 7.1b `done` le 2026-11-23.
