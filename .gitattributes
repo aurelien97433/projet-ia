@@ -1,2 +1,4 @@
 # Fichiers de test du décodage (story 2.6b) : octets exacts, jamais de conversion des fins de ligne.
 tests/fixtures/files/** binary
+# Lot de fichiers de test du Jeu de démonstration (story 7.1a) : octets exacts (taille de trop-gros.txt).
+demo/fichiers-test/** binary

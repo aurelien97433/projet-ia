@@ -1836,3 +1836,15 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Production.** `deploy:supabase` puis contrôle distant en lecture seule conforme (`store_summary` à `service_role` seul ; `begin_summary` et `end_summary` à `authenticated` seul, `security definer`, `search_path` vide ; `summary_requests` sans politique ni droit direct). `test:summary:live` 4 sur 4 sur le Document piège et trois Documents du mini Jeu, sans « 99 jours » ni « PERROQUET », relecture humaine conforme ; `test:chat:live` 15 sur 15. Vérifié sur le site par l'utilisateur. Durées des Résumés réels : 1,7 à 3,0 s.
 
 **Statut.** Story 6.1 `done` le 2026-11-23.
+
+## Story 7.1a : Jeu de démonstration complet (2026-11-23)
+
+**Plan présenté avant la rédaction.** Liste des Documents, rôle de chacun dans UJ-1 à UJ-3 et dans les mesures, et règle des congés de moins de 3 jours, validés par l'utilisateur avant toute écriture. Contraintes relevées dans le mini Jeu : les questions hors base (budget marketing 2027, télétravail, mutuelle) et la Requête r4 (« catalogue », réservée au compte rendu Atelier Lumen) interdisent ces sujets dans les nouveaux Documents.
+
+**Contenu.** 15 Documents couvrant les 7 Catégories : les 9 du mini Jeu (dont la contradiction voulue, 15 et 21 jours, et le Document piège) et 6 nouveaux (fiche projet Transports Varenne, guide d'accueil des nouveaux arrivants, compte rendu Boulangeries Morel, comité de direction d'octobre, charte informatique sans aucun faux secret, FAQ du support interne). La « Procédure congés et absences » reçoit la section « Congés de courte durée » (demande au moins 5 jours avant), pour que la question exacte d'UJ-3 ait une réponse sourcée ; décision : un seul Document plutôt qu'un second, que l'Assistant aurait pu présenter comme une contradiction. `demo/jeu-demonstration.json` : 20 questions dans la base, 10 hors base, 10 Requêtes, suivis, contradiction, familles (ambigus, sensibles, hostiles, dégradés), états vides, lot de fichiers de test ; Note d'UJ-2 à coller, non préchargée.
+
+**Contrôles.** Script puis tests unitaires (`demo-set.test.ts`) : chaque réponse attendue figure dans son Document, chaque terme hors base est absent de tous les Documents et de la Note d'UJ-2, `check:secrets` propre. Une contradiction involontaire corrigée avant la relecture (l'astreinte définie « en dehors des heures de travail » dans le guide, « de jour comme de nuit » dans la Procédure de gestion des incidents). Relecture humaine de l'utilisateur : conforme.
+
+**Écart et reports.** Le guide d'accueil fait 13 363 caractères, et non les 30 000 annoncés au plan. La Procédure congés est partagée par le mini Jeu et le Jeu complet : son texte changera en production au préchargement (7.1b), et son Résumé de démonstration sera à regénérer. Pour la 7.2 : le seuil de la Recherche (0,40) a été mesuré sur 9 Documents et doit être remesuré sur 15 ; les suivis f2 et f3 (« 2 semaines ») sont à surveiller, l'exception des 5 jours pouvant aussi être citée.
+
+**Statut.** Story 7.1a `done` le 2026-11-23.

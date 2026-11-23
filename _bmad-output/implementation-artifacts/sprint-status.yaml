@@ -31,7 +31,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-03-2026 14:59
-last_updated: 11-23-2026 12:01
+last_updated: 11-23-2026 12:55
 project: projet-ia
 project_key: NOKEY
 tracking_system: file-system
@@ -95,8 +95,8 @@ development_status:
   6-2-parcours-uj-2-de-bout-en-bout: backlog  # P0 · dépend de : 6.1, 2.6a, 2.6b, 3.4
   epic-6-retrospective: optional
 
-  epic-7: backlog
-  7-1a-rédiger-le-jeu-de-démonstration-complet: backlog  # P0 · dépend de : 2.8 (format du mini Jeu)
+  epic-7: in-progress
+  7-1a-rédiger-le-jeu-de-démonstration-complet: done  # P0 · dépend de : 2.8 (format du mini Jeu)
   7-1b-précharger-le-jeu-de-démonstration-complet: backlog  # P0 · dépend de : 7.1a, 6.2
   7-2-calibrage-final-et-mesures-sm-1-sm-2-sm-4-sm-5: backlog  # P0 · dépend de : 7.1b
   7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px: backlog  # P0 · dépend de : 7.1b

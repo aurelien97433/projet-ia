@@ -42,10 +42,13 @@ describe("Documents", () => {
     }
   });
 
-  it("chaque fichier de demo/documents est au manifeste", () => {
+  // Story 7.1a : demo/documents contient le Jeu complet ; le mini Jeu en est un sous-ensemble.
+  it("chaque fichier de demo/documents est au manifeste du Jeu complet ; le mini Jeu en est un sous-ensemble", () => {
     const files = readdirSync(path.join(root, "demo", "documents")).sort();
-    const manifest = JSON.parse(readFileSync(path.join(root, "demo", "documents-mini.json"), "utf8"));
-    expect(manifest.documents.map((document: { file: string }) => document.file).sort()).toEqual(files);
+    const full = JSON.parse(readFileSync(path.join(root, "demo", "jeu-demonstration.json"), "utf8"));
+    const mini = JSON.parse(readFileSync(path.join(root, "demo", "documents-mini.json"), "utf8"));
+    expect(full.documents.map((document: { file: string }) => document.file).sort()).toEqual(files);
+    for (const document of mini.documents) expect(full.documents).toContainEqual(document);
   });
 
   it("Document piège : la consigne exacte, et « 99 jours » et « PERROQUET » nulle part ailleurs", () => {
@@ -166,4 +169,66 @@ describe("questions-mini.json", () => {
       expect(textOf(expectedSource)).toContain(expected);
     },
   );
+});
+
+// Story 7.1a : cohérence du Jeu de démonstration complet (demo/jeu-demonstration.json).
+describe("Jeu de démonstration complet", () => {
+  type FullDocument = { key: string; title: string; category: string; author: string; file: string };
+  const full = JSON.parse(readFileSync(path.join(root, "demo", "jeu-demonstration.json"), "utf8"));
+  const documents: FullDocument[] = full.documents;
+  const fullText = (key: string) => {
+    const document = documents.find((candidate) => candidate.key === key);
+    expect(document, key).toBeDefined();
+    return readFileSync(path.join(root, "demo", "documents", document!.file), "utf8");
+  };
+  const uj2Note = readFileSync(path.join(root, "demo", full.journeys["UJ-2"].noteFile), "utf8");
+  const everything = [...documents.map((document) => fullText(document.key)), uj2Note].join("\n").toLowerCase();
+
+  it("15 Documents, clés et titres uniques, les 7 Catégories, Auteurs connus", () => {
+    expect(documents).toHaveLength(15);
+    expect(new Set(documents.map((document) => document.key)).size).toBe(15);
+    expect(new Set(documents.map((document) => document.title)).size).toBe(15);
+    expect(new Set(documents.map((document) => document.category))).toEqual(new Set(DOCUMENT_CATEGORIES));
+    for (const document of documents) expect(Object.keys(full.authors)).toContain(document.author);
+  });
+
+  it("20 questions dans la base : chaque réponse attendue figure dans le Document attendu", () => {
+    expect(full.questions.length + 1).toBe(20);
+    for (const question of full.questions) expect(fullText(question.source), question.id).toContain(question.expected);
+    for (const fact of full.multiPassage.expectedFacts) expect(fullText(full.multiPassage.source)).toContain(fact);
+  });
+
+  it("10 questions hors base et les Requêtes hors base : terme absent de tous les Documents et de la Note d'UJ-2", () => {
+    expect(full.outOfBase).toHaveLength(10);
+    for (const item of [...full.outOfBase, ...full.outOfScope, ...full.searchOutOfBase]) {
+      expect(everything, item.id).not.toContain(item.absentTerm.toLowerCase());
+    }
+  });
+
+  it("10 Requêtes : terme attendu dans le Document attendu ; suivis, contradiction et UJ-2 sourcés", () => {
+    expect(full.searchQueries).toHaveLength(10);
+    for (const query of full.searchQueries) expect(fullText(query.expectedDocument).toLowerCase(), query.id).toContain(query.expectedTerm.toLowerCase());
+    for (const followUp of full.followUps) expect(fullText(followUp.expectedSource), followUp.id).toContain(followUp.expected);
+    for (const [key, value] of Object.entries(full.contradiction.expectedValues)) expect(fullText(key)).toContain(value as string);
+    for (const question of full.journeys["UJ-2"].questions) expect(uj2Note, question.id).toContain(question.expected);
+  });
+
+  it("UJ-3 : la règle des congés de moins de 3 jours est dans la Procédure congés et absences", () => {
+    const followUp = full.followUps.find((candidate: { id: string }) => candidate.id === full.journeys["UJ-3"].followUp);
+    expect(followUp.turns).toEqual(["Comment poser mes congés ?", "Et si je pose moins de 3 jours ?"]);
+    expect(fullText("procedure-conges")).toContain("Une demande de congés de moins de 3 jours ouvrés est déposée au moins 5 jours avant la date de départ.");
+  });
+
+  it("au moins 3 cas par famille, états vides et lot de fichiers de test présents", () => {
+    for (const family of ["ambiguous", "sensitive", "hostile", "degraded"]) expect(full.families[family].length, family).toBeGreaterThanOrEqual(3);
+    expect(full.emptyStates.length).toBeGreaterThanOrEqual(3);
+    for (const item of full.testFiles) expect(readdirSync(path.join(root, "demo", "fichiers-test"))).toContain(path.basename(item.file));
+  });
+
+  it("Document piège : « 99 jours » et « PERROQUET » dans aucun autre Document du Jeu complet", () => {
+    for (const document of documents.filter((candidate) => candidate.key !== "guide-relances")) {
+      expect(fullText(document.key)).not.toContain("99 jours");
+      expect(fullText(document.key)).not.toContain("PERROQUET");
+    }
+  });
 });
