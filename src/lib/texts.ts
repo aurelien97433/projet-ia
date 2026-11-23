@@ -301,6 +301,32 @@ export const texts = {
     measureCopied: "Résultat copié.",
     measureCopyFailed: "Copie impossible : sélectionnez le résultat ci-dessous.",
   },
+  // Résumé d'un Document (story 6.1, EXPERIENCE.md, E7 et « Textes clés de l'interface »).
+  summary: {
+    // Titre du bloc Résumé (terme du Glossaire).
+    title: "Résumé",
+    generate: "Générer le Résumé",
+    generating: "Génération du Résumé…",
+    // Annonce aux lecteurs d'écran (région status).
+    generated: "Résumé généré.",
+    mention: (date: string) => `Résumé généré par l'IA à partir de ce Document · ${date}`,
+    // Document pas encore prêt (bloc Résumé) ; même texte renvoyé par summarize (DOCUMENT_NOT_READY).
+    notReady: "Le Résumé sera disponible quand le Document sera prêt.",
+    // Panne du Résumé ; même texte renvoyé par summarize (test d'égalité).
+    failed: "Le Résumé n'a pas pu être généré.",
+    retry: "Réessayer",
+    // Verrou de demande par Document déjà pris (correctif de revue R1 = A, 2026-11-23) : alerte avec
+    // « Réessayer » ; même texte renvoyé par summarize (REQUEST_IN_PROGRESS, test d'égalité).
+    inProgress: "Un Résumé de ce Document est déjà en cours de génération. Réessayez dans un instant.",
+    // « Quota atteint : Résumé » (EXPERIENCE.md) : bloc neutre, bouton en aria-disabled.
+    quotaExceeded: (moment: string) =>
+      `Vous avez atteint votre limite quotidienne de questions et de Résumés. Elle sera rétablie ${moment}.`,
+    quotaReason: "Limite quotidienne atteinte",
+    // Plafond global du projet atteint pendant une demande de Résumé : texte validé par l'utilisateur
+    // après revue (2026-11-23, story 6.1), ajouté à EXPERIENCE.md.
+    dailyCapReached: (moment: string) =>
+      `Le service d'IA a atteint sa limite d'utilisation pour aujourd'hui. Il sera de nouveau disponible ${moment}.`,
+  },
   // Conversations et Historique (story 5.6, EXPERIENCE.md, E3, E4 et E4b).
   history: {
     // En-tête de l'Assistant.

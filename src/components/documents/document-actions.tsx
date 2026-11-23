@@ -5,19 +5,22 @@ import type { ReactNode } from "react";
 import { ASSISTANT_HREF } from "@/components/assistant/constants";
 import { DeleteDocumentButton } from "@/components/documents/delete-document-button";
 import { useDocumentStatus } from "@/components/documents/document-status-provider";
+import { GenerateSummaryButton } from "@/components/documents/document-summary";
 import { Button } from "@/components/ui/button";
 import { texts } from "@/lib/texts";
 
 // Barre d'actions de la page Document (E7). « Supprimer » (story 3.4) est une action d'Auteur,
 // disponible quel que soit le Statut, traitement compris ; dans une erreur no_text, elle est portée
 // par le bandeau, et n'est donc pas répétée ici. « Poser une question » (story 5.2b) n'apparaît que
-// pour un Document prêt ; la story 6.1 y ajoutera « Générer le Résumé ». Document supprimé pendant
-// la consultation : plus aucune action. Sans action, rien n'est rendu.
+// pour un Document prêt ; « Générer le Résumé » (story 6.1) aussi, tant qu'aucun Résumé à jour n'existe
+// (GenerateSummaryButton ne rend rien sinon, ni hors de DocumentSummaryProvider). Document supprimé
+// pendant la consultation : plus aucune action. Sans action, rien n'est rendu.
 const readyActions: ReactNode[] = [
   // Nouvelle Conversation, focus dans le champ de question (PageTitle de l'Assistant).
   <Button key="ask" asChild>
     <Link href={ASSISTANT_HREF}>{texts.assistant.askQuestion}</Link>
   </Button>,
+  <GenerateSummaryButton key="summary" />,
 ];
 
 export function DocumentActions({ documentId, title, isAuthor }: { documentId: string; title: string; isAuthor: boolean }) {

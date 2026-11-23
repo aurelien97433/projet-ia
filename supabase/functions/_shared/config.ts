@@ -84,6 +84,19 @@ export const CHAT_TITLE_MAX_LENGTH = 120;
 // sur une erreur réseau ou un délai dépassé après envoi, qui pourraient avoir été facturés.
 export const GENERATION_MAX_RETRIES = 1;
 
+// Résumé (story 6.1, AD-18, FR-8, FR-23) : 5 points au plus, 400 caractères (points de code) au plus
+// chacun, texte entier en un seul appel (une Note fait au plus 100 Ko, environ 25 000 tokens : pas de
+// découpage). summarize s'arrête au plus tard SUMMARY_TIMEOUT_MS après la réception de la demande,
+// toutes étapes comprises (AD-16) : la génération reçoit au plus le temps restant moins
+// SUMMARY_CLEANUP_TIMEOUT_MS, réservé à l'enregistrement (store_summary) ou à la libération. Chaîne :
+// summarize 120 s < relais 125 s < page 130 s < maxDuration 150 s.
+export const SUMMARY_MAX_POINTS = 5;
+export const SUMMARY_POINT_MAX_LENGTH = 400;
+export const SUMMARY_TIMEOUT_MS = 120_000;
+export const SUMMARY_CLEANUP_TIMEOUT_MS = 5_000;
+// Sortie bornée : 5 × 400 caractères en JSON tiennent largement dans 1 500 tokens.
+export const SUMMARY_MAX_COMPLETION_TOKENS = 1_500;
+
 // Nouvelles tentatives sur 429 (hors plafond) et 5xx, appels non diffusés uniquement (AD-16).
 export const AI_MAX_RETRIES = 2;
 export const AI_RETRY_BASE_DELAY_MS = 500;

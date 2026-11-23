@@ -41,11 +41,13 @@ describe("PROCESS_DOCUMENT_SECRET", () => {
 });
 
 describe("appel aux Edge Functions", () => {
-  // process-document (2.3), semantic-search (4.1a) et chat (5.2a-2) : modules réservés au serveur.
+  // process-document (2.3), semantic-search (4.1a), chat (5.2a-2) et summarize (6.1) : modules réservés
+  // au serveur.
   const callers = [
     "src/server/chat/relay.ts",
     "src/server/documents/trigger-processing.ts",
     "src/server/search/semantic-search.ts",
+    "src/server/summary/relay.ts",
   ];
 
   it("uniquement depuis src/server, jamais depuis un composant client", () => {
@@ -54,7 +56,7 @@ describe("appel aux Edge Functions", () => {
     const clients = filesUnder(path.join(root, "src")).filter(
       (file) => /\.tsx?$/.test(file) && readFileSync(file, "utf8").startsWith('"use client"'),
     );
-    const importers = clients.filter((file) => /trigger-processing|server\/search|server\/chat/.test(readFileSync(file, "utf8")));
+    const importers = clients.filter((file) => /trigger-processing|server\/search|server\/chat|server\/summary/.test(readFileSync(file, "utf8")));
     expect(importers).toEqual([]);
   });
 
@@ -106,6 +108,34 @@ describe("supabase/config.toml", () => {
   it("chat n'utilise jamais service_role", () => {
     const source = readFileSync(path.join(root, "supabase", "functions", "chat", "index.ts"), "utf8");
     expect(source).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY|serviceRoleKey|sb_secret/);
+  });
+
+  it("summarize (6.1) exige un jeton valide dès la passerelle, et fait partie du déploiement", async () => {
+    expect(config.replace(/\r\n/g, "\n")).toMatch(/^\[functions\.summarize\]\nverify_jwt = true$/m);
+    const { listFunctions } = await import("../../scripts/deploy-supabase");
+    expect(listFunctions(path.join(root, "supabase", "functions"))).toContain("summarize");
+  });
+
+  // Exception datée à AD-2 (décision de l'utilisateur du 2026-11-20, Q2 corrigée) : la clé service_role
+  // est lue une seule fois et ne sert qu'à l'appel de store_summary, jamais à lire le Document ni au quota.
+  it("summarize : clé service_role lue une fois, utilisée pour store_summary seulement", () => {
+    const source = readFileSync(path.join(root, "supabase", "functions", "summarize", "index.ts"), "utf8");
+    expect(source.match(/"SUPABASE_SERVICE_ROLE_KEY"/g)).toHaveLength(1);
+    expect(source).not.toMatch(/sb_secret|serviceRoleKey/);
+    // serviceKey n'apparaît que dans sa lecture, son contrôle et l'appel de storeSummary.
+    const uses = source.split(/\r?\n/).filter((line) => /\bserviceKey\b/.test(line) && !line.trim().startsWith("//"));
+    expect(uses.length).toBeGreaterThan(0);
+    for (const line of uses) {
+      expect(line).toMatch(/const serviceKey = readEnv|!serviceKey|storeSummary\(url, serviceKey|serviceKey: string|apikey: serviceKey/);
+    }
+    // Lecture du Document, réservation et libération : avec le jeton du Collaborateur (rpc(target, …)).
+    expect(source).toMatch(/rpc\(target, "reserve_ai_call"/);
+    expect(source).toMatch(/rpc\(target, "release_ai_call"/);
+    // Verrou de demande par Document (correctif de revue R1 = A) : jeton du Collaborateur aussi.
+    expect(source).toMatch(/rpc\(target, "begin_summary"/);
+    expect(source).toMatch(/rpc\(target, "end_summary"/);
+    expect(source).not.toMatch(/rpc\(target, "store_summary"/);
+    expect(source.match(/rpc\/store_summary/g)).toHaveLength(1);
   });
 
   it("measure-embed (story 4.2) : présente en local, jamais déployée, clé service_role comparée dans la fonction", async () => {

@@ -124,6 +124,7 @@ describe("appError", () => {
       "QUOTA_EXCEEDED",
       "AI_DAILY_CAP_REACHED",
       "REQUEST_IN_PROGRESS",
+      "DOCUMENT_NOT_READY",
       "AI_UNAVAILABLE",
       "AI_TIMEOUT",
       "AI_BUDGET_EXHAUSTED",

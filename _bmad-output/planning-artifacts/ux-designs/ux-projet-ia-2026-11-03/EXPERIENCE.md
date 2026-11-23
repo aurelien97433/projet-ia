@@ -206,6 +206,7 @@ Une contradiction entre Passages n'a pas de texte d'interface : c'est une répon
 | Réponse non vérifiable (aucune citation valide) | « Je n'ai pas pu vérifier cette réponse à partir des Documents. Veuillez réessayer. » · « Réessayer » |
 | Plafond du fournisseur atteint (`AI_BUDGET_EXHAUSTED`) | « Le service d'IA est momentanément indisponible. Réessayez plus tard. » (traité comme une panne, distinct du quota) |
 | Panne du Résumé | « Le Résumé n'a pas pu être généré. » · « Réessayer » |
+| Résumé déjà en cours de génération (ajouté le 2026-11-23, story 6.1, verrou de demande par Document) | Alerte « Le Résumé n'a pas pu être généré. » + « Un Résumé de ce Document est déjà en cours de génération. Réessayez dans un instant. » · « Réessayer » |
 | Panne de la Recherche | « La Recherche n'a pas pu aboutir. » · « Réessayer » |
 | Liste non chargée (Tableau de bord, Bibliothèque) | « Cette liste n'a pas pu être chargée. » · « Réessayer » |
 | Historique non chargé | « L'Historique n'a pas pu être chargé. » · « Réessayer » |
@@ -236,6 +237,7 @@ Une contradiction entre Passages n'a pas de texte d'interface : c'est une répon
 | Quota atteint : Assistant | « Vous avez atteint votre limite quotidienne de questions et de Résumés. Elle sera rétablie {moment}. La Recherche reste disponible. » · raison « Limite quotidienne atteinte », reliée au champ par `aria-describedby` · lien « Ouvrir la Recherche » |
 | Plafond global atteint : Assistant (`AI_DAILY_CAP_REACHED`) | « L'Assistant a atteint sa limite d'utilisation pour aujourd'hui. Il sera de nouveau disponible {moment}. La Recherche reste disponible. » (texte validé le 2026-11-16, story 5.2a-2 : plafond quotidien du projet, distinct du quota personnel) |
 | Quota atteint : Résumé | « Vous avez atteint votre limite quotidienne de questions et de Résumés. Elle sera rétablie {moment}. » · bouton « Générer le Résumé » désactivé |
+| Plafond global atteint : Résumé (validé le 2026-11-23, story 6.1) | Alerte « Le Résumé n'a pas pu être généré. » + « Le service d'IA a atteint sa limite d'utilisation pour aujourd'hui. Il sera de nouveau disponible {moment}. », sans « Réessayer » |
 | Format de `{moment}` | Heure locale, dans le fuseau du navigateur, du prochain 00:00 UTC renvoyé par le serveur (`resetAt`, architecture AD-14) : « demain à {heure} » ou « aujourd'hui à {heure} » (ex. « demain à 4 h 00 » à La Réunion, « demain à 1 h 00 » à Paris en hiver). **Règle provisoire jusqu'à la story 5.10 (décision du 2026-11-16) :** les messages sont composés côté serveur, en UTC, avec la mention « (UTC) » (ex. « demain à 0 h 00 (UTC) ») ; la 5.10 passera au fuseau du navigateur. |
 
 ## Confiance visible

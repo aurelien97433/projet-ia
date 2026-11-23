@@ -5,6 +5,7 @@ import { DocumentActions } from "@/components/documents/document-actions";
 import { DocumentReader } from "@/components/documents/document-reader";
 import { DocumentStatusBadge } from "@/components/documents/document-status-badge";
 import { DocumentStatusProvider } from "@/components/documents/document-status-provider";
+import { DocumentSummaryProvider, SummaryBlock } from "@/components/documents/document-summary";
 import { StatusBanner } from "@/components/documents/status-banner";
 import { PageTitle } from "@/components/shell/page-title";
 import { layoutPassages, parsePassageOrigin, parsePassageParams } from "@/lib/passages";
@@ -12,18 +13,21 @@ import { createClient } from "@/lib/supabase/server";
 import { texts } from "@/lib/texts";
 import { getCurrentUser } from "@/server/auth/current-user";
 import { getDocument } from "@/server/documents/get-document";
+import { getQuota } from "@/server/quota/get-quota";
 
 // E7 · Document : titre, Catégorie, Auteur, date, badge, bandeau de Statut (suivi automatique), barre
 // d'actions et Lecteur, avec les Passages de l'URL (`?passages=120-340,900-1100&actif=1`) ;
 // `&depuis=recherche` (story 4.1b) : étiquette « Passage pertinent ».
 // Identifiant invalide ou Document absent : E9 (même page qu'un accès refusé).
+// Story 6.1 : Résumé à jour lu avec le Document, quota du Collaborateur lu au chargement (jeton du
+// Collaborateur, RLS, comme l'Assistant) ; bloc Résumé au-dessus du texte.
 export default async function DocumentPage({ params, searchParams }: PageProps<"/documents/[id]">) {
   // Lecture liée à la requête : le client Supabase compare l'expiration du jeton à l'heure courante,
   // valeur que cacheComponents refuse pendant le pré-rendu.
   await connection();
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
-  const [document, user] = await Promise.all([getDocument(id, supabase), getCurrentUser()]);
+  const [document, user, quota] = await Promise.all([getDocument(id, supabase), getCurrentUser(), getQuota(supabase)]);
   if (!document) notFound();
 
   const { passages, activeIndex } = parsePassageParams(query, document.content.length);
@@ -69,7 +73,10 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
         </header>
 
         <StatusBanner documentId={document.id} title={document.title} isAuthor={isAuthor} />
-        <DocumentActions documentId={document.id} title={document.title} isAuthor={isAuthor} />
+        <DocumentSummaryProvider documentId={document.id} initialSummary={document.summary} quota={quota}>
+          <DocumentActions documentId={document.id} title={document.title} isAuthor={isAuthor} />
+          <SummaryBlock />
+        </DocumentSummaryProvider>
       </DocumentStatusProvider>
 
       <section aria-label={texts.document.textLabel}>

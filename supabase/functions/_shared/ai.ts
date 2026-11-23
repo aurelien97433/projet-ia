@@ -21,6 +21,10 @@ import {
   REWRITE_TIMEOUT_MS,
   REFUSAL_MAX_COMPLETION_TOKENS,
   OPENAI_BASE_URL,
+  SUMMARY_MAX_COMPLETION_TOKENS,
+  SUMMARY_MAX_POINTS,
+  SUMMARY_POINT_MAX_LENGTH,
+  SUMMARY_TIMEOUT_MS,
   readEnv,
 } from "./config.ts";
 import { AiError, logEvent } from "./errors.ts";
@@ -238,6 +242,8 @@ async function complete(
   options: AiOptions,
   // Accepte finish_reason « length » quand la première ligne est complète (appel court seulement).
   acceptTruncatedAfterFirstLine: boolean,
+  // Champs ajoutés au corps de la requête (story 6.1 : response_format du Résumé).
+  extraBody: Record<string, unknown> = {},
 ): Promise<GenerationResult> {
   const deps = { ...defaultDeps(), ...options.deps };
   const model = generationModel();
@@ -252,6 +258,7 @@ async function complete(
         reasoning_effort: GENERATION_REASONING_EFFORT,
         max_completion_tokens: maxCompletionTokens,
         ...GENERATION_SAMPLING,
+        ...extraBody,
       },
       timeoutMs: options.timeoutMs ?? GENERATION_TIMEOUT_MS,
       retry: GENERATION_RETRY,
@@ -336,6 +343,103 @@ export async function rewriteFollowUp(messages: ChatMessage[], options: AiOption
       error.providerParam,
       error.outcome,
     );
+  } finally {
+    clearTimeout(timer);
+    expired.catch(() => {});
+  }
+}
+
+// Résumé (story 6.1, AD-18, Q1 = A) : sortie JSON structurée, schéma { points: string[] } exigé du
+// fournisseur ; les bornes (1 à 5 points, 400 caractères) sont contrôlées ici, strictement.
+export const SUMMARY_RESPONSE_FORMAT = {
+  type: "json_schema",
+  json_schema: {
+    name: "resume",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: { points: { type: "array", items: { type: "string" } } },
+      required: ["points"],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+// Lecture stricte de la sortie du Résumé : un objet JSON avec la seule clé « points », tableau de 1 à 5
+// chaînes ; chaque point est remis sur une ligne (espaces réduits), non vide et de 400 caractères
+// (points de code) au plus. Null si la sortie n'est pas conforme (rien n'est corrigé ni tronqué).
+export function readSummaryOutput(text: string): string[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const keys = Object.keys(parsed);
+  if (keys.length !== 1 || keys[0] !== "points") return null;
+  const points = (parsed as { points: unknown }).points;
+  if (!Array.isArray(points) || points.length < 1 || points.length > SUMMARY_MAX_POINTS) return null;
+  const cleaned: string[] = [];
+  for (const point of points) {
+    if (typeof point !== "string") return null;
+    const line = point.replace(/\s+/g, " ").trim();
+    if (line === "" || Array.from(line).length > SUMMARY_POINT_MAX_LENGTH) return null;
+    cleaned.push(line);
+  }
+  return cleaned;
+}
+
+export type SummaryResult = Omit<GenerationResult, "text"> & { points: string[] };
+
+// Résumé d'un Document (story 6.1, AD-7, AD-18) : un seul appel sur le texte entier, mêmes modèle,
+// échantillonnage (temperature 0, seed), raisonnement et contrôles de fin que generateAnswer (sortie vide,
+// tronquée, filtrée ou refus du modèle : AI_OUTPUT_INVALID), une seule nouvelle tentative sur 429 (hors
+// plafond) et 5xx (GENERATION_RETRY, jamais après une erreur réseau). Sortie JSON lue strictement
+// (readSummaryOutput) : non conforme → AI_OUTPUT_INVALID, réponse reçue. timeoutMs (120 s par défaut)
+// borne l'appel entier, nouvelles tentatives comprises ; l'issue de l'échec (outcome) sert la règle de
+// libération d'AD-14 appliquée par summarize : délai pendant une requête envoyée → « timeout » (unité
+// consommée) ; pendant l'attente d'une nouvelle tentative ou avant tout envoi → « no_response » (rendue).
+// Ni les consignes, ni le texte du Document, ni les points ne sont journalisés.
+export async function summarize(messages: ChatMessage[], options: AiOptions = {}): Promise<SummaryResult> {
+  const timeoutMs = options.timeoutMs ?? SUMMARY_TIMEOUT_MS;
+  const controller = new AbortController();
+  // Requêtes envoyées au fournisseur et encore sans réponse (même règle que rewriteFollowUp).
+  let inFlight = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const outcome = inFlight > 0 ? "timeout" : "no_response";
+      controller.abort();
+      logEvent("ai_timeout", { operation: "summarize", duration_ms: timeoutMs, sent: outcome === "timeout" });
+      reject(new AiError("AI_TIMEOUT", true, "délai du Résumé dépassé", undefined, undefined, outcome));
+    }, timeoutMs);
+  });
+  const base = options.deps?.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const deps: Partial<AiDeps> = {
+    ...options.deps,
+    fetch: async (input, init) => {
+      inFlight += 1;
+      try {
+        return await base(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal });
+      } finally {
+        inFlight -= 1;
+      }
+    },
+  };
+  try {
+    const result = await Promise.race([
+      complete("summarize", messages, SUMMARY_MAX_COMPLETION_TOKENS, { deps, timeoutMs }, false, {
+        response_format: SUMMARY_RESPONSE_FORMAT,
+      }),
+      expired,
+    ]);
+    const points = readSummaryOutput(result.text);
+    if (!points) {
+      logEvent("ai_output_invalid", { operation: "summarize", reason: "summary_format" });
+      throw new AiError("AI_OUTPUT_INVALID", true, "Résumé non conforme", undefined, undefined, "response_received");
+    }
+    return { points, model: result.model, usage: result.usage };
   } finally {
     clearTimeout(timer);
     expired.catch(() => {});

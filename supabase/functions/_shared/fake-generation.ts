@@ -5,12 +5,12 @@
 // journalisée. Story 5.3 : sortie précédée du marqueur (AD-10), repères de test pour les refus et le
 // marqueur invalide, appel court simulé. Story 5.5 : avec stream: true, réponse diffusée en morceaux
 // (marqueur et repères coupés), espacés avec FAKE_SLOW_STREAM_MARKER. Story 5.8 : reformulation de
-// suivi simulée (fakeRewrite), panne avec FAKE_REWRITE_FAILURE_MARKER.
+// suivi simulée (fakeRewrite), panne avec FAKE_REWRITE_FAILURE_MARKER. Story 6.1 : Résumé simulé.
 import type { AiDeps } from "./ai.ts";
 import { CHAT_MAX_QUESTION_LENGTH, readEnv } from "./config.ts";
 import { logEvent, logInfo } from "./errors.ts";
 import { isLocalStack } from "./fake-embeddings.ts";
-import { REFUSAL_SYSTEM_PROMPT, REWRITE_QUESTION_PREFIX, REWRITE_SYSTEM_PROMPT } from "./rag/prompt.ts";
+import { REFUSAL_SYSTEM_PROMPT, REWRITE_QUESTION_PREFIX, REWRITE_SYSTEM_PROMPT, SUMMARY_SYSTEM_PROMPT } from "./rag/prompt.ts";
 
 // Repères placés dans la question (texte neutralisé dans les consignes, sans chevron ni esperluette) :
 // réponse simulée sans aucune citation (cas AI_CITATIONS_INVALID).
@@ -122,10 +122,51 @@ export function fakeRewrite(userMessage: string): string | null {
   return Array.from(standalone).slice(0, CHAT_MAX_QUESTION_LENGTH).join("");
 }
 
+// Story 6.1 : Résumé simulé. Repères placés dans le TEXTE du Document à résumer (données neutralisées,
+// sans chevron ni esperluette ; aucun Document du Jeu de démonstration n'en contient) : panne du
+// fournisseur (503 à chaque tentative : AI_UNAVAILABLE, sans réponse), sortie non conforme (6 points :
+// AI_OUTPUT_INVALID, réponse reçue) et réponse lente (FAKE_SUMMARY_SLOW_DELAY_MS, état « Génération du
+// Résumé… » observable, demandes concurrentes).
+export const FAKE_SUMMARY_FAILURE_MARKER = "[simulation:resume-en-panne]";
+export const FAKE_SUMMARY_INVALID_MARKER = "[simulation:resume-invalide]";
+export const FAKE_SUMMARY_SLOW_MARKER = "[simulation:resume-lent]";
+export const FAKE_SUMMARY_SLOW_DELAY_MS = 1_500;
+
+// Points simulés, déterministes : le titre du Document (attribut de la balise <document>) et deux points
+// fixes, à la troisième personne.
+export function fakeSummaryPoints(userMessage: string): string[] {
+  const title = unescape((/<document titre="([^"]*)">/.exec(userMessage)?.[1] ?? "").replace(/&quot;/g, '"'));
+  return [`Le Document « ${title} » est résumé par la génération simulée.`, "Le deuxième point simulé reprend le Document.", "Le troisième point simulé conclut le Résumé."];
+}
+
+function fakeSummaryResponse(userMessage: string, signal?: AbortSignal | null): Promise<Response> {
+  if (userMessage.includes(FAKE_SUMMARY_FAILURE_MARKER)) {
+    return Promise.resolve(Response.json({ error: { type: "server_error" } }, { status: 503 }));
+  }
+  const points = userMessage.includes(FAKE_SUMMARY_INVALID_MARKER)
+    ? Array.from({ length: 6 }, (_, index) => `Point simulé ${index + 1}.`)
+    : fakeSummaryPoints(userMessage);
+  const response = () =>
+    Response.json({
+      model: "simulation",
+      choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify({ points }) }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 0, completion_tokens: 0 },
+    });
+  if (!userMessage.includes(FAKE_SUMMARY_SLOW_MARKER)) return Promise.resolve(response());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(response()), FAKE_SUMMARY_SLOW_DELAY_MS);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new DOMException("interrompu", "AbortError"));
+    }, { once: true });
+  });
+}
+
 const fakeFetch: typeof fetch = (_input, init) => {
   const { messages, stream } = JSON.parse(String(init?.body)) as { messages: { role: string; content: string }[]; stream?: boolean };
   const system = messages.find((message) => message.role === "system")?.content ?? "";
   const user = messages.find((message) => message.role === "user")?.content ?? "";
+  if (system === SUMMARY_SYSTEM_PROMPT) return fakeSummaryResponse(user, init?.signal);
   if (system === REWRITE_SYSTEM_PROMPT) {
     const rewritten = fakeRewrite(user);
     if (rewritten === null) return Promise.resolve(Response.json({ error: { type: "server_error" } }, { status: 503 }));

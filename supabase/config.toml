@@ -452,3 +452,9 @@ verify_jwt = true
 # passerelle puis par la fonction ; quota réservé avant tout appel à OpenAI, base interrogée avec ce jeton.
 [functions.chat]
 verify_jwt = true
+
+# Résumé (story 6.1) : appelée par Next.js avec le jeton du Collaborateur, vérifié par la passerelle
+# puis par la fonction ; quota réservé avec ce jeton avant tout appel à OpenAI ; clé service_role pour
+# store_summary seulement (exception datée à AD-2).
+[functions.summarize]
+verify_jwt = true

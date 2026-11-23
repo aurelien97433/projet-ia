@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { DocumentCategory, DocumentErrorKind, DocumentStatus } from "@/lib/documents";
 import { logEvent } from "@/lib/errors";
+import { type StoredSummary, storedSummarySchema } from "@/lib/schemas/summary";
 import { processingElapsedMs } from "./get-document-status";
 
 export type DocumentView = {
@@ -20,7 +21,28 @@ export type DocumentView = {
   // positions d'une Source que si elle correspond à la version enregistrée avec elle (Q2 = A).
   textVersion: number;
   content: string;
+  // Story 6.1 (AD-18) : Résumé à jour (summary_text_version = text_version), sinon null. Un Résumé
+  // obsolète n'est jamais affiché (P1).
+  summary: StoredSummary | null;
 };
+
+// Résumé stocké, relu strictement : à jour et bien formé, sinon null.
+export function currentSummary(row: {
+  text_version: number;
+  summary_points?: unknown;
+  summary_text_version?: unknown;
+  summary_generated_at?: unknown;
+}): StoredSummary | null {
+  if (row.summary_text_version !== row.text_version || typeof row.summary_generated_at !== "string") return null;
+  const generatedAt = new Date(row.summary_generated_at);
+  if (Number.isNaN(generatedAt.getTime())) return null;
+  const parsed = storedSummarySchema.safeParse({
+    points: row.summary_points,
+    generatedAt: generatedAt.toISOString(),
+    textVersion: row.text_version,
+  });
+  return parsed.success ? parsed.data : null;
+}
 
 type Db = Pick<SupabaseClient, "from">;
 
@@ -37,7 +59,11 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
       )
       .eq("id", id)
       .maybeSingle(),
-    db.from("documents").select("content_text, text_version").eq("id", id).maybeSingle(),
+    db
+      .from("documents")
+      .select("content_text, text_version, summary_points, summary_text_version, summary_generated_at")
+      .eq("id", id)
+      .maybeSingle(),
   ]);
   if (meta.error || body.error) {
     logEvent("get_document_failed", { document_id: id, code: meta.error?.code ?? body.error?.code });
@@ -58,5 +84,6 @@ export async function getDocument(id: string, db: Db): Promise<DocumentView | nu
     processingElapsedMs: processingElapsedMs(meta.data.server_now, meta.data.processing_started_at),
     textVersion: body.data.text_version,
     content: body.data.content_text ?? "",
+    summary: currentSummary(body.data),
   };
 }

@@ -12,6 +12,8 @@ export const ERROR_CODES = [
   // Plafond global du projet atteint pour la journée (story 5.2a-2, distinct du quota personnel).
   "AI_DAILY_CAP_REACHED",
   "REQUEST_IN_PROGRESS",
+  // Story 6.1 : Résumé demandé pour un Document qui n'est pas prêt (409).
+  "DOCUMENT_NOT_READY",
   "AI_UNAVAILABLE",
   "AI_TIMEOUT",
   "AI_BUDGET_EXHAUSTED",

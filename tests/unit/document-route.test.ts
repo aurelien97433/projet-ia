@@ -71,7 +71,9 @@ describe("GET /api/documents/[id]", () => {
       content: "Texte <b>brut</b> du Document.",
     });
     expect(sourceDocumentSchema.safeParse(json).success).toBe(true);
-    expect(fake.selects).toContain("content_text, text_version");
+    // Story 6.1 : la lecture du texte reprend aussi le Résumé stocké (jamais renvoyé par cette route).
+    expect(fake.selects).toContain("content_text, text_version, summary_points, summary_text_version, summary_generated_at");
+    expect(JSON.stringify(json)).not.toContain("summary");
     // Aucun identifiant d'Auteur transmis au navigateur.
     expect(JSON.stringify(json)).not.toContain("auteur\"");
   });

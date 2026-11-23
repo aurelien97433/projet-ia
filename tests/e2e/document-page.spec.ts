@@ -219,7 +219,10 @@ test("autre Auteur : informations et Lecteur, aucune action d'Auteur", async ({ 
     await expect(metadata.getByText(texts.status.ready)).toBeVisible();
     await expect(page.locator('main article > [role="status"]')).toBeEmpty();
     await expect(reader(page)).toContainText("Texte du Document de l'autre Auteur.");
-    await expect(page.locator("main article").getByRole("button")).toHaveCount(0);
+    // Story 6.1 : « Générer le Résumé » est proposé à tout Collaborateur ; aucune autre action (d'Auteur).
+    const buttons = page.locator("main article").getByRole("button");
+    await expect(buttons).toHaveCount(1);
+    await expect(buttons).toHaveText(texts.summary.generate);
   } finally {
     await deleteAccount(other);
   }
