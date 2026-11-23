@@ -2,7 +2,7 @@
 title: 'Story 6.2 : Parcours UJ-2 de bout en bout'
 type: 'test'
 created: '2026-11-23'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '2c6a5e89f16b87c75e447c886fac84b1aaecec9f'
@@ -131,3 +131,5 @@ Revue ciblée par Claude (2026-11-23 ; aucun code de production modifié, donc p
 | Fichier orphelin | accepté (low) | échec entre le dépôt de `vide.txt` et l'import : fichier sans Document dans Storage ; rare, nettoyable au tableau de bord. |
 
 **Vérification locale (Claude, 2026-11-23) :** `npx playwright test tests/e2e/uj-2.spec.ts --repeat-each=3` : 6 sur 6 (2 largeurs × 3) ; `tsc`, `eslint`, `check:secrets` verts. Suite e2e complète à 8 workers (agent) : 393 passés, 19 ignorés, 0 échec.
+
+**Passage réel et clôture (2026-11-23) :** `db076e8` poussé (avec la spec `2c6a5e8`), Vercel prêt. `npm run test:uj2:live` par l'utilisateur : 3 sur 3 en production (48,9 s, 37,1 s, 35,5 s), *en cours* observé à chaque exécution, compteur du Compte de mesure 1 +2 à chaque fois (19 → 25), rapport `docs/mesures/uj2-live.md` (première vérification de SM-3). Bibliothèque de production vérifiée par l'utilisateur : aucun Document « — test UJ-2 » restant. Statut `done` ; Epic 6 `done`.

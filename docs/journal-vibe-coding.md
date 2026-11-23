@@ -1848,3 +1848,15 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Écart et reports.** Le guide d'accueil fait 13 363 caractères, et non les 30 000 annoncés au plan. La Procédure congés est partagée par le mini Jeu et le Jeu complet : son texte changera en production au préchargement (7.1b), et son Résumé de démonstration sera à regénérer. Pour la 7.2 : le seuil de la Recherche (0,40) a été mesuré sur 9 Documents et doit être remesuré sur 15 ; les suivis f2 et f3 (« 2 semaines ») sont à surveiller, l'exception des 5 jours pouvant aussi être citée.
 
 **Statut.** Story 7.1a `done` le 2026-11-23.
+
+## Story 6.2 : parcours UJ-2 de bout en bout (2026-11-23)
+
+**Ce qui a été livré.** Un test Playwright au clavier seul (`tests/e2e/uj-2.spec.ts`) qui enchaîne le parcours de démonstration UJ-2 : ajout de la Note « Pharmacies Dorval », traitement, question formulée sans les mots de la Note, Source et page complète, Résumé, compteur, suppression, puis le cas limite du `.txt` vide. Il tourne dans la suite e2e locale (deux largeurs) et en production (`npm run test:uj2:live`, trois exécutions). Aucun code de l'application n'a été modifié : la revue a été faite par Claude, sans relecteur séparé, comme prévu par la spec.
+
+**Production plutôt que prévisualisation.** `PROCESS_DOCUMENT_SECRET` n'est posé qu'en Production : une prévisualisation ne traite aucune Note, le test ne pouvait donc tourner que sur la production, avec le Compte de mesure 1. Précautions écrites dans la spec : titre marqué « — test UJ-2 », nettoyage par la session du Compte limité à ses Documents marqués (même en cas d'échec), aucune trace, vidéo ni capture, URL et identifiants masqués dans le rapport. La question de la protection Vercel a été tranchée par l'utilisateur en fenêtre privée : la production est publique, aucun contournement n'a été ajouté.
+
+**Deux ajustements de l'implémenteur.** La lecture de `.env.seed` a été recopiée dans le support du test (les scripts utilisent `import.meta`, refusé par Playwright ici). En local, la Note et la question portent un repère unique : plusieurs workers créaient des Notes identiques aux vecteurs simulés identiques, et la Source pouvait pointer vers la copie d'un autre.
+
+**Résultat.** Local : 6 sur 6 (deux largeurs, trois fois), suite e2e complète 393 passés, 0 échec. Production : 3 sur 3 (48,9 s, 37,1 s, 35,5 s), compteur +2 à chaque exécution, Bibliothèque de production vérifiée sans Document de test restant. Première vérification de SM-3, consignée dans `docs/mesures/uj2-live.md`.
+
+**Statut.** Story 6.2 `done` le 2026-11-23 ; Epic 6 `done`.
