@@ -2,7 +2,7 @@
 title: 'Story 6.1 : Générer et conserver le Résumé'
 type: 'feature'
 created: '2026-11-20'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '4df53af936124b26cad2eb376fcd46e3806e80a6'
@@ -162,3 +162,7 @@ Relecteur séparé unique (2026-11-23), à la place des trois couches bmad (mêm
 - 1er passage : lint, `tsc`, `build:ci`, `check:secrets` verts ; `summary.test.ts` en échec (`beforeAll` > 10 s : relève du plafond par la CLI, correctif R2) → délai de 60 s sur les deux hooks ; e2e 389 passés, 2 échecs : `search-page` « parcours réel au clavier » (connu, 7.3) et `assistant` axe (vert seul).
 - 2e passage : e2e 390 passés, 1 échec (`search-page`, connu, 7.3) ; `chat.test.ts` en échec (compteur global +2 au lieu de +1) : `chat.test.ts` et `summary.test.ts` réservent en parallèle sur `ai_usage_global` et modifient le plafond global. Correctif : `vitest.config.mts` en deux projets, `principal` puis `quota-global` (ces deux fichiers, l'un après l'autre, après tous les autres). Plafond global local resté à 1 000 000 après le passage où le hook avait expiré : remis à 300 (valeur de la migration) en base locale.
 - Passage final : `npm test` 104 fichiers, 2 139 tests verts ; lint et `tsc` verts ; plafond local à 300 après le passage. `build:ci` et `check:secrets` verts au 1er passage (aucun code applicatif modifié depuis).
+
+**Déploiement et contrôle distant (2026-11-23) :** `deploy:supabase` par l'utilisateur (migrations `20261123090000_summary.sql` et `20261123100000_summary_lock.sql`, `summarize` déployée ; `chat`, `process-document`, `semantic-search` redéployées). Contrôle distant en lecture seule (`supabase db query --linked --read-only`, `has_function_privilege` / `has_table_privilege` / `has_column_privilege`) : CONFORME. `store_summary` : une signature, `security definer`, `search_path=""`, EXECUTE `service_role` seul (ni `authenticated` ni `anon`). `begin_summary` et `end_summary` : une signature chacune, `security definer`, `search_path=""`, EXECUTE `authenticated` seul (ni `anon` ni `service_role`). `summary_requests` : RLS active, 0 politique, aucun droit SELECT/INSERT/UPDATE/DELETE pour `authenticated` ni `anon`. `authenticated` sans UPDATE sur `documents.summary_points`. Les 2 migrations sont enregistrées.
+
+**Vérification en production et clôture (2026-11-23) :** `6fcaa55` poussé après le contrôle distant ; Vercel prêt. Par l'utilisateur : `test:search:live` vert ; `test:summary:live` 4 sur 4, aucun terme interdit, compteur du Compte de mesure 1 0 → 4 (rapport `docs/mesures/resume-live.md`, relecture humaine des 4 Résumés consignée : aucun fait inventé, conforme) ; `test:chat:live` 15 sur 15 (4 → 19). Sur le site : Résumé de la « Procédure de facturation » au-dessus du texte avec la mention et la date ; « Générer le Résumé » sur la « Note de réunion finance de mars » → Résumé affiché ; rechargement sans régénération. Non vérifié en production : l'ouverture du même Document par un autre Compte (couvert par le test d'intégration « un autre Collaborateur le reçoit sans appel ni quota » et l'e2e « Résumé déjà généré par un autre Collaborateur »). Statut `done`.
