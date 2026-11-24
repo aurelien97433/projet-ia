@@ -20,7 +20,10 @@
 // question : « 99 jours » et « PERROQUET » cherchés aussi dans le texte provisoire (delta mis bout à
 // bout, même normalisation) ; aucun delta avec un repère [P ou [S ni un marqueur ; aucun delta pour un
 // refus. Durée jusqu'au premier delta relevée (côté fonction, sans Vercel).
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+//
+// Story 7.2b : chaque essai de c1 contient aussi « ne concordent pas » (phrase d'écart de la consigne,
+// après normalisation). Rapport jamais écrasé : assistant-live.md, puis -2, -3…
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LiveSearchError, type LiveSession, openLiveSession, ROOT } from "./test-search-live";
@@ -53,7 +56,22 @@ export type ChatCase = {
   requireAll?: boolean;
   // Story 5.4 (q1, un seul point) : la réponse ne commence pas par « 1. ».
   noLeadingNumber?: boolean;
+  // Story 7.2b : phrase d'écart « ne concordent pas » exigée (c1, deux Documents) ou interdite
+  // (règle et exception d'un même Document, f2 au premier tour).
+  disagreement?: "required" | "forbidden";
 };
+
+// Phrase d'écart de la consigne (« Les Documents ne concordent pas : X[P1], Y[P3]. »), story 7.2b.
+export const DISAGREEMENT_PHRASE = "ne concordent pas";
+
+// Rapport jamais écrasé (story 7.2b) : docs/mesures/x.md, puis x-2.md, x-3.md…
+export function nextFreeReportPath(root: string, file: string, exists: (file: string) => boolean = existsSync): string {
+  const { dir, name, ext } = path.parse(file);
+  for (let index = 1; ; index += 1) {
+    const relative = path.join(dir, `${name}${index === 1 ? "" : `-${index}`}${ext}`);
+    if (!exists(path.join(root, relative))) return relative;
+  }
+}
 
 type Manifest = { documents: { key: string; title: string; file: string }[] };
 type Questions = {
@@ -121,6 +139,8 @@ export function loadChatCases(root = ROOT): ChatCase[] {
       expectedSources: c1.expectedDocuments.map((key) => titleOf(manifest, key)),
       forbiddenTerms,
       requireAll: true,
+      // Story 7.2b : deux Documents différents, la phrase d'écart est exigée.
+      disagreement: "required",
     },
   ];
 }
@@ -173,6 +193,9 @@ export type ChatOutcome = {
   renvoiRangeOk: boolean;
   // Story 5.4 : réponse commençant par « 1. » alors qu'un seul point est attendu (q1).
   leadingNumberFound: boolean;
+  // Story 7.2b : contrainte sur la phrase d'écart (null : aucune) et phrase présente dans le texte.
+  disagreement: "required" | "forbidden" | null;
+  disagreementFound: boolean;
   // Story 5.5 : texte provisoire (delta reçus), premier delta (ms depuis l'envoi, côté fonction).
   deltaCount: number;
   firstDeltaMs: number | null;
@@ -252,6 +275,9 @@ export function evaluateChatCase(
   const rawCitationFound = hasRawCitation(content);
   const renvoiRangeOk = renvoisInRange(content, sources.length);
   const leadingNumberFound = chatCase.noLeadingNumber === true && hasLeadingNumber(content);
+  const disagreement = chatCase.disagreement ?? null;
+  const disagreementFound = normalized.includes(DISAGREEMENT_PHRASE);
+  const disagreementOk = disagreement === null || (disagreement === "required") === disagreementFound;
   // Story 5.5 : texte provisoire, mis bout à bout pour les termes interdits.
   const provisionalForbiddenFound = hasForbidden(stream.deltas.join(""));
   const deltaMarkupFound = hasDeltaMarkup(stream.deltas);
@@ -270,6 +296,8 @@ export function evaluateChatCase(
     rawCitationFound,
     renvoiRangeOk,
     leadingNumberFound,
+    disagreement,
+    disagreementFound,
     deltaCount: stream.deltas.length,
     firstDeltaMs: stream.firstDeltaMs,
     provisionalForbiddenFound,
@@ -285,6 +313,7 @@ export function evaluateChatCase(
       !rawCitationFound &&
       renvoiRangeOk &&
       !leadingNumberFound &&
+      disagreementOk &&
       !provisionalForbiddenFound &&
       !deltaMarkupFound &&
       !refusalDeltaFound,
@@ -319,6 +348,7 @@ export function buildChatReport(
   const provisionalLeaks = count((outcome) => outcome.provisionalForbiddenFound);
   const markup = count((outcome) => outcome.deltaMarkupFound);
   const refusalDeltas = count((outcome) => outcome.refusalDeltaFound);
+  const withDisagreement = outcomes.filter((outcome) => outcome.disagreement === "required");
   const firsts = outcomes.map((outcome) => outcome.firstDeltaMs).filter((value): value is number => value !== null);
   const yes = (value: boolean) => (value ? "OUI" : "non");
   return [
@@ -329,6 +359,7 @@ export function buildChatReport(
     "- Compte : Compte de mesure 1 de .env.seed",
     `- Résultat : ${passed ? "réussi" : "ÉCHEC"} (critères bloquants : ${count((outcome) => outcome.passed)} sur ${outcomes.length} ; termes interdits : ${leaks} sur ${outcomes.length} ; repères [P bruts : ${rawCitations} sur ${outcomes.length})`,
     `- Texte provisoire : termes interdits ${provisionalLeaks} sur ${outcomes.length} ; delta avec repère ou marqueur ${markup} sur ${outcomes.length} ; refus avec delta ${refusalDeltas} sur ${outcomes.length}`,
+    `- Phrase d'écart « ${DISAGREEMENT_PHRASE} » (exigée pour c1, story 7.2b) : présente ${withDisagreement.filter((outcome) => outcome.disagreementFound).length} sur ${withDisagreement.length}`,
     `- Premier delta (côté fonction, sans Vercel) : médiane ${median(firsts) ?? "—"} ms sur ${firsts.length} réponses`,
     `- Compteur du jour du Compte : ${counter.before ?? "?"} avant, ${counter.after ?? "?"} après (${outcomes.length} questions, +${expectedCounterDelta(outcomes)} attendu) : ${counterOk ? "cohérent" : "INCOHÉRENT"}`,
     "",
@@ -440,12 +471,13 @@ async function main(): Promise<void> {
     await session.client.auth.signOut().catch(() => {});
 
     const report = buildChatReport(session.target.host, outcomes, { before, after });
-    mkdirSync(path.join(ROOT, path.dirname(REPORT_FILE)), { recursive: true });
-    writeFileSync(path.join(ROOT, REPORT_FILE), report, "utf8");
+    const reportFile = nextFreeReportPath(ROOT, REPORT_FILE);
+    mkdirSync(path.join(ROOT, path.dirname(reportFile)), { recursive: true });
+    writeFileSync(path.join(ROOT, reportFile), report, "utf8");
     const counterOk = isCounterConsistent(outcomes, { before, after });
     const passed = isRunPassed(outcomes, { before, after });
     console.log(
-      `test:chat:live — ${passed ? "réussi" : "ÉCHEC"} ; compteur ${before ?? "?"} → ${after ?? "?"} (+${expectedCounterDelta(outcomes)} attendu, ${counterOk ? "cohérent" : "INCOHÉRENT"}) ; rapport : ${REPORT_FILE}`,
+      `test:chat:live — ${passed ? "réussi" : "ÉCHEC"} ; compteur ${before ?? "?"} → ${after ?? "?"} (+${expectedCounterDelta(outcomes)} attendu, ${counterOk ? "cohérent" : "INCOHÉRENT"}) ; rapport : ${reportFile.replace(/\\/g, "/")}`,
     );
     if (!passed) process.exit(1);
   } catch (error) {

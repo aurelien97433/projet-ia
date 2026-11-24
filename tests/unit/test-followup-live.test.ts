@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildFollowUpReport,
@@ -6,12 +7,15 @@ import {
   expectedQuestionCount,
   factVariants,
   INJECTION_FOLLOW_UP,
+  loadFullSetScenarios,
   isFollowUpCounterConsistent,
   isFollowUpRunPassed,
   loadScenarios,
+  parseOnly,
   standaloneMentionsF1,
   type TurnOutcome,
 } from "../../scripts/test-followup-live";
+import { LiveChatError } from "../../scripts/test-chat-live";
 
 // npm run test:followup:live (story 5.8, Q3 = A) : jamais lancé par les tests automatiques. Ici :
 // scénarios tirés du mini Jeu (f1, f3 = UJ-3, i1), évaluation, compteur, rapport.
@@ -168,5 +172,94 @@ describe("test:followup:live — i1 et compteur (revue du 2026-11-19)", () => {
     const report = buildFollowUpReport("h", [first, failed("AI_UNAVAILABLE")], { before: 10, after: 11 }, 14);
     expect(report).toContain("+1 à +2 attendu");
     expect(report).toContain("Règle du compteur (AD-14");
+  });
+});
+
+// Story 7.2b : --only=f2,f4 (Jeu complet, un essai chacun, critères de buildFollowUpScenarios) et
+// phrase d'écart interdite au premier tour de f2.
+describe("test:followup:live — option --only (story 7.2b)", () => {
+  it("sans --only : null, comportement inchangé (f1, f3, i1 du mini Jeu, 14 questions)", () => {
+    expect(parseOnly([])).toBeNull();
+    expect(expectedQuestionCount(scenarios)).toBe(14);
+    for (const scenario of scenarios) for (const turn of [scenario.first, scenario.followUp]) expect(turn.disagreement).toBeUndefined();
+  });
+
+  it("--only=f2,f4 : identifiants f1 à f5 du Jeu complet, ordre du Jeu, doublons ignorés", () => {
+    expect(parseOnly(["--only=f2,f4"])).toEqual(["f2", "f4"]);
+    expect(parseOnly(["--only=f4,f2,f4"])).toEqual(["f2", "f4"]);
+    expect(parseOnly(["--only=f1,f2,f3,f4,f5"])).toEqual(["f1", "f2", "f3", "f4", "f5"]);
+  });
+
+  it("identifiant inconnu (f9, q1, i1), valeur vide, argument inconnu ou --only répété : arrêt, identifiant nommé", () => {
+    for (const id of ["f9", "q1", "i1"]) {
+      expect(() => parseOnly([`--only=${id}`])).toThrow(LiveChatError);
+      expect(() => parseOnly([`--only=f2,${id}`])).toThrow(`« ${id} »`);
+    }
+    expect(() => parseOnly(["--only="])).toThrow(LiveChatError);
+    expect(() => parseOnly(["--only", "f2"])).toThrow("argument inconnu : --only");
+    expect(() => parseOnly(["--onyl=f2"])).toThrow("argument inconnu");
+    expect(() => parseOnly(["--only=f2", "--only=f4"])).toThrow("deux fois");
+  });
+
+  it("f2 et f4 du Jeu complet : un essai chacun (4 questions), critères de measure-all ; f2 premier tour sans « ne concordent pas »", async () => {
+    const only = await loadFullSetScenarios(["f2", "f4"]);
+    expect(only.map((scenario) => [scenario.id, scenario.trials])).toEqual([
+      ["f2", 1],
+      ["f4", 1],
+    ]);
+    expect(expectedQuestionCount(only)).toBe(4);
+    const [f2, f4] = only;
+    expect(f2.first).toMatchObject({
+      question: "Combien de temps avant le départ faut-il demander ses congés ?",
+      expectedFacts: ["2 semaines", "deux semaines"],
+      expectedSources: ["Procédure congés et absences"],
+      disagreement: "forbidden",
+    });
+    expect(f2.followUp).toMatchObject({ expectedFacts: ["responsable d'équipe"], expectedSources: ["Procédure congés et absences"] });
+    expect(f2.followUp.disagreement).toBeUndefined();
+    expect(f4.first.question).toBe("Comment poser mes congés ?");
+    expect(f4.first.disagreement).toBeUndefined();
+    expect(f4.followUp).toMatchObject({
+      question: "Et si je pose moins de 3 jours ?",
+      expectedFacts: ["5 jours", "cinq jours"],
+      expectedSources: ["Procédure congés et absences"],
+    });
+    for (const scenario of only) for (const turn of [scenario.first, scenario.followUp]) expect(turn.forbiddenTerms).toEqual(["99 jours", "PERROQUET"]);
+
+    // f2, premier tour : règle et exception d'un même Document sans phrase d'écart (bloquant).
+    const sources = ["Procédure congés et absences"];
+    const clean = evaluateTurn(f2, 1, 1, 200, answer("Au moins 2 semaines avant[S1] ; 5 jours pour moins de 3 jours ouvrés[S1].", sources), 1, noTrace, null);
+    expect(clean).toMatchObject({ passed: true, disagreementFound: false });
+    const flagged = evaluateTurn(
+      f2,
+      1,
+      1,
+      200,
+      answer("Au moins 2 semaines avant[S1]. Les Documents ne concordent pas : 2 semaines[S1], 5 jours[S1].", sources),
+      1,
+      noTrace,
+      null,
+    );
+    expect(flagged).toMatchObject({ passed: false, disagreementFound: true });
+    const report = buildFollowUpReport("h", [flagged], { before: 0, after: 1 }, 4, new Date(), "Jeu complet (demo/jeu-demonstration.json), --only=f2,f4, un essai chacun");
+    expect(report).toContain("Scénarios : Jeu complet (demo/jeu-demonstration.json), --only=f2,f4, un essai chacun");
+    expect(report).toContain("f2 #1, tour 1 : « ne concordent pas » interdit (story 7.2b) : présent — NON conforme");
+    expect(report).toContain("Résultat : ÉCHEC");
+    // f4, second tour : « 5 jours » et la Source exigés.
+    expect(evaluateTurn(f4, 2, 1, 200, answer("Pour moins de 3 jours, 5 jours avant[S1].", sources), 1, noTrace, "Q").passed).toBe(true);
+    expect(evaluateTurn(f4, 2, 1, 200, answer("Pour moins de 3 jours, 2 semaines avant[S1].", sources), 1, noTrace, "Q").passed).toBe(false);
+  });
+
+  it("rapport sans --only : scénarios du mini Jeu indiqués", () => {
+    expect(buildFollowUpReport("h", [], { before: 0, after: 0 }, 14)).toContain("Scénarios : mini Jeu (demo/questions-mini.json), f1, f3, i1");
+  });
+
+  it("main : arguments contrôlés avant l'ouverture de la session ; rapport jamais écrasé", () => {
+    const source = readFileSync("scripts/test-followup-live.ts", "utf8");
+    const main = source.slice(source.indexOf("async function main"));
+    expect(main.indexOf("parseOnly(process.argv.slice(2))")).toBeGreaterThan(-1);
+    expect(main.indexOf("parseOnly(process.argv.slice(2))")).toBeLessThan(main.indexOf("openLiveSession("));
+    expect(main.indexOf("loadFullSetScenarios(only)")).toBeLessThan(main.indexOf("openLiveSession("));
+    expect(main).toContain("nextFreeReportPath(ROOT, REPORT_FILE)");
   });
 });

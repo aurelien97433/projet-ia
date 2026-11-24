@@ -24,7 +24,13 @@
 // Question de suivi : question autonome enregistrée (reformulation faite). Compteur du jour : +14 si
 // tout réussit (reformulation réussie non comptée ; échec : règle d'AD-14, voir expectedCounterRange).
 // i1 : présence du Document piège parmi les Sources relevée, non exigée. Rapport
-// docs/mesures/suivi-live.md, sans secret, ni e-mail, ni jeton.
+// docs/mesures/suivi-live.md, sans secret, ni e-mail, ni jeton, jamais écrasé (-2, -3…, story 7.2b).
+//
+// Story 7.2b : npm run test:followup:live -- --only=f2,f4 rejoue seulement les scénarios nommés, tirés
+// du Jeu complet (demo/jeu-demonstration.json, critères de buildFollowUpScenarios de measure-all.ts),
+// un essai chacun ; f2 au premier tour : « ne concordent pas » interdit (règle et exception d'un même
+// Document). --only n'accepte que f1 à f5 ; tout autre identifiant ou argument arrête le script avant
+// tout appel.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +40,9 @@ import {
   type ChatOutcome,
   evaluateChatCase,
   consumesUnit,
+  DISAGREEMENT_PHRASE,
   LiveChatError,
+  nextFreeReportPath,
   normalizeForCheck,
   readChatResponse,
   REQUEST_TIMEOUT_MS,
@@ -154,6 +162,49 @@ export function loadScenarios(root = ROOT): Scenario[] {
   ];
 }
 
+// Story 7.2b : option --only=f2,f4. null sans --only (comportement inchangé). Identifiants admis : f1 à
+// f5 du Jeu complet ; doublons ignorés, ordre du Jeu. Toute autre valeur ou tout autre argument :
+// LiveChatError, levée avant tout appel.
+export const ONLY_IDS = ["f1", "f2", "f3", "f4", "f5"] as const;
+
+export function parseOnly(args: string[]): string[] | null {
+  let only: string[] | null = null;
+  for (const arg of args) {
+    const match = /^--only=(.*)$/.exec(arg);
+    if (!match) throw new LiveChatError(`argument inconnu : ${arg} (seul --only=f1,…,f5 est admis). Aucun appel n'a été fait.`);
+    if (only !== null) throw new LiveChatError("--only donné deux fois. Aucun appel n'a été fait.");
+    const ids = match[1].split(",").map((id) => id.trim());
+    const unknown = ids.filter((id) => !(ONLY_IDS as readonly string[]).includes(id));
+    if (unknown.length > 0) {
+      throw new LiveChatError(
+        `--only : identifiant inconnu ${unknown.map((id) => `« ${id} »`).join(", ")} (admis : ${ONLY_IDS.join(", ")}, Jeu complet). Aucun appel n'a été fait.`,
+      );
+    }
+    only = ONLY_IDS.filter((id) => ids.includes(id));
+  }
+  return only;
+}
+
+// Scénarios nommés du Jeu complet, critères de buildFollowUpScenarios (measure-all.ts), un essai
+// chacun ; f2 au premier tour : phrase d'écart interdite. Import dynamique : measure-all.ts importe
+// ce module.
+export async function loadFullSetScenarios(ids: string[], root = ROOT): Promise<Scenario[]> {
+  const [{ buildFollowUpScenarios }, { readDemoSet }] = await Promise.all([import("./measure-all"), import("./measure-search")]);
+  let all: Scenario[];
+  try {
+    all = buildFollowUpScenarios(readDemoSet(root));
+  } catch (error) {
+    throw new LiveChatError(`Jeu complet illisible : ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return all
+    .filter((scenario) => ids.includes(scenario.id))
+    .map((scenario) => ({
+      ...scenario,
+      trials: 1,
+      first: scenario.id === "f2" ? { ...scenario.first, disagreement: "forbidden" as const } : scenario.first,
+    }));
+}
+
 // f1 : question autonome qui mentionne la validation d'une facture au-delà de 10 000 euros
 // (normalisation de test:chat:live ; « 10 000 », « 10 000 », « 10000 » ou « 10.000 »).
 export function standaloneMentionsF1(standalone: string | null): boolean {
@@ -240,6 +291,8 @@ export function buildFollowUpReport(
   counter: { before: number | null; after: number | null },
   expectedQuestions: number,
   date = new Date(),
+  // Story 7.2b : Jeu et scénarios rejoués (--only : Jeu complet).
+  scope = "mini Jeu (demo/questions-mini.json), f1, f3, i1",
 ): string {
   const counterOk = isFollowUpCounterConsistent(outcomes, counter);
   const passed = isFollowUpRunPassed(outcomes, counter, expectedQuestions);
@@ -252,6 +305,7 @@ export function buildFollowUpReport(
     `- Date : ${date.toISOString()}`,
     `- Cible : ${host}`,
     "- Compte : Compte de mesure 1 de .env.seed",
+    `- Scénarios : ${scope}`,
     `- Résultat : ${passed ? "réussi" : "ÉCHEC"} (questions conformes : ${count((outcome) => outcome.passed)} sur ${outcomes.length}, ${expectedQuestions} prévues)`,
     `- Termes interdits (« 99 jours », « PERROQUET ») : texte validé ${count((outcome) => outcome.forbiddenFound)} sur ${outcomes.length} ; texte provisoire ${count((outcome) => outcome.provisionalForbiddenFound)} sur ${outcomes.length}`,
     `- Compteur du jour du Compte : ${counter.before ?? "?"} avant, ${counter.after ?? "?"} après (${rangeText(expectedCounterRange(outcomes))} attendu) : ${counterOk ? "cohérent" : "INCOHÉRENT"}`,
@@ -261,6 +315,12 @@ export function buildFollowUpReport(
       .map(
         (outcome) =>
           `- ${outcome.scenario} #${outcome.trial}, question de suivi : Document piège parmi les Sources : ${outcome.trapSourceFound ? "oui (Passage piège atteint)" : "non (Passage piège non atteint : i1 ne prouve rien sur l'injection)"} — relevé, non exigé`,
+      ),
+    ...outcomes
+      .filter((outcome) => outcome.disagreement !== null)
+      .map(
+        (outcome) =>
+          `- ${outcome.scenario} #${outcome.trial}, tour ${outcome.turn} : « ${DISAGREEMENT_PHRASE} » ${outcome.disagreement === "required" ? "exigé" : "interdit"} (story 7.2b) : ${outcome.disagreementFound ? "présent" : "absent"} — ${(outcome.disagreement === "required") === outcome.disagreementFound ? "conforme" : "NON conforme"}`,
       ),
     "",
     "## Questions",
@@ -359,7 +419,10 @@ export async function runScenarios(session: LiveSession, scenarios: Scenario[]):
 
 async function main(): Promise<void> {
   try {
-    const scenarios = loadScenarios();
+    // Arguments contrôlés avant tout appel (story 7.2b).
+    const only = parseOnly(process.argv.slice(2));
+    const scenarios = only ? await loadFullSetScenarios(only) : loadScenarios();
+    const scope = only ? `Jeu complet (demo/jeu-demonstration.json), --only=${only.join(",")}, un essai chacun` : undefined;
     const expected = expectedQuestionCount(scenarios);
     const session = await openLiveSession("test:followup:live");
     const day = new Date().toISOString().slice(0, 10);
@@ -368,13 +431,14 @@ async function main(): Promise<void> {
     const after = await dailyCount(session, day);
     await session.client.auth.signOut().catch(() => {});
 
-    const report = buildFollowUpReport(session.target.host, outcomes, { before, after }, expected);
-    mkdirSync(path.join(ROOT, path.dirname(REPORT_FILE)), { recursive: true });
-    writeFileSync(path.join(ROOT, REPORT_FILE), report, "utf8");
+    const report = buildFollowUpReport(session.target.host, outcomes, { before, after }, expected, new Date(), scope);
+    const reportFile = nextFreeReportPath(ROOT, REPORT_FILE);
+    mkdirSync(path.join(ROOT, path.dirname(reportFile)), { recursive: true });
+    writeFileSync(path.join(ROOT, reportFile), report, "utf8");
     const counterOk = isFollowUpCounterConsistent(outcomes, { before, after });
     const passed = isFollowUpRunPassed(outcomes, { before, after }, expected);
     console.log(
-      `test:followup:live — ${passed ? "réussi" : "ÉCHEC"} ; ${outcomes.filter((outcome) => outcome.passed).length} sur ${expected} ; compteur ${before ?? "?"} → ${after ?? "?"} (${rangeText(expectedCounterRange(outcomes))} attendu, ${counterOk ? "cohérent" : "INCOHÉRENT"}) ; rapport : ${REPORT_FILE}`,
+      `test:followup:live — ${passed ? "réussi" : "ÉCHEC"} ; ${outcomes.filter((outcome) => outcome.passed).length} sur ${expected} ; compteur ${before ?? "?"} → ${after ?? "?"} (${rangeText(expectedCounterRange(outcomes))} attendu, ${counterOk ? "cohérent" : "INCOHÉRENT"}) ; rapport : ${reportFile.replace(/\\/g, "/")}`,
     );
     if (!passed) process.exit(1);
   } catch (error) {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChatReport,
   consumesUnit,
+  DISAGREEMENT_PHRASE,
   evaluateChatCase,
   expectedCounterDelta,
   hasDeltaMarkup,
@@ -11,6 +12,7 @@ import {
   isCounterConsistent,
   isRunPassed,
   loadChatCases,
+  nextFreeReportPath,
   normalizeForCheck,
   readChatResponse,
   renvoisInRange,
@@ -64,7 +66,9 @@ describe("cas bloquants (story 5.3)", () => {
       expectedFacts: ["15 jours", "21 jours"],
       expectedSources: C1_SOURCES,
       requireAll: true,
+      disagreement: "required",
     });
+    for (const item of cases.filter((candidate) => candidate.id !== "c1")) expect(item.disagreement).toBeUndefined();
     expect(q1).toMatchObject({
       question: "Sous quel délai une facture doit-elle être émise après la livraison ?",
       expectedFacts: ["5 jours ouvrés"],
@@ -100,11 +104,40 @@ describe("cas bloquants (story 5.3)", () => {
   });
 
   it("story 5.4, c1 : les DEUX Sources et les DEUX valeurs exigées", () => {
-    const both = "Contradiction : 15 jours selon la FAQ [S1], 21 jours selon la note [S2].";
+    const both = "Les Documents ne concordent pas : 15 jours[S1], 21 jours[S2].";
     expect(evaluateChatCase(c1, 1, 200, answer(both, C1_SOURCES), 10).passed).toBe(true);
     expect(evaluateChatCase(c1, 1, 200, answer(both, [C1_SOURCES[0]]), 10)).toMatchObject({ passed: false, sourceFound: false });
     expect(evaluateChatCase(c1, 1, 200, answer("Relance à 15 jours [S1].", C1_SOURCES), 10)).toMatchObject({ passed: false, factFound: false });
     expect(evaluateChatCase(c1, 1, 200, refusal("refusal_info_absente", ABSENTE), 10).passed).toBe(false);
+  });
+
+  it("story 7.2b, c1 : « ne concordent pas » exigé à chaque essai (après normalisation) ; les deux valeurs et les deux Sources sans la phrase d'écart : échec", () => {
+    expect(DISAGREEMENT_PHRASE).toBe("ne concordent pas");
+    const without = evaluateChatCase(c1, 1, 200, answer("15 jours[S1] selon la FAQ, 21 jours[S2] selon la note.", C1_SOURCES), 10);
+    expect(without).toMatchObject({ passed: false, factFound: true, sourceFound: true, disagreement: "required", disagreementFound: false });
+    const spaced = evaluateChatCase(c1, 1, 200, answer("Les Documents NE CONCORDENT   pas : 15 jours[S1], 21 jours[S2].", C1_SOURCES), 10);
+    expect(spaced).toMatchObject({ passed: true, disagreementFound: true });
+    // Hors c1 : aucune contrainte sur la phrase d'écart.
+    expect(evaluateChatCase(q1, 1, 200, answer("Sous 5 jours ouvrés [S1]. Les Documents ne concordent pas.", ["Procédure de facturation"]), 10)).toMatchObject({ passed: true, disagreement: null });
+  });
+
+  it("story 7.2b : phrase d'écart interdite (cas « forbidden ») : présente → échec, absente → conforme", () => {
+    const f2 = { ...q1, expectedFacts: ["2 semaines"], expectedSources: ["Procédure congés et absences"], noLeadingNumber: false, disagreement: "forbidden" as const };
+    const sources = ["Procédure congés et absences"];
+    expect(evaluateChatCase(f2, 1, 200, answer("2 semaines avant[S1] ; 5 jours pour moins de 3 jours[S1].", sources), 10).passed).toBe(true);
+    expect(evaluateChatCase(f2, 1, 200, answer("2 semaines[S1]. Les Documents ne concordent pas : 2 semaines[S1], 5 jours[S1].", sources), 10)).toMatchObject({
+      passed: false,
+      disagreementFound: true,
+    });
+  });
+
+  it("story 7.2b : rapport jamais écrasé (x.md, puis x-2.md, x-3.md…)", () => {
+    const slash = (file: string) => file.replace(/\\/g, "/");
+    const existing = new Set(["root/docs/mesures/assistant-live.md", "root/docs/mesures/assistant-live-2.md"]);
+    const exists = (file: string) => existing.has(slash(file));
+    expect(slash(nextFreeReportPath("root", "docs/mesures/assistant-live.md", () => false))).toBe("docs/mesures/assistant-live.md");
+    expect(slash(nextFreeReportPath("root", "docs/mesures/assistant-live.md", exists))).toBe("docs/mesures/assistant-live-3.md");
+    expect(slash(nextFreeReportPath("root", "docs/mesures/suivi-live.md", exists))).toBe("docs/mesures/suivi-live.md");
   });
 
   it("story 5.4 : un repère [P brut dans un texte fait échouer le cas", () => {
@@ -192,7 +225,7 @@ describe("rapport", () => {
     ...[1, 2, 3].map((trial) => evaluateChatCase(h1, trial, 200, refusal("refusal_info_absente", ABSENTE), 900)),
     ...[1, 2, 3].map((trial) => evaluateChatCase(o1, trial, 200, refusal("refusal_hors_cadre", HORS_CADRE), 400)),
     ...[1, 2, 3].map((trial) =>
-      evaluateChatCase(c1, trial, 200, answer("15 jours selon la FAQ [S1], 21 jours selon la note [S2].", C1_SOURCES), 950, TRACE),
+      evaluateChatCase(c1, trial, 200, answer("Les Documents ne concordent pas : 15 jours[S1], 21 jours[S2].", C1_SOURCES), 950, TRACE),
     ),
   ];
 
@@ -205,6 +238,7 @@ describe("rapport", () => {
     expect(report).toContain("| c1 | 2 | 200 | answer | FAQ comptabilité, Note de réunion : finance de mars | oui | oui | non | non | oui | non | 3 | 450 ms | non | non | non | 950 ms | oui |");
     expect(report).toContain("Texte provisoire : termes interdits 0 sur 15 ; delta avec repère ou marqueur 0 sur 15 ; refus avec delta 0 sur 15");
     expect(report).toContain("Premier delta (côté fonction, sans Vercel) : médiane 450 ms sur 9 réponses");
+    expect(report).toContain("Phrase d'écart « ne concordent pas » (exigée pour c1, story 7.2b) : présente 3 sur 3");
     expect(report).toContain("15 questions, +15 attendu) : cohérent");
     expect(report).toContain(`- h1 #2 : ${ABSENTE}`);
     expect(report).not.toContain("Observation");

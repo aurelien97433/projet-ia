@@ -26,7 +26,9 @@ export const CHAT_SYSTEM_PROMPT = [
   "Commencez par la réponse directe. Ne répétez jamais la réponse sous forme de liste. Une liste numérotée n'est permise que pour une procédure d'au moins deux étapes distinctes, chacune apportant une action nouvelle.",
   "Après chaque affirmation, citez le Passage qui la justifie sous la forme [P1], avec un seul numéro par crochet : [P1][P3] et non [P1, P3].",
   "Ne nommez jamais un Document autre que celui du Passage que vous citez.",
-  "Avant de répondre, comparez les Passages entre eux. Si plusieurs Passages donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. »",
+  // Story 7.2b : une contradiction ne se signale qu'entre Passages de Documents différents (attribut
+  // document de la balise <passage>, posé par buildChatMessages).
+  "Avant de répondre, comparez entre eux les Passages de Documents différents (attribut document différent). Si des Passages de Documents différents donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. » Dans un même Document, une règle et son exception, ou deux cas distincts, ne sont pas une contradiction : donnez chaque valeur avec son cas et sa citation, sans phrase d'écart.",
   "La première ligne de votre sortie contient uniquement l'un de ces marqueurs, seul, sans autre texte ni ponctuation : REPONSE, REFUS_INFO_ABSENTE ou REFUS_HORS_CADRE.",
   "REPONSE : les Passages permettent de répondre ; la réponse commence à la ligne suivante.",
   // Story 5.9 (décision de l'utilisateur du 2026-11-20) : h1 passe par ce chemin (Passages au-dessus du

@@ -2,7 +2,8 @@
 title: 'Story 7.2b : Contradiction signalée seulement entre Documents différents'
 type: 'fix'
 created: '2026-11-24'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_commit: '01d70e6eaa29c86d04f41a1cdb7ea4d31bf8a575'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -59,10 +60,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Consigne de `CHAT_SYSTEM_PROMPT` modifiée ; `prompt.test.ts` mis à jour.
-- [ ] `test:chat:live` : critère c1 « ne concordent pas » ; test.
-- [ ] `test:followup:live --only` (Jeu complet, un essai, contrôle des identifiants) et critère f2 tour 1 ; tests ; `docs/environnements.md`.
-- [ ] Revue ciblée par Claude (consigne seule, aucune logique applicative).
+- [x] Consigne de `CHAT_SYSTEM_PROMPT` modifiée ; `prompt.test.ts` mis à jour.
+- [x] `test:chat:live` : critère c1 « ne concordent pas » ; test.
+- [x] `test:followup:live --only` (Jeu complet, un essai, contrôle des identifiants) et critère f2 tour 1 ; tests ; `docs/environnements.md`.
+- [x] Revue ciblée par Claude (consigne seule, aucune logique applicative).
 
 **Acceptance Criteria:**
 - Given la consigne déployée, when l'utilisateur lance `test:chat:live`, then les 15 essais sont verts et chaque essai de c1 contient « ne concordent pas », 15 et 21 jours et les deux Sources.
@@ -78,3 +79,15 @@ Le modèle peut distinguer les Documents parce que chaque Passage porte déjà s
 **Commands:** `npm test` (depuis PowerShell), `npm run lint`, `npx tsc --noEmit`, `npm run check:secrets`.
 
 **Utilisateur, dans cet ordre, chaque étape sur accord :** commit local ; `npm run deploy:supabase` ; push ; `npm run test:chat:live` ; `npm run test:followup:live -- --only=f2,f4`.
+
+## Review Triage Log
+
+Revue ciblée par Claude (Design Notes : consigne seule, aucune logique applicative ; couches blind-hunter, edge-case-hunter et verification-gap non lancées).
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | Consigne : comparaison limitée aux Passages de Documents différents, exemple « ne concordent pas » et règle « ne jamais choisir » conservés, cas règle et exception d'un même Document ajouté | false (conforme) | diff de `prompt.ts` : une seule ligne de `CHAT_SYSTEM_PROMPT` ; `REFUSAL_SYSTEM_PROMPT` et `buildChatMessages` inchangés | - |
+| 2 | `test:followup:live` refuse désormais tout argument inconnu (avant : ignoré) | low | `parseOnly` ; voulu : une faute de frappe (`--onyl`) lancerait sinon les 14 questions du passage complet | accepté |
+| 3 | `measure:all` n'interdit pas la phrase d'écart au premier tour de f2 (seul `--only` le fait) | low | `loadFullSetScenarios` ajoute `disagreement: "forbidden"` ; `buildFollowUpScenarios` inchangé | accepté : `measure:all` n'est pas rejoué dans cette story |
+| 4 | Deux Documents différents de même titre seraient vus comme un seul | low | attribut `document` = titre ; titres uniques dans le Jeu complet | limite acceptée par la spec |
+| 5 | Passage complet de `npm test` : 1 échec sur 2 204, `tests/integration/summary.test.ts` (expiration `AI_TIMEOUT` après 396 s, pile locale) | false (pour cette story) | fichier ni importé ni modifié par la story (Résumé) ; relancé seul : 27 sur 27 ; lint, tsc, check:secrets verts | à surveiller (instabilité sous charge, pile locale) |

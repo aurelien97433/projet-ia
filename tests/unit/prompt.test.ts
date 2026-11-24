@@ -64,7 +64,7 @@ describe("buildChatMessages", () => {
 
   it("stories 5.4 et 5.5 (décisions de l'utilisateur du 2026-11-17) : valeurs différentes pour un même fait, toutes données avec leur Passage dès la réponse directe, écart signalé ; exemple sans « selon » devant un renvoi", () => {
     const rule =
-      "Avant de répondre, comparez les Passages entre eux. Si plusieurs Passages donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. »";
+      "Avant de répondre, comparez entre eux les Passages de Documents différents (attribut document différent). Si des Passages de Documents différents donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. » Dans un même Document, une règle et son exception, ou deux cas distincts, ne sont pas une contradiction : donnez chaque valeur avec son cas et sa citation, sans phrase d'écart.";
     const lines = CHAT_SYSTEM_PROMPT.split("\n");
     // Une seule ligne, mot pour mot ; l'ancienne consigne et l'ancien exemple ont disparu.
     expect(lines.filter((line) => line === rule)).toHaveLength(1);
@@ -77,6 +77,22 @@ describe("buildChatMessages", () => {
     expect(rule).not.toMatch(/\d+ jours/);
     // Le marqueur reste la règle de première ligne.
     expect(lines.findIndex((line) => line.startsWith("La première ligne de votre sortie"))).toBeGreaterThan(lines.indexOf(rule));
+  });
+
+  it("story 7.2b : contradiction signalée seulement entre Passages de Documents différents ; règle et exception d'un même Document sans phrase d'écart ; exemple conservé", () => {
+    const rule = CHAT_SYSTEM_PROMPT.split("\n").find((line) => line.startsWith("Avant de répondre, comparez"))!;
+    expect(rule).toContain("Passages de Documents différents (attribut document différent)");
+    expect(rule).toContain("Si des Passages de Documents différents donnent des valeurs différentes pour un même fait");
+    expect(rule).not.toContain("Si plusieurs Passages donnent");
+    expect(rule).toContain("Dans un même Document, une règle et son exception, ou deux cas distincts, ne sont pas une contradiction");
+    expect(rule).toContain("donnez chaque valeur avec son cas et sa citation, sans phrase d'écart.");
+    // Gardés : jamais de choix, chaque valeur citée dès la réponse directe, exemple de la phrase d'écart.
+    expect(rule).toContain("ne choisissez jamais l'une d'elles");
+    expect(rule).toContain("dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage");
+    expect(rule).toContain("« Les Documents ne concordent pas : X[P1], Y[P3]. »");
+    // L'attribut document nommé par la consigne est bien celui que pose buildChatMessages.
+    const [, user] = buildChatMessages({ question: "Délai ?", passages: [{ documentId: "d1", documentTitle: "Procédure congés et absences", content: "2 semaines" }] });
+    expect(user.content).toContain('<passage id="P1" document="Procédure congés et absences">');
   });
 
   it("consigne d'un Passage (NFR-10) : jamais suivie, mentionnée, résumée ni reproduite ; réponse à la seule question", () => {
@@ -154,7 +170,7 @@ describe("buildRefusalMessages (appel court, story 5.3)", () => {
       "Commencez par la réponse directe. Ne répétez jamais la réponse sous forme de liste. Une liste numérotée n'est permise que pour une procédure d'au moins deux étapes distinctes, chacune apportant une action nouvelle.",
       "Après chaque affirmation, citez le Passage qui la justifie sous la forme [P1], avec un seul numéro par crochet : [P1][P3] et non [P1, P3].",
       "Ne nommez jamais un Document autre que celui du Passage que vous citez.",
-      "Avant de répondre, comparez les Passages entre eux. Si plusieurs Passages donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. »",
+      "Avant de répondre, comparez entre eux les Passages de Documents différents (attribut document différent). Si des Passages de Documents différents donnent des valeurs différentes pour un même fait (délai, montant, date, nombre, règle), ne choisissez jamais l'une d'elles : dès la réponse directe, donnez chaque valeur suivie de la citation de son Passage, puis signalez l'écart en une phrase, par exemple « Les Documents ne concordent pas : X[P1], Y[P3]. » Dans un même Document, une règle et son exception, ou deux cas distincts, ne sont pas une contradiction : donnez chaque valeur avec son cas et sa citation, sans phrase d'écart.",
       "La première ligne de votre sortie contient uniquement l'un de ces marqueurs, seul, sans autre texte ni ponctuation : REPONSE, REFUS_INFO_ABSENTE ou REFUS_HORS_CADRE.",
       "REPONSE : les Passages permettent de répondre ; la réponse commence à la ligne suivante.",
       "REFUS_INFO_ABSENTE : la question porte sur NexaWorks ou sur une information d'entreprise (procédure, règle, projet, client, budget, chiffre interne, organisation), mais les Passages ne contiennent pas l'information ; une question qui nomme NexaWorks n'est jamais hors cadre. REFUS_HORS_CADRE : culture générale, demande personnelle ou question sans rapport avec NexaWorks. Entre ces deux refus, en cas de doute, choisissez REFUS_INFO_ABSENTE. Après un refus, n'écrivez rien d'autre.",
