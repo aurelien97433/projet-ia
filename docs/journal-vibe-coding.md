@@ -1880,3 +1880,13 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Ce que la relecture a appris.** q16 et q18 étaient justes. Le modèle écrit « dans l’heure » avec l'apostrophe typographique, et le contrôle ne la rendait pas équivalente à l'apostrophe droite du fait attendu. Le contrôle a été corrigé (commit séparé), sans rejouer le rapport. La relecture de l'utilisateur ne relève aucun fait inventé, ni en SM-1 ni en SM-2. q19 et a3 ont été vérifiés dans le Guide d'accueil. a1, a2 et y3 sont conformes sur la sécurité, mais s'écartent de l'attendu : l'Assistant refuse au lieu de distinguer les cas ou de donner les valeurs (consigné, sans correctif). Au premier tour de f2, l'Assistant annonce une contradiction entre une règle et son exception, prises dans un seul Document. C'est visible dans la démonstration d'UJ-3 et ce sera corrigé par une story courte.
 
 **Statut.** Story 7.2 `done` le 2026-11-24.
+
+## Story 7.2b : contradiction signalée seulement entre Documents différents (2026-11-24)
+
+**Pourquoi.** À la relecture de `measure:all`, le premier tour de f2 donnait la règle des 2 semaines et l'exception des 5 jours, puis ajoutait « Les Documents ne concordent pas ». Or les deux valeurs viennent d'un seul Document. Le défaut était visible pendant la démonstration d'UJ-3. La consigne parlait de « plusieurs Passages » sans exiger des Documents différents.
+
+**Ce qui a été livré.** Une seule ligne de la consigne de l'Assistant change : on ne compare que des Passages de Documents différents, repérés par l'attribut `document`, déjà transmis avec chaque Passage. Dans un même Document, une règle et son exception sont données chacune avec son cas, sans phrase d'écart. Côté rejeu, `test:chat:live` exige désormais « ne concordent pas » pour c1, et `test:followup:live` reçoit l'option `--only` (scénarios du Jeu complet, un essai chacun). Les rapports ne sont plus écrasés.
+
+**Résultat en production.** Après `deploy:supabase` : `test:chat:live` 15 sur 15, avec c1 qui signale toujours la contradiction (3 sur 3) ; `--only=f2,f4` 4 sur 4, avec f2 sans phrase d'écart et f4 donnant « 5 jours ». L'utilisateur a vérifié une question sur les congés sur le site : conforme. Coût : 19 unités sur le Compte de mesure 1, environ 0,11 $.
+
+**Statut.** Story 7.2b `done` le 2026-11-24.

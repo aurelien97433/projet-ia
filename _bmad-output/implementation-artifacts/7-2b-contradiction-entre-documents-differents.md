@@ -2,7 +2,7 @@
 title: 'Story 7.2b : Contradiction signalée seulement entre Documents différents'
 type: 'fix'
 created: '2026-11-24'
-status: 'in-review'
+status: 'done'
 baseline_commit: '01d70e6eaa29c86d04f41a1cdb7ea4d31bf8a575'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -91,3 +91,10 @@ Revue ciblée par Claude (Design Notes : consigne seule, aucune logique applicat
 | 3 | `measure:all` n'interdit pas la phrase d'écart au premier tour de f2 (seul `--only` le fait) | low | `loadFullSetScenarios` ajoute `disagreement: "forbidden"` ; `buildFollowUpScenarios` inchangé | accepté : `measure:all` n'est pas rejoué dans cette story |
 | 4 | Deux Documents différents de même titre seraient vus comme un seul | low | attribut `document` = titre ; titres uniques dans le Jeu complet | limite acceptée par la spec |
 | 5 | Passage complet de `npm test` : 1 échec sur 2 204, `tests/integration/summary.test.ts` (expiration `AI_TIMEOUT` après 396 s, pile locale) | false (pour cette story) | fichier ni importé ni modifié par la story (Résumé) ; relancé seul : 27 sur 27 ; lint, tsc, check:secrets verts | à surveiller (instabilité sous charge, pile locale) |
+
+## Clôture (2026-11-24)
+
+- Code f21fc82 (spec 01d70e6), poussé ; `deploy:supabase` réussi par l'utilisateur (fonction `chat` redéployée).
+- `npm run test:chat:live` : 15 sur 15, c1 avec « ne concordent pas » 3 sur 3 (15 et 21 jours, deux Sources), compteur 0 → 15 ; rapport `docs/mesures/assistant-live-2.md`.
+- `npm run test:followup:live -- --only=f2,f4` : 4 sur 4, f2 sans phrase d'écart au premier tour et « responsable d'équipe » au second, f4 « 5 jours » avec la Procédure congés et absences, compteur 15 → 19 ; rapport `docs/mesures/suivi-live-2.md`.
+- Vérification sur le site par l'utilisateur : question sur les congés sans « ne concordent pas », conforme.
