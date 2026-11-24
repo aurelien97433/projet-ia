@@ -1902,3 +1902,9 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Relecture.** Un relecteur séparé sur toute la story (13 constats : nettoyage après Ctrl+C, verrou entre tests, critères qui pouvaient passer à vide), puis un second sur le correctif de l'application (3 constats). Tous ont été triés ; deux points sont reportés à la 7.8 : le focus de l'application après une navigation très rapide, et la fragilité des tests locaux face à la base partagée.
 
 **Statut.** Story 7.3 `done` le 2026-11-24.
+
+## Story 7.7 : plan de tests et bilan des anomalies (2026-11-24)
+
+**Ce qui a été livré.** Deux documents de synthèse, lisibles par un jury, sans nouveau test. `docs/tests/plan-de-tests.md` relie chaque étape d'UJ-1 à UJ-3 et chaque risque identifié à ses tests, avec leur niveau. `docs/tests/bilan-anomalies.md` classe les 85 reports et les constats de l'Epic 7. Aucune anomalie haute n'est ouverte ; il reste 6 moyennes et 36 basses, dont 22 acceptées avec une décision écrite. La liste des points à traiter par l'audit de sécurité (7.8) en découle. Un point est confié à la répétition générale : vérifier en production que la question exacte d'UJ-1 cite bien la Procédure de facturation.
+
+**Statut.** Story 7.7 `done` le 2026-11-24.

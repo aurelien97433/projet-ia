@@ -2,7 +2,8 @@
 title: 'Story 7.7 : Plan de tests et bilan des anomalies (synthèse)'
 type: 'chore'
 created: '2026-11-24'
-status: 'ready-for-dev'
+status: 'done'
+baseline_commit: 'a4db428db031fe9d9d766bbcf0a153216875f713'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -61,10 +62,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/tests/plan-de-tests.md` (parcours, risques, commandes).
-- [ ] `docs/tests/bilan-anomalies.md` (toutes les entrées de `deferred-work.md` classées, anomalies des mesures et des revues de l'Epic 7, en-tête chiffré, liste pour la 7.8).
-- [ ] Vrais trous : signalés ; test ajouté seulement s'il tient en moins de 30 minutes.
-- [ ] Revue ciblée par Claude : chaque fichier cité existe ; échantillon de 10 lignes du bilan recoupé avec leur preuve.
+- [x] `docs/tests/plan-de-tests.md` (parcours, risques, commandes).
+- [x] `docs/tests/bilan-anomalies.md` (toutes les entrées de `deferred-work.md` classées, anomalies des mesures et des revues de l'Epic 7, en-tête chiffré, liste pour la 7.8).
+- [x] Vrais trous : signalés ; test ajouté seulement s'il tient en moins de 30 minutes.
+- [x] Revue ciblée par Claude : chaque fichier cité existe ; échantillon de 10 lignes du bilan recoupé avec leur preuve.
 
 **Acceptance Criteria:**
 - Given `docs/tests/plan-de-tests.md`, when je le lis, then chaque parcours UJ-1 à UJ-3 et chaque risque identifié sont reliés à leurs tests avec leur niveau, ou marqués « non couvert » avec la raison.
@@ -78,3 +79,10 @@ Mode synthèse : l'Epic 7 a déjà ajouté les tests de parcours (6.2, 7.3) ; `b
 ## Verification
 
 **Commands:** `npm run check:secrets` ; contrôle que chaque chemin cité existe ; si un test est ajouté, son fichier et `npm run lint`, `npx tsc --noEmit`.
+
+## Clôture (2026-11-24)
+
+- `docs/tests/plan-de-tests.md` : UJ-1 à UJ-3 étape par étape, risques AD-1 à AD-21 et SM-1 à SM-6, 15 commandes ; non couverts : AD-3, AD-7, AD-21, AD-14 (Comptes jetables). Aucun vrai trou : aucun test ajouté.
+- `docs/tests/bilan-anomalies.md` : 85 entrées de `deferred-work.md` (D01 à D85) et constats de l'Epic 7 ; ouvertes : 0 haute, 6 moyennes, 36 basses (22 acceptées) ; fermées : 71. Liste pour la 7.8 : D08, D40, D19, D38, R73-F13, risques AD-1 et AD-14. N1, D37, M3 pour la 7.5 ; D46 pour la 7.9.
+- Choix de l'implémenteur, gardé : 24 entrées non marquées « Traité » fermées sur preuve (liste dans le bilan). Gravités à relire par l'utilisateur.
+- Revue ciblée par Claude (documents seulement, sans relecteur séparé, décision de l'utilisateur) : liens vérifiés, en-tête recalculé, recoupement de plus de 10 lignes avec leur preuve ; `check:secrets` propre.
