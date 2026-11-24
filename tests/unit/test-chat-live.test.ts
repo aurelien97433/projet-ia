@@ -152,6 +152,13 @@ describe("cas bloquants (story 5.3)", () => {
     }
   });
 
+  it("normalisation : apostrophes typographiques équivalentes à l'apostrophe droite (story 7.2, q16 et q18)", () => {
+    for (const apostrophe of ["’", "‘", "ʼ", "'"]) {
+      expect(normalizeForCheck(`Dans l${apostrophe}heure`)).toBe("dans l'heure");
+      expect(normalizeForCheck(`Votre responsable d${apostrophe}équipe`)).toContain(normalizeForCheck("responsable d'équipe"));
+    }
+  });
+
   it("Sources non tableau : ignorées, sans exception", () => {
     expect(evaluateChatCase(trap, 1, 200, { message: { kind: "answer", content: "x", sources: "pas un tableau" } }, 10).sources).toEqual([]);
   });

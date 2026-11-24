@@ -149,8 +149,11 @@ export function hasLeadingNumber(content: string): boolean {
 }
 
 // Texte comparé : NFKC (espaces insécables U+00A0 et U+202F → espace), espaces regroupés, casse ignorée.
+// Apostrophes typographiques (’ U+2019, ‘ U+2018, ʼ U+02BC) ramenées à l'apostrophe droite : NFKC ne
+// le fait pas, et le modèle écrit souvent « dans l’heure » quand le Jeu attend « dans l'heure »
+// (story 7.2, q16 et q18 comptés en échec à tort).
 export function normalizeForCheck(text: string): string {
-  return text.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+  return text.normalize("NFKC").replace(/[‘’ʼ]/gu, "'").replace(/\s+/gu, " ").trim().toLowerCase();
 }
 
 export type ChatOutcome = {
