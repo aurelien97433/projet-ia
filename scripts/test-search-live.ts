@@ -155,8 +155,9 @@ function publicVariables(): { url: string | undefined; key: string | undefined }
 
 export type LiveSession = { target: LiveTarget; client: SupabaseClient; token: string };
 
-// Cible exigée et session du Compte de mesure 1 (partagé avec measure:search, story 4.2).
-export async function openLiveSession(label: string): Promise<LiveSession> {
+// Cible exigée et session du Compte de mesure 1 (partagé avec measure:search, story 4.2). Story 7.2 :
+// measure:all ouvre aussi les Comptes de mesure 2 et 3 (account = 2 ou 3), avec les mêmes contrôles.
+export async function openLiveSession(label: string, account: 1 | 2 | 3 = 1): Promise<LiveSession> {
   const seedFile = path.join(ROOT, SEED_ENV_FILE);
   if (!existsSync(seedFile)) throw new LiveSearchError(`${SEED_ENV_FILE} est introuvable. Procédure : docs/environnements.md.`);
   const seed = parseSeedEnv(readFileSync(seedFile, "utf8"));
@@ -170,8 +171,10 @@ export async function openLiveSession(label: string): Promise<LiveSession> {
   console.log(`${label} — cible : ${target.host}`);
 
   const client = createClient(target.url, target.publicKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await client.auth.signInWithPassword(seed.measure[0]);
-  if (error || !data.session) throw new LiveSearchError(`connexion du Compte de mesure 1 refusée (${error?.code ?? "sans session"}).`);
+  const { data, error } = await client.auth.signInWithPassword(seed.measure[account - 1]);
+  if (error || !data.session) {
+    throw new LiveSearchError(`connexion du Compte de mesure ${account} refusée (${error?.code ?? "sans session"}).`);
+  }
   return { target, client, token: data.session.access_token };
 }
 

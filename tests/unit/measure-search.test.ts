@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  analyzeCalibration,
   analyzeCase,
+  calibrationSection,
+  type CalibrationMeasure,
+  loadCalibrationCases,
+  loadFullContradiction,
+  readDemoSet,
+  sweepCalibration,
+  thresholdRule,
   buildMeasureReport,
   type CaseMeasure,
   checkEmbedding,
@@ -223,5 +231,80 @@ describe("measure:search — contradiction c1 (story 5.4)", () => {
     expect(text).toContain("NON atteint");
     expect(text).toContain("| Note finance | 0,399 | 2 | non | NON |");
     expect(text).toContain("2. Note finance : 0,399");
+  });
+});
+
+// Story 7.2 : calibrage sur le Jeu complet (15 Documents), règle de l'utilisateur.
+describe("calibrage du Jeu complet (story 7.2)", () => {
+  const set = readDemoSet();
+  const cases = loadCalibrationCases(set);
+  const calibration = (overrides: Record<string, [string, number][]> = {}): CalibrationMeasure[] =>
+    cases.map((item) => ({
+      ...item,
+      scores: (overrides[item.id] ?? (item.expectedTitle ? [[item.expectedTitle, 0.6], ["Autre", 0.45]] : [["Autre", 0.3]])).map(
+        ([title, similarity]) => ({ title, similarity }),
+      ),
+    }));
+
+  it("q1 à q20 (q7 à sa place), h1 à h10, r1 à r10, s1 à s4 ; titres du Jeu complet ; c1 et ses deux Documents", () => {
+    expect(cases.filter((c) => c.family === "q").map((c) => c.id)).toEqual(Array.from({ length: 20 }, (_, i) => `q${i + 1}`));
+    expect(cases.filter((c) => c.family === "h")).toHaveLength(10);
+    expect(cases.filter((c) => c.family === "r")).toHaveLength(10);
+    expect(cases.filter((c) => c.family === "s").map((c) => c.id)).toEqual(["s1", "s2", "s3", "s4"]);
+    expect(cases.find((c) => c.id === "q17")?.expectedTitle).toBe("FAQ du support interne");
+    expect(cases.find((c) => c.id === "q7")?.text).toContain("priorité 1");
+    expect(loadFullContradiction(set).expectedTitles).toEqual(["FAQ comptabilité", "Note de réunion : finance de mars"]);
+  });
+
+  it("0,40 gardé : aucun attendu (q, r) sous 0,40, aucune Requête s au-dessus ; h rapportée hors règle", () => {
+    const decision = thresholdRule(calibration({ h1: [["Autre", 0.47]] }).map(analyzeCalibration));
+    expect(decision).toMatchObject({ keep: true, proposed: null, highMargin: 0.2, lowMargin: 0.1, questionOutMargin: -0.07 });
+  });
+
+  it("une Requête s au-dessus de 0,40 : 0,40 en place, valeur proposée (milieu de la bande)", () => {
+    const decision = thresholdRule(calibration({ s2: [["Charte d'utilisation des outils informatiques", 0.44]] }).map(analyzeCalibration));
+    expect(decision.keep).toBe(false);
+    expect(decision.searchOutAbove.map((a) => a.id)).toEqual(["s2"]);
+    expect(decision.proposed).toBe(0.52);
+    expect(decision.threshold).toBe(0.4);
+  });
+
+  it("aucune bande sûre : aucune valeur proposée", () => {
+    const decision = thresholdRule(calibration({ r2: [["FAQ comptabilité", 0.38]], s1: [["Autre", 0.42]] }).map(analyzeCalibration));
+    expect(decision).toMatchObject({ keep: false, proposed: null });
+    expect(decision.reason).toContain("aucune bande sûre");
+  });
+
+  it("Document attendu absent des Passages : compté sous le seuil", () => {
+    const decision = thresholdRule(calibration({ q5: [["Autre", 0.7]] }).map(analyzeCalibration));
+    expect(decision.expectedBelow.map((a) => a.id)).toEqual(["q5"]);
+  });
+
+  it("balayage : top 3 de r, attendus au-dessus, s avec résultat, h avec un Passage, règle", () => {
+    const rows = sweepCalibration(calibration());
+    const at = (t: number) => rows.find((row) => Math.abs(row.threshold - t) < 1e-9)!;
+    expect(at(0.4)).toMatchObject({ rTop3: 10, qKept: 20, rKept: 10, sWithResult: 0, hWithPassage: 0, ruleMet: true });
+    expect(at(0.3)).toMatchObject({ sWithResult: 4, hWithPassage: 10, ruleMet: false });
+    expect(at(0.5)).toMatchObject({ rTop3: 10, qKept: 20 });
+  });
+
+  it("section : décision, classement complet de r2 et r3, valeur proposée présentée", () => {
+    const measures = calibration({ s2: [["Charte", 0.44]] });
+    const analyses = measures.map(analyzeCalibration);
+    const contradiction = loadFullContradiction(set);
+    const scores = contradiction.expectedTitles.map((title) => ({ title, similarity: 0.5 }));
+    const text = calibrationSection({
+      analyses,
+      measures,
+      sweepRows: sweepCalibration(measures),
+      decision: thresholdRule(analyses),
+      contradiction: { analysis: analyzeContradiction(contradiction, scores, contradiction.expectedTitles), scores },
+    }).join("\n");
+    expect(text).toContain("valeur PROPOSÉE à l'utilisateur : 0,52");
+    expect(text).toContain("0,40 reste en place");
+    expect(text).toContain("r2 — « remboursement des notes de frais »");
+    expect(text).toContain("1. FAQ comptabilité : 0,600 ← attendu");
+    expect(text).toContain("### Contradiction c1 : similarités");
+    expect(text).not.toContain("story 5.4, mesures");
   });
 });

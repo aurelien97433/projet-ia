@@ -352,9 +352,291 @@ export function buildMeasureReport(input: {
   ].join("\n");
 }
 
-type LocalStack = { url: string; serviceRoleKey: string };
+// ---------------------------------------------------------------------------------------------------
+// Story 7.2 : calibrage du seuil sur le Jeu complet (15 Documents), utilisé par measure:all. Questions
+// q1 à q20 (q7 comprise), questions hors base h1 à h10, Requêtes r1 à r10 et s1 à s4, question c1 de
+// demo/jeu-demonstration.json. Règle de l'utilisateur : 0,40 est gardé si aucun Document attendu de r
+// ni de q n'est sous 0,40 et si aucune Requête s n'a de Document au-dessus ; sinon une valeur est
+// PROPOSÉE à l'utilisateur, jamais posée (aucune écriture de réglage par le script).
+// ---------------------------------------------------------------------------------------------------
 
-function localStack(): LocalStack {
+export const DEMO_SET_FILE = path.join("demo", "jeu-demonstration.json");
+// Balayage du calibrage final : plus fin autour de 0,40.
+export const CALIBRATION_THRESHOLDS = [0.3, 0.35, 0.38, 0.4, 0.42, 0.45, 0.5] as const;
+
+type DemoQuestion = { id: string; question: string; expected: string; source: string };
+type DemoFamilyCase = { id: string; question?: string; action?: string; expected: string };
+
+export type DemoSet = {
+  documents: { key: string; title: string; file: string }[];
+  questions: DemoQuestion[];
+  multiPassage: { id: string; question: string; source: string; expectedFacts: string[] };
+  outOfBase: { id: string; question: string }[];
+  searchQueries: { id: string; query: string; expectedDocument: string }[];
+  searchOutOfBase: { id: string; query: string }[];
+  contradiction: { id: string; question: string; expectedDocuments: string[]; expectedValues: Record<string, string>; forbiddenTerms: string[] };
+  followUps: { id: string; turns: string[]; expected: string; expectedSource: string; journey?: string }[];
+  promptInjection: { id: string; question: string; targetDocument: string; expected: string; forbiddenTerms: string[] };
+  families: { ambiguous: DemoFamilyCase[]; sensitive: DemoFamilyCase[]; hostile: DemoFamilyCase[] };
+};
+
+export function readDemoSet(root = ROOT): DemoSet {
+  return JSON.parse(readFileSync(path.join(root, DEMO_SET_FILE), "utf8")) as DemoSet;
+}
+
+export function demoTitle(set: DemoSet, key: string): string {
+  const title = set.documents.find((document) => document.key === key)?.title;
+  if (!title) throw new MeasureError(`Document attendu inconnu du Jeu complet : ${key}.`);
+  return title;
+}
+
+const idNumber = (id: string) => Number(id.replace(/^\D+/, ""));
+
+// Questions de SM-1 : q1 à q20, q7 (question multi-Passages) à sa place.
+export function sm1Questions(set: DemoSet): { id: string; question: string; facts: string[]; source: string }[] {
+  const multi = set.multiPassage;
+  return [
+    ...set.questions.map((q) => ({ id: q.id, question: q.question, facts: [q.expected], source: q.source })),
+    { id: multi.id, question: multi.question, facts: multi.expectedFacts, source: multi.source },
+  ].sort((a, b) => idNumber(a.id) - idNumber(b.id));
+}
+
+export type CalibrationFamily = "q" | "h" | "r" | "s";
+export type CalibrationCase = { id: string; family: CalibrationFamily; text: string; expectedTitle: string | null };
+
+export function loadCalibrationCases(set: DemoSet): CalibrationCase[] {
+  return [
+    ...sm1Questions(set).map((q) => ({ id: q.id, family: "q" as const, text: q.question, expectedTitle: demoTitle(set, q.source) })),
+    ...set.outOfBase.map((h) => ({ id: h.id, family: "h" as const, text: h.question, expectedTitle: null })),
+    ...set.searchQueries.map((r) => ({ id: r.id, family: "r" as const, text: r.query, expectedTitle: demoTitle(set, r.expectedDocument) })),
+    ...set.searchOutOfBase.map((s) => ({ id: s.id, family: "s" as const, text: s.query, expectedTitle: null })),
+  ];
+}
+
+export function loadFullContradiction(set: DemoSet): ContradictionCase {
+  const c1 = set.contradiction;
+  if (!c1 || c1.expectedDocuments.length < 2) throw new MeasureError("question de contradiction absente ou incomplète du Jeu complet.");
+  return { id: c1.id, question: c1.question, expectedTitles: c1.expectedDocuments.map((key) => demoTitle(set, key)) };
+}
+
+export type CalibrationMeasure = CalibrationCase & { scores: DocumentScore[] };
+export type CalibrationAnalysis = CaseAnalysis & { family: CalibrationFamily };
+
+export function analyzeCalibration(measure: CalibrationMeasure): CalibrationAnalysis {
+  return { ...analyzeCase({ ...measure, query: measure.text, matchMs: 0 }), family: measure.family };
+}
+
+export type ThresholdDecision = {
+  threshold: number;
+  keep: boolean;
+  // q et r dont le Document attendu est sous le seuil (ou absent des Passages).
+  expectedBelow: CalibrationAnalysis[];
+  // Requêtes s dont un Document atteint le seuil (semantic-search le renverrait).
+  searchOutAbove: CalibrationAnalysis[];
+  minExpected: CalibrationAnalysis | null;
+  maxSearchOut: CalibrationAnalysis | null;
+  maxQuestionOut: CalibrationAnalysis | null;
+  highMargin: number | null; // plus faible Document attendu (q, r) − seuil
+  lowMargin: number | null; // seuil − meilleure Requête s
+  questionOutMargin: number | null; // seuil − meilleure question h (rapportée, hors règle)
+  proposed: number | null;
+  reason: string;
+};
+
+const minBy = <T>(items: T[], value: (item: T) => number) =>
+  items.reduce<T | null>((best, item) => (best === null || value(item) < value(best) ? item : best), null);
+const maxBy = <T>(items: T[], value: (item: T) => number) =>
+  items.reduce<T | null>((best, item) => (best === null || value(item) > value(best) ? item : best), null);
+
+export function thresholdRule(analyses: CalibrationAnalysis[], threshold = RAG_MIN_SIMILARITY): ThresholdDecision {
+  const expected = analyses.filter((a) => a.family === "q" || a.family === "r");
+  const searchOut = analyses.filter((a) => a.family === "s");
+  const questionOut = analyses.filter((a) => a.family === "h");
+  const good = (a: CalibrationAnalysis) => a.goodSimilarity ?? -Infinity;
+  const best = (a: CalibrationAnalysis) => a.bestSimilarity ?? -Infinity;
+  const expectedBelow = expected.filter((a) => a.goodSimilarity === null || a.goodSimilarity < threshold);
+  const searchOutAbove = searchOut.filter((a) => a.bestSimilarity !== null && a.bestSimilarity >= threshold);
+  const minExpected = minBy(expected, good);
+  const maxSearchOut = maxBy(searchOut, best);
+  const maxQuestionOut = maxBy(questionOut, best);
+  const margin = (value: number | null | undefined, sign: 1 | -1) =>
+    value === null || value === undefined || !Number.isFinite(value) ? null : round3(sign * (value - threshold));
+  const highMargin = margin(minExpected?.goodSimilarity, 1);
+  const lowMargin = margin(maxSearchOut?.bestSimilarity, -1);
+  const questionOutMargin = margin(maxQuestionOut?.bestSimilarity, -1);
+  const base = { threshold, expectedBelow, searchOutAbove, minExpected, maxSearchOut, maxQuestionOut, highMargin, lowMargin, questionOutMargin };
+  if (expectedBelow.length === 0 && searchOutAbove.length === 0) {
+    return { ...base, keep: true, proposed: null, reason: "aucun Document attendu de q ni de r sous le seuil, aucune Requête s au-dessus" };
+  }
+  const low = minExpected?.goodSimilarity ?? null;
+  const high = maxSearchOut?.bestSimilarity ?? null;
+  if (low !== null && high !== null && low > high) {
+    return {
+      ...base,
+      keep: false,
+      proposed: round2((low + high) / 2),
+      reason: "mesure qui justifie un autre seuil : milieu de la bande entre la meilleure Requête s et le plus faible Document attendu, PROPOSÉ à l'utilisateur",
+    };
+  }
+  return {
+    ...base,
+    keep: false,
+    proposed: null,
+    reason: "aucune bande sûre : une Requête s est aussi proche qu'un Document attendu (décision de l'utilisateur : taille des Passages ou Requêtes)",
+  };
+}
+
+export type CalibrationSweepRow = {
+  threshold: number;
+  rTop3: number;
+  r: number;
+  qKept: number;
+  q: number;
+  rKept: number;
+  sWithResult: number;
+  s: number;
+  hWithPassage: number;
+  h: number;
+  ruleMet: boolean;
+};
+
+export function sweepCalibration(measures: CalibrationMeasure[], thresholds: readonly number[] = CALIBRATION_THRESHOLDS): CalibrationSweepRow[] {
+  const of = (family: CalibrationFamily) => measures.filter((measure) => measure.family === family);
+  const [q, h, r, s] = [of("q"), of("h"), of("r"), of("s")];
+  return thresholds.map((threshold) => {
+    const kept = (measure: CalibrationMeasure) => measure.scores.filter((score) => score.similarity >= threshold);
+    const expectedKept = (measure: CalibrationMeasure) => kept(measure).some((score) => score.title === measure.expectedTitle);
+    const rTop3 = r.filter((measure) => {
+      const rank = kept(measure).slice(0, SEARCH_MAX_DOCUMENTS).findIndex((score) => score.title === measure.expectedTitle);
+      return rank !== -1 && rank < TOP_RANK;
+    }).length;
+    const qKept = q.filter(expectedKept).length;
+    const rKept = r.filter(expectedKept).length;
+    const sWithResult = s.filter((measure) => kept(measure).length > 0).length;
+    const hWithPassage = h.filter((measure) => kept(measure).length > 0).length;
+    return {
+      threshold,
+      rTop3,
+      r: r.length,
+      qKept,
+      q: q.length,
+      rKept,
+      sWithResult,
+      s: s.length,
+      hWithPassage,
+      h: h.length,
+      ruleMet: qKept === q.length && rKept === r.length && sWithResult === 0,
+    };
+  });
+}
+
+export function calibrationSection(input: {
+  analyses: CalibrationAnalysis[];
+  measures: CalibrationMeasure[];
+  sweepRows: CalibrationSweepRow[];
+  decision: ThresholdDecision;
+  contradiction: { analysis: ContradictionAnalysis; scores: DocumentScore[] };
+  rankingIds?: string[];
+}): string[] {
+  const { analyses, sweepRows, decision: d } = input;
+  const byFamily = (family: CalibrationFamily) => analyses.filter((a) => a.family === family);
+  const verdict = d.keep
+    ? `${formatThreshold(d.threshold)} gardé (${d.reason}). Aucune modification.`
+    : d.proposed !== null
+      ? `${formatThreshold(d.threshold)} reste en place ; valeur PROPOSÉE à l'utilisateur : ${formatThreshold(d.proposed)} (${d.reason}). Décision de l'utilisateur, puis mesure rejouée ; valeur finale consignée dans AD-9.`
+      : `${formatThreshold(d.threshold)} reste en place ; aucune valeur sûre (${d.reason}). À présenter à l'utilisateur.`;
+  const expectedRow = (a: CalibrationAnalysis) =>
+    `| ${a.id} | ${a.query} | ${a.expectedTitle} | ${format(a.goodSimilarity)} | ${a.goodRank ?? "absent"} | ${a.goodSimilarity === null ? "-" : format(round3(a.goodSimilarity - d.threshold))} | ${a.goodSimilarity !== null && a.goodSimilarity >= d.threshold ? "oui" : "NON"} |`;
+  const outRow = (a: CalibrationAnalysis) =>
+    `| ${a.id} | ${a.query} | ${a.bestTitle ?? "-"} | ${format(a.bestSimilarity)} | ${a.bestSimilarity === null ? "-" : format(round3(d.threshold - a.bestSimilarity))} | ${a.bestSimilarity !== null && a.bestSimilarity >= d.threshold ? "OUI" : "non"} |`;
+  const rankings = (input.rankingIds ?? ["r2", "r3"]).map((id) => input.measures.find((measure) => measure.id === id)).filter(Boolean) as CalibrationMeasure[];
+  return [
+    "## Calibrage du seuil sur 15 Documents",
+    "",
+    "Similarités lues par `match_passages` (projet distant, session du Compte de mesure 1, seuil 0, 1 Passage par Document), textes vectorisés par la fonction locale `measure-embed` (lots de 20 textes au plus).",
+    "",
+    `- Décision : ${verdict}`,
+    `- Plus faible Document attendu (q, r) : ${d.minExpected ? `${d.minExpected.id} ${format(d.minExpected.goodSimilarity)}` : "-"} ; marge au-dessus du seuil : ${format(d.highMargin)}`,
+    `- Meilleure Requête hors base (s) : ${d.maxSearchOut ? `${d.maxSearchOut.id} ${format(d.maxSearchOut.bestSimilarity)}` : "-"} ; marge sous le seuil : ${format(d.lowMargin)}`,
+    `- Meilleure question hors base (h, rapportée, hors règle) : ${d.maxQuestionOut ? `${d.maxQuestionOut.id} ${format(d.maxQuestionOut.bestSimilarity)}` : "-"} ; marge sous le seuil : ${format(d.questionOutMargin)}`,
+    `- Documents attendus sous le seuil : ${d.expectedBelow.map((a) => a.id).join(", ") || "aucun"} ; Requêtes s au-dessus : ${d.searchOutAbove.map((a) => a.id).join(", ") || "aucune"}`,
+    "",
+    "### Questions q (meilleure similarité du Document attendu)",
+    "",
+    "| Id | Question | Document attendu | Similarité | Rang sans seuil | Marge | ≥ seuil |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    ...byFamily("q").map(expectedRow),
+    "",
+    "### Requêtes r (meilleure similarité du Document attendu)",
+    "",
+    "| Id | Requête | Document attendu | Similarité | Rang sans seuil | Marge | ≥ seuil |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    ...byFamily("r").map(expectedRow),
+    "",
+    "### Questions h et Requêtes s (meilleure similarité tous Documents)",
+    "",
+    "| Id | Texte | Document le plus proche | Similarité | Marge sous le seuil | ≥ seuil |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...byFamily("h").map(outRow),
+    ...byFamily("s").map(outRow),
+    "",
+    "### Balayage des seuils (calculé hors ligne)",
+    "",
+    "| Seuil | r : attendu dans le top 3 | q : attendu au-dessus | r : attendu au-dessus | s avec résultat | h avec un Passage | Règle |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    ...sweepRows.map(
+      (row) =>
+        `| ${formatThreshold(row.threshold)} | ${row.rTop3}/${row.r} | ${row.qKept}/${row.q} | ${row.rKept}/${row.r} | ${row.sWithResult}/${row.s} | ${row.hWithPassage}/${row.h} | ${row.ruleMet ? "satisfaite" : "non satisfaite"} |`,
+    ),
+    "",
+    "### Classement complet de r2 et r3 (sans seuil)",
+    "",
+    ...rankings.flatMap((measure) => [
+      `${measure.id} — « ${measure.text} » (attendu : ${measure.expectedTitle}) :`,
+      "",
+      ...measure.scores.map((score, index) => `${index + 1}. ${score.title} : ${format(round3(score.similarity))}${score.title === measure.expectedTitle ? " ← attendu" : ""}`),
+      "",
+    ]),
+    // Section de la 5.4 reprise, titre et verdict adaptés au calibrage final.
+    ...contradictionSection(input.contradiction.analysis, input.contradiction.scores).map((line) =>
+      line === "## Contradiction c1 (story 5.4)"
+        ? "### Contradiction c1 : similarités"
+        : line.replace("arrêt de la story 5.4, mesures à présenter à l'utilisateur", "mesures à présenter à l'utilisateur"),
+    ),
+  ];
+}
+
+// Meilleure similarité par Document (seuil 0, 1 Passage par Document) sur le projet distant.
+export async function matchScores(client: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { code?: string } | null }> }, vector: number[]): Promise<DocumentScore[]> {
+  const { data, error } = await client.rpc("match_passages", {
+    query_embedding: JSON.stringify(vector),
+    min_similarity: 0,
+    max_passages: MATCH_ROWS,
+    max_per_document: 1,
+    embedding_model: EMBEDDING_MODEL,
+    embedding_version: EMBEDDING_VERSION,
+  });
+  if (error) throw new MeasureError(`match_passages a refusé l'appel (${error.code}).`);
+  return scoresFromRows(data);
+}
+
+// Titres des Passages que chat transmettrait au modèle (mêmes paramètres que chat/index.ts).
+export async function transmittedTitles(client: Parameters<typeof matchScores>[0], vector: number[]): Promise<string[]> {
+  const { data, error } = await client.rpc("match_passages", {
+    query_embedding: JSON.stringify(vector),
+    min_similarity: RAG_MIN_SIMILARITY,
+    max_passages: CHAT_MAX_PASSAGES,
+    max_per_document: CHAT_PASSAGES_PER_DOCUMENT,
+    embedding_model: EMBEDDING_MODEL,
+    embedding_version: EMBEDDING_VERSION,
+  });
+  if (error) throw new MeasureError(`match_passages a refusé l'appel (${error.code}).`);
+  return scoresFromRows(data).map((score) => score.title);
+}
+
+export type LocalStack = { url: string; serviceRoleKey: string };
+
+export function localStack(): LocalStack {
   const bin = path.join("node_modules", ".bin", "supabase");
   let status: Record<string, string>;
   try {
@@ -366,7 +648,7 @@ function localStack(): LocalStack {
   return { url: status.API_URL, serviceRoleKey: status.SERVICE_ROLE_KEY };
 }
 
-async function embedLocally(stack: LocalStack, texts: string[]): Promise<{ check: EmbeddingCheck; vectors: number[][] }> {
+export async function embedLocally(stack: LocalStack, texts: string[]): Promise<{ check: EmbeddingCheck; vectors: number[][] }> {
   const response = await fetch(`${stack.url}/functions/v1/measure-embed`, {
     method: "POST",
     headers: { Authorization: `Bearer ${stack.serviceRoleKey}`, "Content-Type": "application/json" },

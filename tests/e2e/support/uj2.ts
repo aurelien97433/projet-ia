@@ -32,7 +32,7 @@ export const ROOT = path.resolve(__dirname, "..", "..", "..");
 export const UJ2_MARK = "— test UJ-2";
 export const uj2Title = (stamp: string) => `Compte rendu client : Pharmacies Dorval ${UJ2_MARK} ${stamp}`;
 export const uj2EmptyFileTitle = (stamp: string) => `Fichier vide ${UJ2_MARK} ${stamp}`;
-export const isMarkedTitle = (title: string) => title.includes(UJ2_MARK);
+export const isMarkedTitle = (title: string, mark = UJ2_MARK) => title.includes(mark);
 
 // Horodatage lisible et unique (UTC, millisecondes, suffixe aléatoire court).
 export const uj2Stamp = () =>
@@ -178,21 +178,22 @@ export async function openLiveSession(credentials: LiveCredentials, root = ROOT)
 
 // Nettoyage : avec la session du Compte (politique Auteur de la 3.4), jamais service_role. Seuls les
 // Documents du Compte dont le titre contient la marque sont supprimés, puis leurs fichiers. Renvoie
-// le nombre de Documents marqués restants (0 attendu).
-export async function cleanupMarkedDocuments(client: SupabaseClient, userId: string): Promise<number> {
+// le nombre de Documents marqués restants (0 attendu). Marque paramétrée (story 7.2 : « — test SM-5 »).
+export async function cleanupMarkedDocuments(client: SupabaseClient, userId: string, mark = UJ2_MARK): Promise<number> {
+  if (!mark.startsWith("— test ")) throw new Error("Marque de nettoyage refusée : elle doit commencer par « — test ».");
   const marked = () =>
-    client.from("documents").select("id, title, storage_path").eq("author_id", userId).like("title", `%${UJ2_MARK}%`);
+    client.from("documents").select("id, title, storage_path").eq("author_id", userId).like("title", `%${mark}%`);
   const { data, error } = await marked();
   if (error) throw new Error(`Lecture des Documents de test impossible (${error.code}).`);
   const rows = ((data ?? []) as { id: string; title: string; storage_path: string | null }[]).filter((row) =>
-    isMarkedTitle(row.title),
+    isMarkedTitle(row.title, mark),
   );
   if (rows.length > 0) {
     const removal = await client
       .from("documents")
       .delete()
       .eq("author_id", userId)
-      .like("title", `%${UJ2_MARK}%`)
+      .like("title", `%${mark}%`)
       .in(
         "id",
         rows.map((row) => row.id),

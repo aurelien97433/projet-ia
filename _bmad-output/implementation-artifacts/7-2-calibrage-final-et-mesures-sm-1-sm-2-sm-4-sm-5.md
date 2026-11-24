@@ -2,7 +2,8 @@
 title: 'Story 7.2 : Calibrage final et mesures SM-1, SM-2, SM-4, SM-5'
 type: 'chore'
 created: '2026-11-23'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_commit: '9739de4bd81cbceb55f20bde7ea7df1337b2ba17'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -66,11 +67,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `measure:search` étendu au Jeu complet (q, h, r, s, c1) et règle du seuil ; tests.
-- [ ] `measure-all.ts` : SM-1, SM-2, familles, c1, suivis (répartition des Comptes, contrôle de marge), SM-4 et durées ; tests unitaires.
-- [ ] `sm5.spec.ts` en production (configuration live) et local ; nettoyage.
-- [ ] Rapport `indicateurs.md` avec la section de relecture ; `docs/environnements.md`.
-- [ ] Revue ciblée par Claude (aucun code de l'application modifié) : aucune écriture de réglage, quota, secrets, nettoyage.
+- [x] `measure:search` étendu au Jeu complet (q, h, r, s, c1) et règle du seuil ; tests.
+- [x] `measure-all.ts` : SM-1, SM-2, familles, c1, suivis (répartition des Comptes, contrôle de marge), SM-4 et durées ; tests unitaires.
+- [x] `sm5.spec.ts` en production (configuration live) et local ; nettoyage.
+- [x] Rapport `indicateurs.md` avec la section de relecture (générateur ; le fichier est écrit par le passage de l'utilisateur) ; `docs/environnements.md`.
+- [x] Revue ciblée par Claude (aucun code de l'application modifié) : aucune écriture de réglage, quota, secrets, nettoyage.
 
 **Acceptance Criteria:**
 - Given le Jeu complet préchargé et Supabase local démarré, when l'utilisateur lance `npm run measure:all`, then `docs/mesures/indicateurs.md` donne SM-1, SM-2, SM-4, SM-5 avec leur cible, les durées NFR-3, le calibrage, les familles, c1 et les suivis, et 50 unités au plus sont consommées sur les Comptes de mesure 2 et 3.
@@ -86,3 +87,32 @@ Un seul passage : les scripts existants sont réutilisés, pas réécrits ; SM-5
 **Commands:** tests unitaires des scripts ; `npx playwright test tests/e2e/sm5.spec.ts` (local) ; `npm run lint`, `npx tsc --noEmit`, `npm run check:secrets`.
 
 **Utilisateur :** Supabase local démarré, puis `npm run measure:all` (un passage) ; relecture des 42 réponses dans `docs/mesures/indicateurs.md` ; vérification de la Bibliothèque de production sans Document « — test SM-5 ».
+
+## Implementation Notes
+
+**2026-11-24 (implémentation ; rien commité, rien poussé, `measure:all` non lancé) :**
+- **Aucun code de l'application modifié** (ni `src/`, ni `supabase/`). Modifié : `scripts/`, `tests/`, `playwright.live.config.ts`, `package.json`, `docs/environnements.md`.
+- `scripts/measure-search.ts` : fonctions du calibrage sur le Jeu complet (`readDemoSet`, `loadCalibrationCases` : q1 à q20 avec q7, h, r, s ; `loadFullContradiction`, `thresholdRule` = règle de l'utilisateur, `sweepCalibration` : seuils 0,30 à 0,50 dont 0,38 et 0,42, `calibrationSection` avec le classement complet de r2 et r3, `matchScores`, `transmittedTitles`) ; `localStack` et `embedLocally` exportés. `npm run measure:search` lui-même est inchangé (mini Jeu, rapport historique `recherche.md` non réécrit) : le calibrage du Jeu complet passe par `measure:all`.
+- **Écart avec « un appel »** : `measure-embed` accepte 20 textes au plus (`MEASURE_MAX_TEXTS`), le calibrage en compte 45 : vectorisation par lots de 20 (3 appels locaux, chacun vérifié : modèle, version, dimension), sans modifier la fonction.
+- `scripts/measure-all.ts` : contrôles sans appel facturé (pile locale, Jeu, sessions des Comptes 1 à 3 via `openLiveSession(label, account)`, marge du quota), calibrage, SM-4, Assistant en flux (`ask` de `test-followup-live.ts`, désormais exporté), suivis (`runScenarios`, un essai), SM-5 (Playwright en sous-processus, `--reporter=list,json`, résultats lus dans `test-results/sm5-live.json`), rapport `docs/mesures/indicateurs.md` (`-2`, `-3`…), valeurs de `.env.seed` masquées par précaution, hôtes non reproduits.
+- **Interprétation à confirmer (f2)** : « 2 semaines » est exigé au **premier** tour de f2 (réponse au délai de demande) ; le second tour garde le fait du Jeu (« responsable d'équipe »). f3 : « 2 semaines » au second tour. « 5 jours » relevé sur les deux tours de f2 et f3, jamais un échec.
+- **Familles** : critères automatiques minimaux (communs à toutes les réponses ; y1 réponse sourcée par le Guide des relances ; y2 refus hors cadre ; y3 15 et 21 jours avec les deux Sources) ; le comportement attendu complet est laissé à la relecture.
+- **Coût** : nombre d'appels × 0,006 $ (les tokens ne sont journalisés que dans les journaux de `chat`).
+- `tests/e2e/sm5.spec.ts` : un test par fichier (un échec n'arrête pas les autres), clavier seul, titres « Fichier {nom} — test SM-5 {horodatage} », Catégorie « Autre », compteur du jour inchangé exigé ; nettoyage par `cleanupMarkedDocuments(client, userId, "— test SM-5")` (marque désormais paramétrée, préfixe « — test » exigé) après chaque test et en fin de worker. `playwright.live.config.ts` : `testMatch` = `uj-2.spec.ts` et `sm5.spec.ts` ; `test:uj2:live` désigne désormais `uj-2.spec.ts` ; le reporter UJ-2 ignore les autres fichiers.
+- **Vérification** : `npx playwright test tests/e2e/sm5.spec.ts` 10 sur 10 (2 largeurs) ; chaîne JSON → `parseSm5Report` vérifiée sur une exécution locale ; `uj-2.spec.ts` local vert ; tests unitaires 84 fichiers, 1 773 tests verts ; `npm run lint`, `npx tsc --noEmit`, `npm run check:secrets` verts ; `--list` de la configuration live : 1 test pour `uj-2.spec.ts`, 5 pour `sm5.spec.ts`.
+- **Contrôle du diff par Claude (étape 3)** : mention « en un appel » corrigée en « par lots de 20 » (rapport et commentaires) ; `embedInBatches` exporté : une fonction `measure-embed` injoignable (pile démarrée, conteneur edge runtime arrêté) arrête le passage par un message clair avant tout appel facturé, test ajouté (ligne « Supabase local arrêté » de la matrice). Ligne « Échec SM-5 en cours » : couverte par construction (nettoyage dans `afterEach` et dans la fixture de worker, exécutés par Playwright même en cas d'échec ; 0 restant exigé) ; aucun test ne provoque d'échec.
+- **Décisions de l'utilisateur (2026-11-24)** : f2 strict accepté (« 2 semaines » au premier tour, « responsable d'équipe » au second) ; un échec dû à la seule formulation « responsable d'équipe » sera tranché à la relecture. Familles : critères automatiques minimaux acceptés.
+- **Reste à faire (utilisateur)** : commit (et push si voulu ; SM-5 vise la production, aucun déploiement nécessaire) ; Supabase local démarré, `npm run measure:all` (un passage) ; relecture des 42 réponses ; contrôle de la Bibliothèque de production sans « — test SM-5 » ; totaux reportés dans l'en-tête, commit du rapport, valeur finale du seuil consignée dans AD-9.
+
+## Review Triage Log
+
+Revue ciblée par Claude (Design Notes : aucun code de l'application modifié, pas de relecteur séparé ; couches blind-hunter, edge-case-hunter et verification-gap non lancées pour cette raison).
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | Rapport et commentaires annonçaient une vectorisation « en un appel » alors que `measure-embed` est appelée par lots de 20 | low | `calibrationSection` et en-tête de `measure-all.ts` | corrigé (patch) |
+| 2 | Pile locale démarrée mais `measure-embed` injoignable : `fetch` lève une `TypeError` non reconnue, arrêt sans message clair (ligne « Supabase local arrêté » de la matrice non testée) | low | `embedLocally` ne capture pas l'échec réseau ; `main` relance les erreurs inconnues ; l'arrêt survenait quand même avant tout appel facturé | corrigé : `embedInBatches` transforme l'échec en `MeasureAllError` explicite, test unitaire ajouté |
+| 3 | Écriture de réglage, de seuil ou de quota par le script | false | aucune écriture (`update`, `insert`, `upsert`, `secrets set`) dans `measure-all.ts`, `measure-search.ts`, `sm5.spec.ts` ; `RAG_MIN_SIMILARITY` seulement lu | - |
+| 4 | Secrets dans le rapport | false | valeurs de `.env.seed` et hôtes masqués (`redact`), test « sans secret » sur le rapport | - |
+| 5 | Nettoyage SM-5 après un échec non prouvé par un test | low | `afterEach` et fixture de worker (`finally`) exécutés par Playwright même en cas d'échec, 0 restant exigé ; vérifié en local sur exécutions réussies seulement | accepté, contrôle manuel de la Bibliothèque par l'utilisateur prévu |
+| 6 | Aucun rapport écrit si une étape échoue en cours de passage | low | après le premier appel facturé, `ask` et `runScenarios` ne lèvent pas (statut 0), `runSm5` ne lève pas ; seuls les contrôles préalables et le calibrage (sans coût) peuvent arrêter le passage | accepté |

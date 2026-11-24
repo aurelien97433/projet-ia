@@ -302,7 +302,8 @@ async function readStandalone({ client }: LiveSession, clientRequestId: string):
   return typeof value === "string" ? value : null;
 }
 
-async function ask(session: LiveSession, question: string, conversationId: string | null, clientRequestId: string) {
+// Une question à chat en flux, avec ou sans Conversation (réutilisé par measure:all, story 7.2).
+export async function ask(session: LiveSession, question: string, conversationId: string | null, clientRequestId: string) {
   const started = performance.now();
   let status = 0;
   let body: (Parameters<typeof evaluateChatCase>[3] & { conversationId?: unknown }) | null = null;

@@ -10,8 +10,10 @@ const baseURL = readLiveAppUrl(readSeedFile());
 
 export default defineConfig({
   testDir: "tests/e2e",
-  testMatch: "uj-2.spec.ts",
-  // Lu par uj-2.spec.ts : mode production (vraie IA, Compte de mesure 1).
+  // uj-2.spec.ts (story 6.2, test:uj2:live) et sm5.spec.ts (story 7.2, SM-5, lancé par measure:all) ;
+  // chaque commande désigne son fichier.
+  testMatch: ["uj-2.spec.ts", "sm5.spec.ts"],
+  // Lu par uj-2.spec.ts et sm5.spec.ts : mode production (Compte de mesure 1 ; vraie IA pour UJ-2).
   metadata: { uj2Live: true },
   // Une exécution réelle : traitement, génération d'une réponse et d'un Résumé (quelques dizaines de secondes).
   timeout: 300_000,

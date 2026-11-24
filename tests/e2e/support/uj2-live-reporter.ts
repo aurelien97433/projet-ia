@@ -115,6 +115,8 @@ export default class Uj2LiveReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
+    // Story 7.2 : la configuration live porte aussi sm5.spec.ts, rapporté par measure:all.
+    if (path.basename(test.location.file) !== "uj-2.spec.ts") return;
     const steps = result.steps
       .filter((step: TestStep) => step.category === "test.step")
       .map((step) => ({ title: step.title, durationMs: step.duration, failed: Boolean(step.error) }));
