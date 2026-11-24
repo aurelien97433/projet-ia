@@ -1890,3 +1890,15 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Résultat en production.** Après `deploy:supabase` : `test:chat:live` 15 sur 15, avec c1 qui signale toujours la contradiction (3 sur 3) ; `--only=f2,f4` 4 sur 4, avec f2 sans phrase d'écart et f4 donnant « 5 jours ». L'utilisateur a vérifié une question sur les congés sur le site : conforme. Coût : 19 unités sur le Compte de mesure 1, environ 0,11 $.
 
 **Statut.** Story 7.2b `done` le 2026-11-24.
+
+## Story 7.3 : parcours UJ-1 à UJ-3 au clavier et à 375 px (2026-11-24)
+
+**Ce qui a été livré.** Deux nouveaux tests de bout en bout, UJ-1 et UJ-3, sur le modèle d'UJ-2. Ils s'exécutent au clavier seul, à 1 280 px et à 375 px. Ils vérifient axe sur chaque écran, l'absence de défilement horizontal et l'absence de toute requête du navigateur vers OpenAI ou les Edge Functions. S'y ajoute `npm run test:security:live`, lancé par l'utilisateur sur la production. Les deux tests reportés sont traités : le focus de la Recherche (cause tracée : le test cliquait avant le montage du titre) et le test C7 (horloge contrôlée).
+
+**Un défaut trouvé par le clavier.** En revenant sur « Assistant » par la navigation, UJ-1 retrouvait l'ancien fil sous « Que voulez-vous savoir ? », et la question suivante partait dans l'ancienne Conversation. La cause : Next 16 garde en mémoire la route `/assistant` et son état, alors que la première question change l'adresse sans changer de route. L'ancien test, qui rechargeait la page, masquait le défaut. Sur décision de l'utilisateur, l'application est corrigée : l'Assistant ouvert depuis la navigation repart d'un écran vide. Un second relecteur séparé a montré que la première version vidait aussi la Conversation au retour du navigateur ; la remise à zéro se fait désormais au réaffichage, seulement à l'adresse `/assistant`. Vérifié sur le site par l'utilisateur.
+
+**Sécurité en production.** SM-6 est vérifié avec les Comptes de démonstration A et B, sur une Note marquée créée puis supprimée par A : B la lit et la retrouve, mais ne peut ni la modifier ni la supprimer, et ne voit aucune Conversation de A. Aucune Conversation n'est créée, car elles ne peuvent pas être supprimées (décision de l'utilisateur). Les 9 Route Handlers répondent 401 sans session, le code envoyé au navigateur ne contient aucun secret, et aucune Note de test ne reste. 0 unité consommée.
+
+**Relecture.** Un relecteur séparé sur toute la story (13 constats : nettoyage après Ctrl+C, verrou entre tests, critères qui pouvaient passer à vide), puis un second sur le correctif de l'application (3 constats). Tous ont été triés ; deux points sont reportés à la 7.8 : le focus de l'application après une navigation très rapide, et la fragilité des tests locaux face à la base partagée.
+
+**Statut.** Story 7.3 `done` le 2026-11-24.

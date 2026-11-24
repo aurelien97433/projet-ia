@@ -2,7 +2,7 @@
 title: 'Story 7.3 : Parcours UJ-1 à UJ-3 au clavier et à 375 px'
 type: 'feature'
 created: '2026-11-24'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'e341abb8dc638480ed21d99e86dfff327a77d2ae'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -121,3 +121,9 @@ Relecteur séparé (règle 11) sur le diff complet, puis tri par Claude.
 - `npm test` (PowerShell) : 106 fichiers, 2 242 tests réussis.
 - `npx tsc --noEmit`, `npm run lint`, `npm run build:ci` (secrets du code envoyé : aucun) : verts.
 - Code de l'application modifié (décision de l'utilisateur, F14) : `src/components/assistant/assistant-view.tsx` seulement ; relu par un second relecteur séparé (F15 à F17).
+
+## Clôture (2026-11-24)
+
+- Code dd47465 (spec e341abb), poussé ; aucun `deploy:supabase` nécessaire.
+- Vérification sur le site par l'utilisateur : « Assistant » ouvert depuis la navigation repart d'un écran vide ; Retour réaffiche la Conversation : conforme (F14 à F16).
+- `npm run test:security:live` par l'utilisateur, réussi (`docs/mesures/securite-live.md`) : SM-6 critères 1 à 3 vérifiés (B lit et retrouve la Note ; 0 modification, 0 suppression, Note inchangée ; 0 Conversation et 0 message de A vus par B, A en ayant 1 et 2) ; 9 Route Handlers en 401 `UNAUTHENTICATED` sans donnée ; 0 constat sur 14 fichiers envoyés au navigateur ; 0 Note « — test SM-6 » restante ; 0 unité.
