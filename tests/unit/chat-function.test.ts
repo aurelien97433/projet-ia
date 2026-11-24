@@ -1877,20 +1877,35 @@ describe("chat : idempotence (story 5.9)", () => {
   });
 
   it("génération bornée au temps restant moins le délai d'enregistrement : coupée avant que l'enregistrement ne déborde l'échéance", async () => {
-    let aborted = -1;
-    const started = Date.now();
+    // Story 7.3 (constat C7 de la 5.10) : horloge contrôlée, comme « délais du flux ». La recherche dure
+    // exactement 100 ms, le reste 0 ms : le délai donné à la génération est connu, sans mesure du temps
+    // réel (instable quand plusieurs fichiers de tests tournent en parallèle).
+    const timeout = vi.spyOn(globalThis, "setTimeout");
+    let now = 1_800_000_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const match = routes.match;
+    routes.match = async (url, init) => {
+      now += 100;
+      return match(url, init);
+    };
+    let generationAborted = false;
     routes.generate = (_, init) =>
       new Promise((_, reject) => {
         init.signal?.addEventListener("abort", () => {
-          aborted = Date.now() - started;
+          generationAborted = true;
           reject(new DOMException("interrompu", "AbortError"));
         });
       });
     const response = await ask({ timeoutMs: 1_000, cleanupTimeoutMs: 400, generationTimeoutMs: 10_000 });
     expect((await response.json()).error.code).toBe("AI_TIMEOUT");
-    // Échéance 1 000 ms, 400 ms réservées : la génération est coupée vers 600 ms, pas à 1 000 ms.
-    expect(aborted).toBeGreaterThan(0);
-    expect(aborted).toBeLessThan(1_000 - 400 + 150);
+    expect(generationAborted).toBe(true);
+    const delays = timeout.mock.calls.map(([, ms]) => Number(ms));
+    // Échéance 1 000 ms, 100 ms écoulées, 400 ms réservées à l'enregistrement : génération bornée à
+    // 500 ms, jamais au plafond de 10 s ni au temps restant entier (900 ms).
+    expect(delays).toContain(1_000);
+    expect(delays).toContain(1_000 - 100 - 400);
+    expect(delays).not.toContain(10_000);
+    expect(delays).not.toContain(1_000 - 100);
   });
 
   it("génération lente puis enregistrement lent (dans son délai) : réponse renvoyée avant l'échéance, enregistrement jamais interrompu, aucun échec", async () => {

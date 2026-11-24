@@ -77,13 +77,22 @@ const dashboardField = (page: Page) => page.getByRole("searchbox", { name: texts
 async function openDashboardByNavigation(page: Page) {
   await page.goto("/bibliotheque");
   await expect(page.getByRole("heading", { level: 1, name: texts.titles.library })).toBeVisible();
-  // Lien hydraté (gestionnaire React posé) : sinon le clic ferait un chargement complet, où aucun
-  // élément ne reçoit le focus (règle du lien d'évitement), et le test vérifierait autre chose.
-  const hydrated = () =>
-    page.waitForFunction(() =>
-      [...document.querySelectorAll('a[href="/"]')].some((a) => Object.keys(a).some((k) => k.startsWith("__reactProps"))),
-    );
-  await hydrated();
+  // Page entièrement hydratée avant le clic (story 7.3, report de la 5.8). Cause tranchée par un relevé
+  // réseau sous charge simulée (processeur ralenti ×6 et ×12) : aucun chargement complet, la navigation
+  // reste côté client ; mais l'attente portait sur « un » lien a[href="/"] hydraté, et le logo l'est
+  // avant le reste. Le clic partait alors avant l'hydratation du titre de la Bibliothèque (PageTitle) :
+  // le Tableau de bord était le premier titre monté, traité comme un premier chargement (aucun focus,
+  // title-focus.ts). On attend donc l'entrée de navigation (ordinateur) ou le bouton ☰ (mobile) ET le
+  // titre de la page, puis un temps mort du navigateur : le titre est relié à React dès le rendu
+  // d'hydratation, avant l'effet de PageTitle (vérifié ×12 : 8 échecs sur 8 sans ce temps mort, 0 avec).
+  await page.waitForFunction(
+    (control) => {
+      const hydrated = (element: Element | null, prefix: string) => !!element && Object.keys(element).some((k) => k.startsWith(prefix));
+      return hydrated(document.querySelector(control), "__reactProps") && hydrated(document.querySelector("main h1"), "__reactFiber");
+    },
+    isDesktop(page) ? 'nav a[href="/"]' : `button[aria-label="${texts.shell.openMenu}"]`,
+  );
+  await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve())));
   if (!isDesktop(page)) await page.getByRole("button", { name: texts.shell.openMenu }).click();
   await page.getByRole("link", { name: texts.nav.dashboard, exact: true }).click();
   await expect(page).toHaveURL(/\/$/);

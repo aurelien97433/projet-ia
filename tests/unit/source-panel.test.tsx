@@ -8,7 +8,7 @@ import { texts } from "@/lib/texts";
 // côté client avec le texte lu par GET /api/documents/[id] (simulé ici).
 const router = { push: vi.fn(), refresh: vi.fn(), prefetch: vi.fn(), replace: vi.fn() };
 beforeEach(() => router.refresh.mockReset());
-vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(), usePathname: () => "/assistant" }));
 
 const { AssistantView } = await import("@/components/assistant/assistant-view");
 

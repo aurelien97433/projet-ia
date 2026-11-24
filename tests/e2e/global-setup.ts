@@ -1,4 +1,5 @@
 import { localSqlRows, localSupabase } from "../support/local-supabase";
+import { removeJourneyLocks } from "./support/journey-lock";
 
 // Préparation des tests de bout en bout (story 5.2b) : les compteurs du garde-fou du crédit d'IA
 // (quota par Compte, plafond global du jour, réservations) sont remis à zéro à chaque lancement, sans
@@ -40,4 +41,6 @@ export function resetAiCounters(url: string, sql: Sql = localSqlRows): void {
 
 export default function globalSetup(): void {
   resetAiCounters(localSupabase().url);
+  // Story 7.3 : verrous des parcours UJ laissés par un lancement interrompu.
+  removeJourneyLocks();
 }

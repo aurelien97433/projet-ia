@@ -1,4 +1,5 @@
 ﻿// @vitest-environment jsdom
+import { Activity } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatResetMoment } from "@/lib/reset-moment";
@@ -8,7 +9,8 @@ import { texts } from "@/lib/texts";
 const refresh = vi.fn();
 const router = { push: vi.fn(), refresh, prefetch: vi.fn(), replace: vi.fn() };
 let params = new URLSearchParams();
-vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => params }));
+// usePathname suit l'adresse du document, comme Next.js après history.replaceState / pushState.
+vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => params, usePathname: () => window.location.pathname }));
 
 const { AssistantView, answerSegments, CHAT_CLIENT_TIMEOUT_MS, CHAT_FIRST_DISPLAY_TIMEOUT_MS } = await import("@/components/assistant/assistant-view");
 const { ASSISTANT_FIELD_ID, assistantHref } = await import("@/components/assistant/constants");
@@ -952,6 +954,110 @@ describe("Conversation enregistrée et Historique (story 5.6)", () => {
     expect(document.activeElement).toBe(field());
     await ask("Nouvelle question");
     expect(bodies()[1].conversationId).toBeUndefined();
+  });
+
+  // Story 7.3 (F14) : la page /assistant gardée par Next.js (Activity) repart de l'état vide.
+  it("F14 : page /assistant masquée puis réaffichée après une Conversation commencée : fil vide, la question suivante crée une Conversation", async () => {
+    fetchMock().mockResolvedValue(answer());
+    const view = (mode: "visible" | "hidden") => (
+      <Activity mode={mode}>
+        <AssistantView recent={<p>Liste récente</p>} />
+      </Activity>
+    );
+    const { rerender } = render(view("visible"));
+    await ask("Première question");
+    expect(bubbles()).toHaveLength(1);
+    // Navigation vers un autre écran (page masquée), puis retour par « Assistant » (adresse /assistant).
+    rerender(view("hidden"));
+    window.history.pushState(null, "", "/assistant");
+    rerender(view("visible"));
+    await flush();
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getByText(t.intro)).toBeTruthy();
+    expect(screen.getByText("Liste récente")).toBeTruthy();
+    await ask("Nouvelle question");
+    expect(bodies()[1].conversationId).toBeUndefined();
+  });
+
+  const activityView = (mode: "visible" | "hidden") => (
+    <Activity mode={mode}>
+      <AssistantView />
+    </Activity>
+  );
+
+  it("F14 : page masquée puis réaffichée à l'adresse /assistant/{id} (retour arrière depuis la page complète d'une Source) : fil gardé, même Conversation", async () => {
+    fetchMock().mockResolvedValue(answer());
+    const { rerender } = render(activityView("visible"));
+    await ask("Première question");
+    expect(window.location.pathname).toBe(`/assistant/${CONVERSATION}`);
+    rerender(activityView("hidden"));
+    rerender(activityView("visible"));
+    await flush();
+    expect(bubbles()).toHaveLength(1);
+    await ask("Deuxième question");
+    expect(bodies()[1].conversationId).toBe(CONVERSATION);
+  });
+
+  it("F14 : départ pendant la première question (aucune Conversation encore), retour par « Assistant » : fil vide, aucune alerte, nouvelle Conversation", async () => {
+    fetchMock().mockImplementationOnce(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          (init as RequestInit).signal?.addEventListener("abort", () => reject(new DOMException("interrompu", "AbortError")));
+        }),
+    );
+    const { rerender } = render(activityView("visible"));
+    await ask("Première question");
+    expect(bubbles()).toHaveLength(1);
+    expect(window.location.pathname).toBe("/assistant");
+    rerender(activityView("hidden"));
+    await flush();
+    rerender(activityView("visible"));
+    await flush();
+    expect(bubbles()).toHaveLength(0);
+    expect(queryAlertBox()).toBeNull();
+    fetchMock().mockResolvedValue(answer());
+    await ask("Nouvelle question");
+    expect(bodies()[1].conversationId).toBeUndefined();
+    expect(bubbles()).toHaveLength(1);
+  });
+
+  it("F14 : page /assistant restée affichée, adresse ramenée de /assistant/{id} à /assistant par la navigation : état vide", async () => {
+    fetchMock().mockResolvedValue(answer());
+    const { rerender } = render(<AssistantView />);
+    await ask("Première question");
+    expect(window.location.pathname).toBe(`/assistant/${CONVERSATION}`);
+    window.history.pushState(null, "", "/assistant");
+    rerender(<AssistantView />);
+    await flush();
+    expect(bubbles()).toHaveLength(0);
+    await ask("Nouvelle question");
+    expect(bodies()[1].conversationId).toBeUndefined();
+  });
+
+  it("F14 : sans changement d'adresse ni masquage, la Conversation commencée continue (questions suivantes dans la même Conversation)", async () => {
+    fetchMock().mockResolvedValue(answer());
+    const { rerender } = render(<AssistantView />);
+    await ask("Première question");
+    rerender(<AssistantView />);
+    await ask("Deuxième question");
+    expect(bubbles()).toHaveLength(2);
+    expect(bodies()[1].conversationId).toBe(CONVERSATION);
+  });
+
+  it("F14 : page /assistant/[id] masquée puis réaffichée : le fil de la Conversation est gardé", async () => {
+    fetchMock().mockResolvedValue(answer());
+    window.history.replaceState(null, "", `/assistant/${CONVERSATION}`);
+    const view = (mode: "visible" | "hidden") => (
+      <Activity mode={mode}>
+        <AssistantView conversation={conversation(OLD.slice(0, 1))} />
+      </Activity>
+    );
+    const { rerender } = render(view("visible"));
+    await flush();
+    rerender(view("hidden"));
+    rerender(view("visible"));
+    await flush();
+    expect(bubbles()).toHaveLength(1);
   });
 
   it("Historique : liste lue à l'ouverture (100 au plus), plus récente d'abord, focus sur la Conversation active, « Sans réponse » en texte", async () => {

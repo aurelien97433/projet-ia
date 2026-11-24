@@ -18,6 +18,7 @@ import {
   uj2Stamp,
   uj2Title,
 } from "./support/uj2";
+import { acquireJourneyLock, LOCK_WAIT_MAX_MS } from "./support/journeys";
 
 // Parcours UJ-2 de bout en bout (story 6.2), au clavier seul (focus posé puis Tab, Entrée, Espace,
 // Échap, flèches ; aucun clic) : connexion → ajout de la Note Dorval → prêt → question → Source →
@@ -88,7 +89,18 @@ const test = base.extend<object, { uj2: Uj2Session }>({
 async function cleanupAndCheck(uj2: Uj2Session) {
   expect(await cleanupMarkedDocuments(uj2.client, uj2.userId)).toBe(0);
 }
-test.afterEach(async ({ uj2 }) => cleanupAndCheck(uj2));
+// Story 7.3 (mode local) : verrou partagé avec uj-1.spec.ts. La Note Dorval, en vectorisation simulée,
+// dépasse le seuil (0,2) avec la question exacte du cas limite d'UJ-1 (« quel est le budget marketing
+// 2027 ? ») : les deux parcours ne tournent jamais en même temps. Libéré après le nettoyage.
+let releaseLock: (() => void) | null = null;
+test.afterEach(async ({ uj2 }) => {
+  try {
+    await cleanupAndCheck(uj2);
+  } finally {
+    releaseLock?.();
+    releaseLock = null;
+  }
+});
 test.afterAll(async ({ uj2 }) => cleanupAndCheck(uj2));
 
 const DOCUMENT_URL = /\/documents\/([0-9a-f-]{36})$/;
@@ -130,7 +142,8 @@ test("UJ-2 au clavier : Note Dorval prête, question sourcée, Source, page comp
   page,
   uj2,
 }, testInfo) => {
-  test.setTimeout(uj2.live ? 300_000 : 120_000);
+  test.setTimeout(uj2.live ? 300_000 : 120_000 + LOCK_WAIT_MAX_MS);
+  if (!uj2.live) releaseLock = await acquireJourneyLock("uj-1-uj-2");
   const journey = loadUj2Journey();
   const stamp = uj2Stamp();
   const title = uj2Title(stamp);

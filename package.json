@@ -18,6 +18,7 @@
     "test:followup:live": "tsx scripts/test-followup-live.ts",
     "test:summary:live": "tsx scripts/test-summary-live.ts",
     "test:uj2:live": "playwright test --config playwright.live.config.ts uj-2.spec.ts --repeat-each=3 --workers=1",
+    "test:security:live": "tsx scripts/test-security-live.ts",
     "measure:search": "tsx scripts/measure-search.ts",
     "measure:all": "tsx scripts/measure-all.ts",
     "load:1mo": "tsx scripts/load-test-1mo.ts",

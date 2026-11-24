@@ -2,8 +2,8 @@
 
 import { Info } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { z } from "zod";
 import { ErrorAlert } from "@/components/forms/error-alert";
@@ -558,6 +558,8 @@ export function AssistantView({ title, conversation, recent, quota }: AssistantV
   const lastFocusAlert = last?.focusAlert === true;
   useEffect(() => {
     if (replyKind === undefined || replyKind === "pending" || replyKind === "streaming") return;
+    // Story 7.3 (F14) : fil vidé au réaffichage (effet relancé avec l'ancien échange) : aucun focus.
+    if (exchangesRef.current.length === 0) return;
     if (replyKind === "error") {
       if (lastFocusAlert) alertRef.current?.focus();
       return;
@@ -605,12 +607,9 @@ export function AssistantView({ title, conversation, recent, quota }: AssistantV
     void ask(last.question, last.id, clientRequestId, previous);
   }
 
-  // « + Nouvelle Conversation » sur /assistant, alors qu'une Conversation y a été commencée : l'écran
-  // revient à l'état vide sans rechargement (l'adresse /assistant est reprise). Sur /assistant/[id], le
-  // lien ouvre /assistant normalement.
-  function startNewConversation(event: React.MouseEvent<HTMLAnchorElement>) {
-    if (conversation) return;
-    event.preventDefault();
+  // État vide de la page /assistant : aucune Conversation, fil vide, aucune demande en cours. Setters
+  // et références seulement : utilisable dans le nettoyage d'un effet.
+  const resetToEmpty = useCallback(() => {
     controllerRef.current?.abort();
     controllerRef.current = null;
     busyRef.current = false;
@@ -619,6 +618,50 @@ export function AssistantView({ title, conversation, recent, quota }: AssistantV
     setExchanges([]);
     setEmptyRefused(false);
     setSourceSelection(null);
+  }, []);
+
+  // Story 7.3 (F14) : « Assistant » ouvert depuis la navigation part toujours de l'état vide. Avec Cache
+  // Components, Next.js garde la page /assistant quittée (React Activity, guide « Preserving UI state »)
+  // avec son fil : au retour, l'ancienne Conversation s'affichait sous « Que voulez-vous savoir ? » et la
+  // question suivante y partait. Page /assistant seulement (jamais /assistant/[id]), deux cas :
+  // - page réaffichée (useLayoutEffect, relancé par Activity au réaffichage, avant l'affichage) à
+  //   l'adresse /assistant. Jamais au masquage : après replaceState, l'entrée /assistant/{id} de
+  //   l'historique rouvre cette même page (retour arrière depuis la page complète d'une Source) et son
+  //   fil doit y être intact ;
+  // - page restée affichée : l'adresse repasse de /assistant/{id} (replaceState) à /assistant (lien
+  //   « Assistant ») ; l'état suit l'adresse (motif de l'état dérivé de l'URL du guide).
+  // Dans les deux cas, dès qu'une Conversation a été adoptée OU que le fil n'est pas vide (première
+  // question encore en cours au départ : interrompue, puis alerte et « Réessayer » ; 409 en attente).
+  // ?question= et ?historique=1 restent lus comme avant : seul le chemin compte ici.
+  const freshPage = conversation === undefined;
+  const exchangesRef = useRef(exchanges);
+  useLayoutEffect(() => {
+    exchangesRef.current = exchanges;
+  });
+  // Remise à l'état vide si une Conversation a été adoptée ou si le fil n'est pas vide.
+  const resetIfStarted = useCallback(() => {
+    if (conversationIdRef.current === null && exchangesRef.current.length === 0) return;
+    exchangesRef.current = [];
+    resetToEmpty();
+  }, [resetToEmpty]);
+  useLayoutEffect(() => {
+    if (freshPage && window.location.pathname === ASSISTANT_HREF) resetIfStarted();
+  }, [freshPage, resetIfStarted]);
+  const pathname = usePathname();
+  const previousPathnameRef = useRef(pathname);
+  useLayoutEffect(() => {
+    const changed = previousPathnameRef.current !== pathname;
+    previousPathnameRef.current = pathname;
+    if (changed && freshPage && pathname === ASSISTANT_HREF) resetIfStarted();
+  }, [pathname, freshPage, resetIfStarted]);
+
+  // « + Nouvelle Conversation » sur /assistant, alors qu'une Conversation y a été commencée : l'écran
+  // revient à l'état vide sans rechargement (l'adresse /assistant est reprise). Sur /assistant/[id], le
+  // lien ouvre /assistant normalement.
+  function startNewConversation(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (conversation) return;
+    event.preventDefault();
+    resetToEmpty();
     window.history.pushState(null, "", addressOf(null, measuring));
     // Revue de la story 5.6 (constat 4) : les 5 dernières Conversations, rendues au chargement, sont
     // relues pour inclure celle qui vient d'être commencée.
