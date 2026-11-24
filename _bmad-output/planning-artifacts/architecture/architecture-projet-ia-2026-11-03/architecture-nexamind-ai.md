@@ -154,6 +154,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 - **Raison — ce qu'on évite (Prevents) :** décision D4 de l'addendum (mêmes Passages), et FR-8 garanti au même endroit.
 - **Écarté :** deux requêtes distinctes.
 - **Risque restant :** le seuil de départ (0,40) est une hypothèse `[ASSUMPTION]`, à calibrer sur le Jeu de démonstration (SM-2, SM-4, FR-15) dans une story dédiée.
+- **Valeur finale (story 7.2, `measure:all` du 2026-11-24, Jeu complet de 15 Documents) : `RAG_MIN_SIMILARITY` = 0,40, gardé.** Règle de l'utilisateur satisfaite : aucun Document attendu de q1 à q20 ni de r1 à r10 sous 0,40 (plus faible : q16 0,450, marge 0,050), aucune Requête hors base s1 à s4 au-dessus (meilleure : s2 0,373, marge 0,027). SM-4 10/10, s1 à s4 sans résultat. Marges étroites : tout ajout de Document au Jeu exige de rejouer le calibrage. Rapport : `docs/mesures/indicateurs.md`.
 - **Exigences (Binds) :** FR-8, FR-14, FR-15, FR-16, FR-18.
 
 ### AD-10 — Marqueur interne à trois valeurs `[ADOPTED]`

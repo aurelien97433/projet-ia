@@ -2,7 +2,7 @@
 title: 'Story 7.2 : Calibrage final et mesures SM-1, SM-2, SM-4, SM-5'
 type: 'chore'
 created: '2026-11-23'
-status: 'in-review'
+status: 'done'
 baseline_commit: '9739de4bd81cbceb55f20bde7ea7df1337b2ba17'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -116,3 +116,9 @@ Revue ciblée par Claude (Design Notes : aucun code de l'application modifié, p
 | 4 | Secrets dans le rapport | false | valeurs de `.env.seed` et hôtes masqués (`redact`), test « sans secret » sur le rapport | - |
 | 5 | Nettoyage SM-5 après un échec non prouvé par un test | low | `afterEach` et fixture de worker (`finally`) exécutés par Playwright même en cas d'échec, 0 restant exigé ; vérifié en local sur exécutions réussies seulement | accepté, contrôle manuel de la Bibliothèque par l'utilisateur prévu |
 | 6 | Aucun rapport écrit si une étape échoue en cours de passage | low | après le premier appel facturé, `ask` et `runScenarios` ne lèvent pas (statut 0), `runSm5` ne lève pas ; seuls les contrôles préalables et le calibrage (sans coût) peuvent arrêter le passage | accepté |
+
+## Clôture (2026-11-24)
+
+- `npm run measure:all` lancé par l'utilisateur (un passage) : SM-1 18/20 au contrôle d'origine, 20/20 après correction du contrôle (apostrophes typographiques, commit 9b22fd1, rapport non rejoué) ; SM-2 10/10 ; SM-4 10/10 ; SM-5 5/5 ; s1 à s4 sans résultat ; 0,40 gardé (q16 0,450, s2 0,373), consigné dans AD-9 ; r2 et r3 au rang 2, gardés ; 50 unités (Comptes 2 et 3 : 30 et 20), environ 0,30 $.
+- Relecture des 42 réponses par l'utilisateur, reportée par Claude dans `docs/mesures/indicateurs.md` : 0 fait inventé (SM-1), 0 information inventée (SM-2) ; q19 et a3 vérifiés dans le Guide d'accueil ; a1, a2, y3 conformes sur la sécurité, écart sur l'attendu (deferred-work) ; fausse contradiction au tour 1 de f2 (deferred-work, story courte proposée après la clôture).
+- Bibliothèque de production vérifiée par l'utilisateur : aucun Document « — test SM-5 ».
