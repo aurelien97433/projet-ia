@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NexaMind AI
 
-## Getting Started
+Le copilote documentaire de NexaWorks : un MVP réalisé en Vibe Coding.
 
-First, run the development server:
+## Le besoin et la réponse
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Chez NexaWorks, le savoir de l'entreprise est éparpillé entre les procédures, les FAQ, les notes de réunion et les comptes rendus clients. Les Collaborateurs perdent du temps à le chercher et obtiennent des réponses différentes selon la personne qu'ils interrogent.
+
+NexaMind AI réunit ce savoir dans une Base commune. Un Collaborateur ajoute un Document en une minute. Tout Collaborateur peut ensuite poser une question avec ses mots et obtenir une réponse rédigée à partir des Documents de l'entreprise, avec des Sources cliquables pour vérifier. Si l'information n'existe pas, l'Assistant le dit au lieu d'inventer.
+
+## Démonstration
+
+- **URL** : https://projet-ia-six.vercel.app
+- **Comptes de démonstration A et B** : identifiants transmis avec le rendu, jamais écrits dans le dépôt.
+
+## Stack
+
+- **Application** : Next.js 16 (App Router) et React 19, hébergée sur Vercel (région `fra1`)
+- **Données** : Supabase (Postgres avec pgvector, Auth, Storage privé, RLS, Edge Functions), région `eu-central-1`
+- **IA** : OpenAI `gpt-5.4-mini` (génération) et `text-embedding-3-small` (vectorisation, 1 536 dimensions), appelés uniquement depuis les Edge Functions
+- **Tests** : Vitest et Playwright (avec axe pour l'accessibilité)
+
+## Chaîne RAG
+
+```mermaid
+flowchart LR
+    U[Navigateur] -->|session| N[Next.js sur Vercel]
+    N -->|jeton du Collaborateur| E[Edge Functions<br/>process-document, semantic-search,<br/>chat, summarize]
+    E --> DB[(Postgres + pgvector<br/>RLS, match_passages)]
+    E -->|Passages au-dessus du seuil 0,40| O[OpenAI]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Le navigateur ne parle qu'à Next.js et au Storage. La clé OpenAI n'existe que dans les secrets Supabase. La démarche, les décisions et les mesures sont détaillées dans le [dossier de démarche](docs/demarche-vibe-coding.md).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Installation locale
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Prérequis : Node.js 24, Docker Desktop démarré et CLI Supabase 3.0.0.
 
-## Learn More
+```bash
+npm install
+npm run check:env          # vérifie Docker et la CLI Supabase
+npx supabase start         # démarre la pile Supabase locale
+```
 
-To learn more about Next.js, take a look at the following resources:
+Créez ensuite `.env.local` avec `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (valeurs affichées par `npx supabase start`), puis lancez :
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev                # http://localhost:3000
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+En local, la vectorisation et la génération sont simulées : aucune clé OpenAI n'est nécessaire. La liste complète des variables (noms seulement) est dans [docs/environnements.md](docs/environnements.md).
 
-## Deploy on Vercel
+## Commandes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Commande | Effet |
+|---|---|
+| `npm run dev` | Serveur de développement |
+| `npm test` | Tests Vitest : unitaires, puis intégration sur Supabase local |
+| `npm run test:e2e` | Tests Playwright sur Supabase local (build de production dédié) |
+| `npm run lint` | ESLint |
+| `npm run check:secrets` | Cherche des formats de clés dans le dépôt |
+| `npm run build:ci` | Contrôle des secrets, build, contrôle du code envoyé au navigateur |
+| `npm run test:ai` | Vérifie l'accès aux modèles par la fonction locale (clé locale requise) |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Les tests réels sur la production (`test:search:live`, `test:chat:live`, `test:followup:live`, `test:summary:live`, `test:uj2:live`, `test:security:live`, `measure:all`) consomment du crédit d'IA. Leurs prérequis sont décrits dans [docs/environnements.md](docs/environnements.md).
+
+## Déploiement
+
+1. **Supabase d'abord** : `npm run deploy:supabase` applique les migrations au projet distant lié et redéploie les Edge Functions.
+2. **Vercel ensuite** : un push sur `main` déclenche le build (`npm run build:ci`) et le déploiement en production.
+
+Cet ordre est obligatoire : l'application ne doit jamais précéder les migrations. Les secrets se posent sans affichage, suivant les procédures de [docs/environnements.md](docs/environnements.md). Pour recharger le Jeu de démonstration, utilisez `npm run seed:demo`.
+
+## Limites assumées du MVP
+
+- Données fictives : NexaWorks et tous les Documents sont inventés.
+- Inscription ouverte, bornée par un quota quotidien et un plafond global de questions.
+- Documents .txt et .md de 100 Ko au plus. PDF (FR-6), FR-11, FR-21 et le téléchargement de FR-10 ne sont pas livrés (P1 et P2).
+- Le détail des limites est dans le [dossier de démarche](docs/demarche-vibe-coding.md#8-limites-connues).
+
+## Résultats de l'audit de sécurité et décision de mise en service
+
+_À compléter après les stories 7.8 et 7.9._

@@ -294,7 +294,9 @@ Hors de la machine locale, `--remote` et une adresse `https` sont obligatoires. 
 | `RAG_MIN_SIMILARITY`, `GENERATION_MODEL` | Secrets Supabase | Non |
 | `EMBEDDINGS_FAKE`, `GENERATION_FAKE` (pas des secrets) | `supabase/config.toml`, pile locale uniquement, jamais sur le projet distant | Non |
 | `DEMO_ACCOUNT_*`, `MEASURE_ACCOUNT_*`, `SEED_SUPABASE_URL` | `.env.seed` (préchargement et mesures), jamais lu par Next.js | Non |
-| `UJ2_LIVE_URL` (URL de production Vercel ; pas un secret, mais jamais écrite dans le dépôt) | `.env.seed`, lu seulement par `playwright.live.config.ts` (`test:uj2:live`, SM-5 de `measure:all`) | Non |
+| `UJ2_LIVE_URL` (URL de production Vercel ; pas un secret, jamais écrite dans les scripts ni les rapports de test) | `.env.seed`, lu seulement par `playwright.live.config.ts` (`test:uj2:live`, SM-5 de `measure:all`) | Non |
+
+**Règle des URL (2026-11-25).** Aucune URL de production dans les scripts ni les rapports de test ; seule l'URL publique de démonstration figure dans le README.
 
 ## Contrôle des secrets
 
