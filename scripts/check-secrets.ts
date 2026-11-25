@@ -16,7 +16,13 @@ export type ScanOptions = {
   forbiddenNames?: string[];
   // Reçoit les fichiers non contrôlés (trop gros ou binaires), pour les signaler.
   skipped?: string[];
+  // Valeurs tolérées dans un seul fichier (chemin relatif à la racine, séparateur « / ») : l'URL
+  // publique de démonstration figure dans README.md et nulle part ailleurs (règle du 2026-11-25).
+  allowedValuesByFile?: Record<string, string[]>;
 };
+
+export const PUBLIC_DEMO_URL_NAME = "UJ2_LIVE_URL";
+export const PUBLIC_DEMO_URL_FILE = "README.md";
 
 export const SECRET_NAMES = ["OPENAI_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "PROCESS_DOCUMENT_SECRET"];
 export const SEED_ENV_FILE = ".env.seed";
@@ -104,6 +110,14 @@ export function secretValuesFromSeedFile(root: string): string[] {
     .filter((value) => value.length >= MIN_SECRET_VALUE_LENGTH);
 }
 
+// URL publique de démonstration (UJ2_LIVE_URL du fichier de préchargement), tolérée dans README.md seulement.
+export function publicDemoUrlAllowance(root: string): Record<string, string[]> {
+  const file = path.join(root, SEED_ENV_FILE);
+  if (!existsSync(file)) return {};
+  const url = parseEnvLines(readFileSync(file, "utf8"))[PUBLIC_DEMO_URL_NAME];
+  return url ? { [PUBLIC_DEMO_URL_FILE]: [url] } : {};
+}
+
 const compact = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export type InvalidSecret = { name: string; reason: string };
@@ -189,7 +203,9 @@ export function scanFiles(root: string, files: string[], options: ScanOptions = 
       options.skipped?.push(file);
       continue;
     }
-    findings.push(...scanText(text, file, options.secretValues));
+    const allowed = options.allowedValuesByFile?.[file] ?? [];
+    const secretValues = (options.secretValues ?? []).filter((value) => !allowed.includes(value));
+    findings.push(...scanText(text, file, secretValues));
     for (const name of options.forbiddenNames ?? []) {
       const index = text.indexOf(name);
       if (index !== -1) findings.push({ file, line: text.slice(0, index).split("\n").length, kind: "nom d'un secret" });
@@ -232,6 +248,7 @@ function main(): void {
     const skipped: string[] = [];
     const findings = scanFiles(target.root, target.files, {
       secretValues,
+      allowedValuesByFile: staticMode ? {} : publicDemoUrlAllowance(root),
       forbiddenNames: staticMode ? SECRET_NAMES : [],
       skipped,
     });

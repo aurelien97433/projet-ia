@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { invalidSecretsFromEnv, listRepoFiles, scanFiles, scanText } from "../../scripts/check-secrets";
+import { invalidSecretsFromEnv, listRepoFiles, publicDemoUrlAllowance, scanFiles, scanText } from "../../scripts/check-secrets";
 
 // Les fausses clés sont construites à l'exécution : aucune n'est écrite telle quelle dans le dépôt.
 const randomChars = (n: number) =>
@@ -301,6 +301,36 @@ describe("check-secrets en ligne de commande", { timeout: 30_000 }, () => {
       expect(result.stderr).toMatch(message);
       expect(result.stderr).toContain("(valeur masquée)");
       if (value === "valeur-courte") expect(result.stdout + result.stderr).not.toContain(value);
+    }
+  });
+});
+
+describe("URL publique de démonstration (règle du 2026-11-25)", () => {
+  it("est tolérée dans README.md seulement", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "demo-url-"));
+    try {
+      const url = ["https://", "demo-", randomChars(12), ".example.test"].join("");
+      writeFileSync(path.join(dir, ".env.seed"), `UJ2_LIVE_URL=${url}\nDEMO_ACCOUNT_A_PASSWORD=${randomChars(16)}\n`);
+      mkdirSync(path.join(dir, "docs"));
+      writeFileSync(path.join(dir, "README.md"), `URL : ${url}\n`);
+      writeFileSync(path.join(dir, "docs", "rapport.md"), `Cible : ${url}\n`);
+      const allowance = publicDemoUrlAllowance(dir);
+      expect(allowance).toEqual({ "README.md": [url] });
+      const options = { secretValues: [url], allowedValuesByFile: allowance };
+      expect(scanFiles(dir, ["README.md", path.join("docs", "rapport.md")], options)).toEqual([
+        { file: "docs/rapport.md", line: 1, kind: "valeur d'un secret de l'environnement" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ne tolère rien sans fichier de préchargement", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "demo-url-"));
+    try {
+      expect(publicDemoUrlAllowance(dir)).toEqual({});
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
