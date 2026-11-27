@@ -14,7 +14,7 @@ La formation ne fixe pas de format précis. Livrables retenus par le porteur du 
 | Vidéo de secours, UJ-1 à UJ-3 en moins de 5 minutes, sur l'environnement final | fichier local hors du dépôt : `nexamind-demo-2026-11-27T07-52-54-454Z.webm` (`npm run demo:video`) | **prête** (27/11 ; § 6) |
 | Présentation orale avec démonstration en direct | parcours UJ-1 à UJ-3 sur le site, Comptes de démo A et B (identifiants hors du dépôt) | à répéter (story 7.5) ; checklist du jour J (§ 3) et plan B (§ 4) |
 
-**Identifiants transmis** (jamais dans le dépôt) : Compte de démo B, transmis au formateur par canal privé le 27/11, connexion vérifiée par le porteur du produit. Compte de démo A : réservé à la démonstration en direct, _transmission à confirmer_.
+**Identifiants transmis** (jamais dans le dépôt) : Compte de démo B, transmis au formateur par canal privé le 27/11, connexion vérifiée par le porteur du produit. Compte de démo A : réservé à la démonstration en direct, non transmis (décision du porteur du produit, 27/11).
 
 ## 2. Vérifications 48 h avant (samedi 28/11) et la veille (dimanche 29/11)
 
