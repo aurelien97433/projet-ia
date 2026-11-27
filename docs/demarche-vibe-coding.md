@@ -2,6 +2,46 @@
 
 Ce dossier retrace comment le MVP de NexaMind AI a été construit avec une IA, du cadrage à la mise en production. Il résume le [journal de Vibe Coding](journal-vibe-coding.md), qui garde une entrée par story. Chaque affirmation renvoie à une preuve du dépôt : spécification, rapport de mesure, test ou commit.
 
+## Correspondance avec les attendus du challenge
+
+Chaque attendu de l'énoncé, ce que fait NexaMind AI, et où le vérifier. Les stories sont dans `_bmad-output/implementation-artifacts/`.
+
+| Attendu | Ce que fait NexaMind AI | Preuve |
+|---|---|---|
+| **Fonctionnalités** | | |
+| Créer un compte et se connecter de manière sécurisée | Inscription par e-mail et mot de passe, connexion, déconnexion ; pages protégées par le Proxy, chaque action serveur revérifie la session | Stories [1.3](../_bmad-output/implementation-artifacts/1-3-créer-un-compte.md) et [1.4](../_bmad-output/implementation-artifacts/1-4-se-connecter-se-déconnecter-et-protéger-les-pages.md) ; 9 routes en 401 sans session ([securite-live-2.md](mesures/securite-live-2.md)) |
+| Accéder à un tableau de bord | Actions principales, champ de Recherche et derniers Documents | Story [3.5](../_bmad-output/implementation-artifacts/3-5-tableau-de-bord-actions-et-derniers-documents.md) |
+| Ajouter, organiser ou consulter des contenus | Notes et fichiers .txt et .md classés par Catégorie à l'ajout ; Bibliothèque filtrable ; page Document et Lecteur | Stories [2.2](../_bmad-output/implementation-artifacts/2-2-créer-une-note.md), [2.6a](../_bmad-output/implementation-artifacts/2-6a-déposer-et-importer-un-fichier-txt-ou-md.md), [3.2](../_bmad-output/implementation-artifacts/3-2-page-document-complète.md), [3.3](../_bmad-output/implementation-artifacts/3-3-parcourir-la-bibliothèque.md) |
+| Effectuer des recherches dans les ressources | Recherche sémantique par le sens, 5 Documents au plus, avec l'extrait pertinent | Story [4.1b](../_bmad-output/implementation-artifacts/4-1b-page-recherche-et-champ-du-tableau-de-bord.md) ; SM-4 10/10 ([indicateurs.md](mesures/indicateurs.md)) |
+| Dialoguer avec une IA connectée aux données | Assistant qui répond à partir des Documents de la Base commune, avec questions de suivi | Stories [5.2b](../_bmad-output/implementation-artifacts/5-2b-page-assistant.md) et [5.8](../_bmad-output/implementation-artifacts/5-8-questions-de-suivi.md) |
+| Réponses contextualisées par RAG | Réponse construite sur les seuls Passages retrouvés, chaque fait renvoie à sa Source | Story [5.4](../_bmad-output/implementation-artifacts/5-4-validation-des-citations.md) ; SM-1 20/20 ([indicateurs.md](mesures/indicateurs.md)) |
+| Retrouver l'historique des échanges | Historique des Conversations, privées à chaque Collaborateur, rouvrables et poursuivables | Stories [5.1](../_bmad-output/implementation-artifacts/5-1-stocker-les-conversations-de-facon-strictement-privee.md) et [5.6](../_bmad-output/implementation-artifacts/5-6-conversations-et-historique.md) ; SM-6 critère 3 |
+| Gérer son espace ou ses contenus de manière structurée | Catégorie choisie à l'ajout, filtres « toutes » ou « les miens », suppression de ses Documents. **Partiel** : le titre et la Catégorie ne se modifient pas après l'ajout (ci-dessous) | Stories [3.3](../_bmad-output/implementation-artifacts/3-3-parcourir-la-bibliothèque.md) et [3.4](../_bmad-output/implementation-artifacts/3-4-supprimer-son-document.md) |
+| Centraliser les informations de l'entreprise | Base commune : tout Collaborateur lit et interroge les Documents de tous ; seul l'Auteur modifie ou supprime | SM-6 critères 1 et 2 ([securite-live-2.md](mesures/securite-live-2.md)) |
+| Expérience moderne, fluide et sécurisée | Réponse affichée au fil de l'eau, parcours au clavier, 375 px, axe sans violation ; RLS, clés côté serveur, audit de sécurité | Stories [5.5](../_bmad-output/implementation-artifacts/5-5-réponse-progressive-sur-vercel.md) et [7.3](../_bmad-output/implementation-artifacts/7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px.md) ; [audit-securite.md](tests/audit-securite.md) |
+| **Dimension IA** | | |
+| Questions-réponses sur base documentaire | Assistant métier ; refus honnête quand l'information est absente ou hors cadre | Story [5.3](../_bmad-output/implementation-artifacts/5-3-refus-honnêtes-et-marqueurs.md) ; SM-2 10/10 |
+| Résumé automatique | Résumé de 5 points au plus par Document, généré une fois et conservé par version du texte | Story [6.1](../_bmad-output/implementation-artifacts/6-1-générer-et-conserver-le-résumé.md) ; [resume-live.md](mesures/resume-live.md) |
+| **Dimension RAG** | | |
+| Ingestion de contenus | Notes et fichiers, texte rendu canonique, traitement en arrière-plan avec Statut | Stories [2.3](../_bmad-output/implementation-artifacts/2-3-déclencher-le-traitement-et-suivre-le-statut.md) et [2.6b](../_bmad-output/implementation-artifacts/2-6b-lire-le-texte-des-fichiers-importés.md) ; SM-5 5/5 |
+| Structuration ou découpage | Découpage en Passages avec leurs positions dans le texte | Story [2.4](../_bmad-output/implementation-artifacts/2-4-traiter-une-note-jusqu-à-prêt.md) |
+| Vectorisation et indexation | `text-embedding-3-small` (1 536 dimensions), pgvector dans Postgres | Story [2.4](../_bmad-output/implementation-artifacts/2-4-traiter-une-note-jusqu-à-prêt.md) |
+| Recherche sémantique | `match_passages` sous RLS, seuil 0,40 calibré | Stories [4.1a](../_bmad-output/implementation-artifacts/4-1a-recherche-sémantique-côté-serveur.md) et [7.2](../_bmad-output/implementation-artifacts/7-2-calibrage-final-et-mesures-sm-1-sm-2-sm-4-sm-5.md) |
+| Injection de contexte dans le prompt | Seuls les Passages retrouvés partent au modèle, encadrés et neutralisés (jamais un ordre) | Story [5.2a-1](../_bmad-output/implementation-artifacts/5-2a-1-consignes-generation-et-citations.md) ; Document piège, 0 réponse sur 50 piégée (§ 4.1) |
+| Génération d'une réponse contextualisée | `gpt-5.4-mini`, citations validées avant affichage, panneau Source avec le Passage | Stories [5.4](../_bmad-output/implementation-artifacts/5-4-validation-des-citations.md) et [5.7](../_bmad-output/implementation-artifacts/5-7-panneau-source.md) |
+| **Critères d'évaluation** | | |
+| Compréhension du besoin métier | PRD : vision, parcours UJ-1 à UJ-3, glossaire, indicateurs SM-1 à SM-6 | § 1.2 ; [PRD](../_bmad-output/planning-artifacts/prds/prd-projet-ia-2026-11-02/prd.md) |
+| Cohérence du produit | Un seul vocabulaire du glossaire au code ; les trois parcours vérifiés de bout en bout | [plan-de-tests.md](tests/plan-de-tests.md) ; SM-3 3/3 ([uj2-live.md](mesures/uj2-live.md)) |
+| Pertinence de la stack | Next.js sur Vercel, Supabase (Postgres, pgvector, Auth, Storage, Edge Functions), OpenAI, régions en Europe | § 2 et § 3 ; [architecture](../_bmad-output/planning-artifacts/architecture/architecture-projet-ia-2026-11-03/architecture-nexamind-ai.md) |
+| Qualité de la démarche Vibe Coding | Méthode BMAD, spec avant le code, preuves, relecteurs séparés, journal par story | § 1 ; [journal](journal-vibe-coding.md) |
+| Utiliser l'IA pour produire, corriger, améliorer | Code, tests et mesures écrits par l'IA ; erreurs de l'IA corrigées ; propositions refusées | § 4 |
+| Intégration réelle d'une fonctionnalité IA utile | Assistant et Résumé en production, mesurés sur le Jeu de démonstration | § 5.2 ; [decision-mise-en-service.md](mesures/decision-mise-en-service.md) |
+| Logique RAG et base vectorielle | Chaîne complète, de l'ingestion à la réponse sourcée | § 2 ; lignes « Dimension RAG » ci-dessus |
+| Qualité de l'UX | DESIGN.md et EXPERIENCE.md ; clavier, 375 px, axe ; messages d'erreur avec l'action adaptée | Story [7.3](../_bmad-output/implementation-artifacts/7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px.md) |
+| Crédibilité globale du MVP | En ligne, testé en production, audité, décision Go avec réserves argumentée | § 6 et § 7 |
+
+**Le seul point partiel : modifier le titre et la Catégorie d'un Document.** Un Document se classe par sa Catégorie à l'ajout, mais ne se reclasse pas ensuite : il faut le supprimer et l'ajouter de nouveau. La story [8.1](../_bmad-output/planning-artifacts/epics.md) (priorité P1) a été mise hors périmètre le 2026-11-16, avec 8.2 et 8.3. Raison : tenir les 20 stories P0 restantes au rythme d'environ 2 par jour ouvré jusqu'au rendu, sans retirer aucune exigence P0 ni aucun parcours. Les droits sont déjà en place pour cette évolution : `authenticated` ne peut modifier que `title` et `category`, seulement sur ses propres Documents (AD-2).
+
 ## 1. Démarche
 
 ### 1.1 Méthode : BMAD, puis Vibe Coding encadré

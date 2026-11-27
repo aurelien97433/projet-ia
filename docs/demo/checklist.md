@@ -4,18 +4,15 @@ Rendu le lundi 30/11. Aucun identifiant, mot de passe, e-mail ni URL de producti
 
 ## 1. Livrables du rendu du 30/11
 
-_Format exact du rendu à confirmer par le porteur du produit (non écrit dans le dépôt à ce jour)._
+La formation ne fixe pas de format précis. Livrables retenus par le porteur du produit :
 
 | Livrable | Où | État |
 |---|---|---|
-| Application en ligne, accessible sans authentification Vercel | URL publique de démonstration ([README](../../README.md)) | en ligne ; accès public à revérifier 48 h avant et la veille (§ 2) |
-| Dépôt du code, avec le README (besoin, URL, stack, chaîne RAG, installation, tests, limites) | dépôt GitHub, [README](../../README.md) | prêt |
-| Dossier de démarche Vibe Coding | [demarche-vibe-coding.md](../demarche-vibe-coding.md) | prêt |
-| Journal de Vibe Coding (une entrée par story) | [journal-vibe-coding.md](../journal-vibe-coding.md) | prêt |
-| Preuves : plan de tests, bilan des anomalies, audit de sécurité, décision de mise en service, mesures | [docs/tests](../tests), [decision-mise-en-service.md](../mesures/decision-mise-en-service.md), [docs/mesures](../mesures) | prêt |
-| Guide de reprise | [guide-de-reprise.md](../guide-de-reprise.md) | prêt |
-| Identifiants des Comptes de démonstration A et B | transmis hors du dépôt, selon le format du rendu | à transmettre |
+| URL de l'application, accessible sans authentification Vercel | URL publique de démonstration ([README](../../README.md)) | en ligne ; accès public à revérifier 48 h avant et la veille (§ 2) |
+| Dépôt GitHub, avec le README (besoin, URL, stack, chaîne RAG, installation, tests, limites) | dépôt GitHub, [README](../../README.md) | prêt |
+| Dossier de démarche Vibe Coding, avec la correspondance aux attendus du challenge | [demarche-vibe-coding.md](../demarche-vibe-coding.md) ; preuves dans [journal](../journal-vibe-coding.md), [docs/tests](../tests), [docs/mesures](../mesures), [guide de reprise](../guide-de-reprise.md) | prêt |
 | Vidéo de secours, UJ-1 à UJ-3 en moins de 5 minutes, sur l'environnement final | fichier local, hors du dépôt | à enregistrer (story 7.5) |
+| Présentation orale avec démonstration en direct | parcours UJ-1 à UJ-3 sur le site, Comptes de démo A et B (identifiants hors du dépôt) | à répéter (story 7.5) ; checklist du jour J (§ 3) et plan B (§ 4) |
 
 ## 2. Vérifications 48 h avant (samedi 28/11) et la veille (dimanche 29/11)
 
