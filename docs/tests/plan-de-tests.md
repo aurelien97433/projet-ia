@@ -1,6 +1,6 @@
 # Plan de tests — NexaMind AI
 
-État au 2026-11-24 (story 7.7). Ce document relie les parcours du produit et les risques connus aux tests qui les vérifient. Il est rédigé à partir des tests existants : aucun test n'a été ajouté pour l'écrire. Les anomalies et les reports encore ouverts sont dans le [bilan des anomalies](bilan-anomalies.md).
+État au 2026-11-24 (story 7.7), section 7 ajoutée le 2026-11-27. Ce document relie les parcours du produit et les risques connus aux tests qui les vérifient. Il est rédigé à partir des tests existants : aucun test n'a été ajouté pour l'écrire. Les anomalies et les reports encore ouverts sont dans le [bilan des anomalies](bilan-anomalies.md).
 
 **Sources.** Parcours : [PRD §2.3](../../_bmad-output/planning-artifacts/prds/prd-projet-ia-2026-11-02/prd.md) ; risques : « Risque restant » des décisions AD-1 à AD-21 de l'[architecture](../../_bmad-output/planning-artifacts/architecture/architecture-projet-ia-2026-11-03/architecture-nexamind-ai.md) et indicateurs SM-1 à SM-6 du PRD (§8) ; commandes : [environnements.md](../environnements.md).
 
@@ -115,3 +115,40 @@ Deux couvertures partielles sont inscrites au bilan (N1) : la question exacte d'
 | `npm run measure:all` | Calibrage final, SM-1, SM-2, SM-4, SM-5 | Production (et vectorisation locale) | Utilisateur | Environ 0,30 $, 50 unités |
 
 Les scripts live écrivent leur rapport dans [docs/mesures](../mesures), sans jamais écraser un rapport existant, et suppriment les données qu'ils créent.
+
+## 7. Correspondance avec la séquence 10
+
+Section ajoutée le 2026-11-27. La séquence 10 de la formation attend un plan de tests couvrant les exigences, la distinction entre trois catégories de vérification, une correction documentée puis vérifiée avec des preuves reproductibles, et l'usage de `bmad-qa-generate-e2e-tests`.
+
+### 7.1 Trois catégories de vérification
+
+| Catégorie | Ce qu'elle prouve | Qui, où, coût | Preuves |
+|---|---|---|---|
+| **Tests automatisés** | Le code fait ce que la spec décrit, à chaque changement, sans IA réelle (vectorisation et génération simulées) | Agent, poste local (Supabase local), gratuit ; relancés avant chaque commit | Vitest : [tests/unit](../../tests/unit) et [tests/integration](../../tests/integration) (RLS à deux Comptes, droits des fonctions SQL) ; Playwright : [tests/e2e](../../tests/e2e) (parcours UJ-1 à UJ-3 au clavier, 1 280 et 375 px, axe). Dernier passage complet, le 2026-11-27 : 2 261 tests Vitest et 409 tests e2e réussis, 0 échec ([audit-securite.md](audit-securite.md) § 7) |
+| **Vérifications manuelles** | Ce qu'aucun automate ne juge : un fait inventé, la lisibilité, le rendu réel sur le site | Porteur du produit, production | Relecture humaine des 42 réponses mesurées (colonne « Relecture » de [indicateurs.md](../mesures/indicateurs.md) : 0 fait inventé) ; vérifications sur le site après chaque déploiement (journal de chaque story) ; génération du Résumé vérifiée à la main ([audit-securite.md](audit-securite.md) § 7) ; vidéo de secours visionnée en entier, URL publique et Comptes de démo ([checklist](../demo/checklist.md)) |
+| **Évaluation du RAG** | La qualité des réponses de la vraie IA sur le Jeu de démonstration, contre des cibles chiffrées fixées avant la mesure | Porteur du produit, production, quelques centimes par passage ; rapports jamais écrasés | `measure:all` : calibrage du seuil 0,40, SM-1 20/20 (exactitude sourcée), SM-2 10/10 (refus justes), SM-4 10/10 (pertinence de la Recherche), SM-5 5/5 ([indicateurs.md](../mesures/indicateurs.md)) ; `test:chat:live` (Sources attendues, contradiction c1, termes du Document piège interdits : [assistant-live-3.md](../mesures/assistant-live-3.md)) ; `test:followup:live` ([suivi-live-2.md](../mesures/suivi-live-2.md)) ; `test:summary:live` ([resume-live.md](../mesures/resume-live.md)) ; seuils de décision : [decision-mise-en-service.md](../mesures/decision-mise-en-service.md) |
+
+### 7.2 Tests générés avec `bmad-qa-generate-e2e-tests`
+
+**Périmètre**, choisi parce qu'il était réellement peu couvert : le focus après le menu mobile (375 px). Les correctifs R11 et R73-F13 de l'audit (7.8) n'étaient prouvés que par des tests unitaires (jsdom). Les deux exemples envisagés d'abord, la suppression et la Recherche sans résultat, avaient déjà respectivement 6 et 2 tests e2e. Exécution sur la pile locale seulement.
+
+| Test ajouté à [shell.spec.ts](../../tests/e2e/shell.spec.ts) | Résultat |
+|---|---|
+| L'entrée de l'écran courant ferme le menu sans naviguer ; l'écran suivant reçoit le focus de changement d'écran | réussi ; **échoue avec le code d'avant le correctif** (`7fa6440`), ce qui prouve R11 |
+| Après une navigation par le menu (focus sur ☰), l'écran suivant reçoit de nouveau le focus | réussi |
+| D87 (défaut connu) : retour sur l'écran du premier chargement | **échec attendu** (`test.fail`) : défaut réel trouvé par la génération, antérieur à la 7.8, reporté (D87 du [bilan](bilan-anomalies.md)) ; le test signalera sa correction |
+
+Un premier jet attendait le focus sur le titre du Tableau de bord : faux, l'écran confie ce focus à son champ de Recherche (`focusTargetId`). L'attente a été corrigée, pas l'application. Synthèse : [test-summary.md](../../_bmad-output/implementation-artifacts/tests/test-summary.md).
+
+### 7.3 Exemple complet de correction prouvée : la fausse contradiction (story 7.2b)
+
+| Étape | Ce qui s'est passé | Preuve reproductible |
+|---|---|---|
+| 1. Anomalie relevée en **mesure** | À la relecture de `measure:all` (2026-11-24), le premier tour du suivi f2 donne la règle des 2 semaines et l'exception des 5 jours, puis ajoute « Les Documents ne concordent pas : 2 semaines[S1], 5 jours[S1] », alors que les deux valeurs viennent d'un seul Document | Réponse écrite telle quelle dans [indicateurs.md](../mesures/indicateurs.md) (tableau des suivis, f2) |
+| 2. Cause | La consigne de l'Assistant parlait de « plusieurs Passages » qui donnent des valeurs différentes, sans exiger des Documents différents | [spec 7.2b](../../_bmad-output/implementation-artifacts/7-2b-contradiction-entre-documents-differents.md), « Problem » |
+| 3. Critères écrits **avant** la correction | f2 tour 1 : « 2 semaines », sans « ne concordent pas » (bloquant) ; f4 : « 5 jours » ; et **non-régression** : c1, vraie contradiction entre deux Documents, doit toujours dire « ne concordent pas » | Spec 7.2b, « I/O & Edge-Case Matrix » et critères d'acceptation |
+| 4. Correction | Une seule ligne de consigne : on ne compare que des Passages de Documents différents (attribut `document`) ; une règle et son exception d'un même Document ne sont pas une contradiction (commit `f21fc82`) | `npx vitest run tests/unit/prompt.test.ts` (test « story 7.2b ») |
+| 5. Vérification **après**, en production | f2 tour 1 sans phrase d'écart, f4 « 5 jours » : 4 sur 4 ; c1 signale toujours la contradiction : 3 sur 3 | `npm run test:followup:live -- --only=f2,f4` → [suivi-live-2.md](../mesures/suivi-live-2.md) ; `npm run test:chat:live` → [assistant-live-2.md](../mesures/assistant-live-2.md) |
+| 6. Toujours vrai trois jours plus tard | Après l'audit et son déploiement, c1 : 3 sur 3 avec la phrase d'écart | [assistant-live-3.md](../mesures/assistant-live-3.md) (2026-11-27) |
+
+Chaque preuve est un rapport daté, écrit par un script qui ne l'écrase jamais, et chaque commande peut être relancée : moins de 0,15 $ pour les deux rejeux en production, gratuit pour le test unitaire. Le non-déterminisme du modèle fait qu'un rejeu réussi prouve l'absence de régression, pas l'absence de toute variation : c'est pourquoi les critères bloquants portent sur 3 essais par cas dans `test:chat:live`.

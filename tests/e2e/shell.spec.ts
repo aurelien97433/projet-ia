@@ -134,4 +134,58 @@ test.describe("mobile (375 px)", () => {
     await expect(menuButton).toBeFocused();
     await expectNoHorizontalScroll(page);
   });
+
+  // Story 7.8 (R11, R73-F13), généré avec bmad-qa-generate-e2e-tests : le clic sur l'écran courant ne
+  // change pas d'écran ; il ne doit pas priver de focus le titre de l'écran suivant. Avant le correctif
+  // (7fa6440), le champ du Tableau de bord ne recevait pas le focus à la dernière étape.
+  test("menu : l'entrée de l'écran courant ferme le menu sans naviguer ; l'écran suivant reçoit le focus de changement d'écran", async ({ page }) => {
+    await page.goto("/bibliotheque");
+    await expect(page.getByRole("heading", { level: 1, name: texts.titles.library })).toBeVisible();
+    const menuButton = page.getByRole("button", { name: texts.shell.openMenu });
+    await menuButton.click();
+    await page.getByRole("dialog").getByRole("link", { name: texts.nav.library }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(page).toHaveURL(/\/bibliotheque$/);
+    await expect(menuButton).toBeFocused();
+
+    await page.locator("header").getByRole("link", { name: texts.app.name }).click();
+    await expect(page).toHaveURL(/\/$/);
+    // Écran de saisie : le Tableau de bord confie le focus de son titre au champ de Recherche (focusTargetId).
+    await expect(page.getByRole("searchbox", { name: texts.dashboard.searchLabel })).toBeFocused();
+  });
+
+  test("menu : après une navigation par le menu (focus sur ☰), l'écran suivant reçoit de nouveau le focus de changement d'écran", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1, name: texts.titles.dashboard })).toBeVisible();
+    const menuButton = page.getByRole("button", { name: texts.shell.openMenu });
+    await menuButton.click();
+    await page.getByRole("dialog").getByRole("link", { name: texts.nav.library }).click();
+    await expect(page).toHaveURL(/\/bibliotheque$/);
+    await expect(menuButton).toBeFocused();
+
+    // Écran jamais affiché : l'état du menu a été consommé par la Bibliothèque.
+    await page.locator("header").getByRole("link", { name: texts.shell.addDocumentLabel }).click();
+    await expect(page).toHaveURL(/\/ajouter$/);
+    await expect(page.locator("#title")).toBeFocused();
+  });
+
+  // D87 (défaut connu, relevé le 2026-11-27 par ce test, antérieur à la 7.8) : revenir sur l'écran du
+  // premier chargement ne lui donne pas le focus de changement d'écran, sur ordinateur comme à 375 px.
+  // Cause probable : Next 16 garde l'écran déjà affiché et PageTitle y conserve sa décision « premier
+  // chargement ». test.fail : le test signalera la correction en échouant.
+  test("D87 (défaut connu) : retour sur l'écran du premier chargement, focus de changement d'écran", async ({ page }) => {
+    test.fail(true, "D87 : décision « premier chargement » conservée par l'écran gardé en mémoire");
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1, name: texts.titles.dashboard })).toBeVisible();
+    const menuButton = page.getByRole("button", { name: texts.shell.openMenu });
+    await menuButton.click();
+    await page.getByRole("dialog").getByRole("link", { name: texts.nav.library }).click();
+    await expect(page).toHaveURL(/\/bibliotheque$/);
+    await expect(menuButton).toBeFocused();
+
+    await page.locator("header").getByRole("link", { name: texts.app.name }).click();
+    await expect(page).toHaveURL(/\/$/);
+    // Écran de saisie : le Tableau de bord confie le focus de son titre au champ de Recherche (focusTargetId).
+    await expect(page.getByRole("searchbox", { name: texts.dashboard.searchLabel })).toBeFocused({ timeout: 5_000 });
+  });
 });
