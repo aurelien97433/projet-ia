@@ -205,6 +205,7 @@ Format : **Règle** (ce que le développement doit respecter) · **Raison** (la 
 
 ### AD-15 — Plafond fournisseur de 10 $ `[ADOPTED]`
 - **Règle (Rule) :** projet OpenAI dédié, avec un plafond strict de 10 $ (alerte à 5 $) et la recharge automatique désactivée. Si le plafond du tableau de bord n'est pas strictement bloquant, on utilise un crédit prépayé limité. Le refus du fournisseur (`429` `project_spend_limit_exceeded` ou quota épuisé) est traduit en `AI_BUDGET_EXHAUSTED` : un message de panne compréhensible, distinct du quota, journalisé.
+  - **Note du 2026-11-27 (story 7.9, relevé du porteur du produit).** La limite de dépense du projet OpenAI (10 $) n'est **pas bloquante** : elle déclenche des alertes par e-mail (5 $ et 10 $) sans arrêter les appels. Le repli de cette règle s'applique : crédit prépayé limité (9,70 $ restants le 2026-11-27), recharge automatique désactivée. Modèles autorisés pour le projet : `gpt-5.4-mini` et `text-embedding-3-small` seulement. Écart avec le texte de NFR-8 (« plafond de dépense configuré chez le fournisseur ») consigné comme réserve dans `docs/mesures/decision-mise-en-service.md`.
 - **Raison — ce qu'on évite (Prevents) :** NFR-8 (plafond), et protection contre l'inscription ouverte.
 - **Écarté :** aucun plafond ; une offre payante.
 - **Risque restant :** si le plafond est atteint, l'IA s'arrête pour tout le monde jusqu'à une intervention. On le surveille avant la démonstration.

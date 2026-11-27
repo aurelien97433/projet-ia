@@ -156,15 +156,22 @@ Revue de tout le code avant la mise en service, en 5 surfaces (base, Edge Functi
 - **Un constat haut, corrigé.** Un Collaborateur pouvait appeler directement, par l'API, les fonctions SQL du verrou du Résumé et lancer plusieurs générations facturées en parallèle (R1). La même ouverture permettait de vider le plafond global du projet sans aucun appel au fournisseur (R2). Correctif : ces 4 fonctions ne sont plus exécutables que par les Edge Functions, avec l'identifiant vérifié auprès d'Auth ; un appel direct reçoit `42501`.
 - **18 constats retenus** : 9 corrigés avec un test, 2 acceptés sur décision écrite (volumes par Compte, vectorisation hors quota), 7 reportés ; 10 écartés avec leur raison.
 - Autres correctifs : caractères Unicode invisibles retirés de ce qui part au modèle, en-têtes anti-cadre et `nosniff`, limite des Server Actions ramenée à 1 Mo, rotation du secret de traitement fiabilisée (Production seulement, presse-papiers vérifié, aucune variable de simulation envoyée en production), focus du titre après le menu mobile.
+- **Vérifié en production** (2026-11-27) : droits des 4 fonctions contrôlés sur le catalogue, en lecture seule ; `test:security:live` réussi ; `test:chat:live` 15 sur 15 ; génération du Résumé vérifiée à la main sur le site.
 
 ## 7. Décision de mise en service (7.9)
 
-_À compléter le 26/11 avec les résultats de la story 7.9 (`docs/mesures/decision-mise-en-service.md`) : seuils, alertes, repli et décision Go / Go avec réserves / No-Go._
+**Décision : Go avec réserves**, prise par le porteur du produit le 2026-11-27. Seuils, alertes et actions de repli pour chaque critère : [décision de mise en service](mesures/decision-mise-en-service.md).
+
+- **Raisons.** SM-1 20/20 sans fait inventé, SM-2 10/10, SM-4 10/10, SM-5 5/5, SM-6 réussi en production, aucune anomalie haute après l'audit, et un crédit prépayé de 9,70 $ pour quelques centimes de tests par jour.
+- **Réserves.** Non-déterminisme du modèle (prouvé et atténué) ; volume et vectorisation bornés seulement par le crédit prépayé ; limite de dépense OpenAI non bloquante ; refus au lieu de distinguer les cas pour a1, a2 et y3.
+- **Seuils sans tolérance.** Un fait inventé, un défaut de cloisonnement (SM-6) ou une anomalie haute ouverte donnent un No-Go, sans action de repli.
+- **Repli principal.** Vidéo de secours (7.5) si un service tombe ou si le crédit s'épuise ; réchauffage des fonctions avant la démonstration.
 
 ## 8. Limites connues
 
 - **Données fictives.** NexaWorks et tous les Documents sont inventés. Les modèles OpenAI sont hébergés hors UE, sans enjeu pour ces données.
 - **Inscription ouverte.** N'importe qui peut créer un Compte. Le risque est borné par le quota quotidien et le plafond global ; un plafond épuisé par des Comptes jetables reste un risque accepté.
+- **Limite de dépense OpenAI non bloquante** (relevé du 2026-11-27) : la limite de 10 $ du projet déclenche des alertes (5 $ et 10 $) sans arrêter les appels, contrairement à ce que prévoyait NFR-8. La borne réelle est le crédit prépayé, comme le prévoit le repli d'AD-15 (9,70 $ restants), sans recharge automatique. Seuls `gpt-5.4-mini` et `text-embedding-3-small` sont autorisés pour le projet.
 - **Base commune.** Tout Collaborateur lit et interroge les Documents des autres ; seul l'auteur modifie ou supprime les siens. Les Conversations restent privées.
 - **Taille des Documents** limitée à 100 Ko ; formats .txt et .md seulement.
 - **Aucune limite de volume par Compte** (audit R3, accepté le 2026-11-25) : Notes, Conversations et fichiers déposés ne sont pas plafonnés, et les fichiers déposés mais jamais importés ne sont pas purgés. Acceptable pour 5 Comptes de démonstration ; l'espace est surveillé au tableau de bord Supabase.

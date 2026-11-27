@@ -1920,3 +1920,13 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Ce que la vérification a montré.** Un premier passage e2e à 6 workers a donné 7 échecs sous la charge ; la suite complète à 4 workers est passée sans échec. En production, `test:summary:live` a conclu « ÉCHEC » parce que les Résumés visés existaient déjà : l'application les a renvoyés sans appel ni unité, comme prévu, mais le script n'exerçait pas la génération. L'utilisateur l'a vérifiée à la main sur le site ; le script est à adapter (report D86).
 
 **Statut.** Story 7.8 `done` le 2026-11-27.
+
+## Story 7.9 : seuils, alertes, repli et décision de mise en service (2026-11-27)
+
+**Ce qui a été livré.** Un document court, `docs/mesures/decision-mise-en-service.md`. Pour chaque critère (SM-1 à SM-6, faits inventés, citations, consigne cachée, latence, écriture à 100 Ko, crédit OpenAI, quotas, espace, disponibilité), il donne la valeur mesurée, les seuils Go, Go avec réserves et No-Go, l'alerte et l'action de repli. Seuils proposés par l'IA et validés par le porteur du produit. Un fait inventé, un défaut de cloisonnement ou une anomalie haute ouverte donnent un No-Go sans repli possible.
+
+**Ce que le relevé OpenAI a montré.** La limite de dépense de 10 $ du projet n'est pas bloquante : elle envoie des alertes sans arrêter les appels. Le repli prévu par AD-15 s'applique : crédit prépayé limité (9,70 $ restants), sans recharge automatique, et seuls les deux modèles utilisés sont autorisés pour le projet. L'écart avec le texte de NFR-8 est consigné comme réserve. D46 n'a pas été remesuré, sur décision du porteur du produit : le traitement des Documents est inchangé depuis la mesure du 13/11.
+
+**Décision.** Go avec réserves, prise par le porteur du produit. Raisons : tous les indicateurs mesurés atteignent leur cible, SM-6 est vérifié en production, aucune anomalie haute n'est ouverte après l'audit, et le crédit couvre largement le coût des tests. Réserves : non-déterminisme du modèle, volume et vectorisation bornés par le seul crédit prépayé, limite OpenAI non bloquante, refus au lieu de distinguer les cas pour trois questions ambiguës.
+
+**Statut.** Story 7.9 `done` le 2026-11-27.
