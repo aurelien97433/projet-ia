@@ -11,7 +11,7 @@ La formation ne fixe pas de format précis. Livrables retenus par le porteur du 
 | URL de l'application, accessible sans authentification Vercel | URL publique de démonstration ([README](../../README.md)) | en ligne ; accès public à revérifier 48 h avant et la veille (§ 2) |
 | Dépôt GitHub, avec le README (besoin, URL, stack, chaîne RAG, installation, tests, limites) | dépôt GitHub, [README](../../README.md) | prêt |
 | Dossier de démarche Vibe Coding, avec la correspondance aux attendus du challenge | [demarche-vibe-coding.md](../demarche-vibe-coding.md) ; preuves dans [journal](../journal-vibe-coding.md), [docs/tests](../tests), [docs/mesures](../mesures), [guide de reprise](../guide-de-reprise.md) | prêt |
-| Vidéo de secours, UJ-1 à UJ-3 en moins de 5 minutes, sur l'environnement final | fichier local, hors du dépôt | à enregistrer (story 7.5) |
+| Vidéo de secours, UJ-1 à UJ-3 en moins de 5 minutes, sur l'environnement final | fichier local hors du dépôt : `nexamind-demo-2026-11-27T07-52-54-454Z.webm` (`npm run demo:video`) | **prête** (27/11 ; § 6) |
 | Présentation orale avec démonstration en direct | parcours UJ-1 à UJ-3 sur le site, Comptes de démo A et B (identifiants hors du dépôt) | à répéter (story 7.5) ; checklist du jour J (§ 3) et plan B (§ 4) |
 
 ## 2. Vérifications 48 h avant (samedi 28/11) et la veille (dimanche 29/11)
@@ -67,5 +67,12 @@ La formation ne fixe pas de format précis. Livrables retenus par le porteur du 
 
 | Vérification | Date | Supabase actif | URL publique (fenêtre privée, autre réseau) | Comptes A et B | OpenAI (crédit, modèles, tarifs) | Plafond | UJ-2 rejoué |
 |---|---|---|---|---|---|---|---|
+| Répétition générale | 27/11 | oui | _à faire_ | _à faire_ | crédit 9,70 $, modèles confirmés ([décision](../mesures/decision-mise-en-service.md)) | _à relever_ | 3 sur 3 (53,8 s, 30,3 s, 31,9 s), [uj2-live-2.md](../mesures/uj2-live-2.md) ; Documents de test restants : 0 |
 | 48 h avant | 28/11 | | | | | | |
 | La veille | 29/11 | | | | | | |
+
+## 6. Vidéo de secours (critère 3 de la story 7.5 : validé)
+
+| Date | Fichier (hors du dépôt) | Durée | Contenu | Unités | Écarts | Nettoyage | Relecture |
+|---|---|---|---|---|---|---|---|
+| 27/11 | `nexamind-demo-2026-11-27T07-52-54-454Z.webm`, produit par `npm run demo:video` (production, Compte de démo A, 1 280 × 720) | 98 s (< 5 min) | UJ-1 (connexion, Tableau de bord, q1 et sa Source, contradiction c1, refus h1), UJ-2 (Note Dorval, prêt, question, Résumé, suppression), UJ-3 (Recherche, question et suivi, Historique) | 7 (7 prévues) | aucun | Note Dorval supprimée | visionnée en entier par le porteur du produit : conforme et lisible |

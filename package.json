@@ -26,7 +26,8 @@
     "check:secrets": "tsx scripts/check-secrets.ts",
     "build:ci": "npm run check:secrets && next build && npm run check:secrets -- --static",
     "deploy:supabase": "tsx scripts/deploy-supabase.ts",
-    "seed:demo": "tsx scripts/seed-demo.ts"
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "demo:video": "tsx scripts/demo-video.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

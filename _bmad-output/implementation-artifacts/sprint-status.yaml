@@ -102,7 +102,7 @@ development_status:
   7-2b-contradiction-entre-documents-differents: done  # P0 · ajoutée le 2026-11-24 (relecture de measure:all, f2) · dépend de : 7.2
   7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px: done  # P0 · dépend de : 7.1b
   7-4-finitions-d-accessibilité-et-de-session-finition: out-of-scope  # hors périmètre le 2026-11-16 · P0 FINITION · dépend de : 7.3
-  7-5-répétition-générale-et-vidéo-de-secours: backlog  # P0 · dépend de : 7.3 (7.4 si livrée)
+  7-5-répétition-générale-et-vidéo-de-secours: in-progress  # P0 · dépend de : 7.3 (7.4 si livrée)
   7-6-dossier-de-démarche-et-readme: done  # P0 · dépend de : 7.2 (résultats chiffrés) ; finalisé après 7.5
   7-7-plan-de-tests-et-bilan-des-anomalies: done  # P0 · séquence 10 (23/11) · dépend de : 7.1b
   7-8-audit-global-de-sécurité: done  # P0 · séquence 11 (24/11) · dépend de : 7.7
