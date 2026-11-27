@@ -86,7 +86,7 @@ La clé n'est jamais tapée sur une ligne de commande, collée dans un fichier s
    ```
    Le fichier est écrit sans BOM, qui fausserait le nom de la variable.
 2. **Contrôle** : `git check-ignore -v supabase/functions/.env` cite `.gitignore` (`.env*`). `git status --short` ne liste pas le fichier.
-3. **Projet distant** : **ne jamais** passer `supabase\functions\.env` à `supabase secrets set`. Depuis la story 2.3, ce fichier contient aussi le `PROCESS_DOCUMENT_SECRET` **local** : la commande remplacerait le secret de production et chaque Note passerait *en erreur*. Écrire la clé dans un fichier temporaire hors du dépôt, comme pour `PROCESS_DOCUMENT_SECRET` (section suivante), puis lancer `npx supabase secrets set --env-file <ce fichier>`, qui vise le projet lié (commande « remote only »), et supprimer le fichier. Ensuite, `npx supabase secrets list` doit afficher `OPENAI_API_KEY` avec une empreinte, jamais la valeur.
+3. **Projet distant** : **ne jamais** passer `supabase\functions\.env` à `supabase secrets set`. Depuis la story 2.3, ce fichier contient aussi le `PROCESS_DOCUMENT_SECRET` **local** : la commande remplacerait le secret de production et chaque Note passerait *en erreur*. Écrire la clé dans un fichier temporaire hors du dépôt et la poser **depuis un dossier de travail temporaire, avec `--workdir` et `--remote`**, exactement comme `PROCESS_DOCUMENT_SECRET` à l'étape 2 de la section suivante (remplacer la ligne `PROCESS_DOCUMENT_SECRET=…` par `OPENAI_API_KEY=…`). Ensuite, `npx supabase secrets list --remote=$ref` doit afficher `OPENAI_API_KEY` avec une empreinte, jamais la valeur.
 4. **Après une pose ou un changement de clé** : redémarrer Supabase local (`npx supabase stop`, puis `npx supabase start`) et lancer `npm run test:ai`.
 
 ## `PROCESS_DOCUMENT_SECRET` : création sans affichage
@@ -95,7 +95,9 @@ Ce secret autorise Next.js à appeler `process-document`. Il est lu côté serve
 
 **Ordre obligatoire : secret (Supabase et Vercel), puis `npm run deploy:supabase`, puis push.** Si le code arrive sur Vercel avant la fonction ou le secret, chaque Note créée passe *en erreur* temporaire.
 
-**Production (PowerShell, à la racine du projet lié).** À exécuter dans une seule session, sans fermer la fenêtre entre les étapes :
+**Méthode recommandée : `powershell -NoProfile -File scripts\setup-seed-env.ps1`** (voir plus bas), qui fait ces étapes avec les contrôles (projet visé confirmé, dossier temporaire, presse-papiers vérifié puis effacé).
+
+**Production, à la main (PowerShell, à la racine du projet lié).** À exécuter dans une seule session, sans fermer la fenêtre entre les étapes :
 
 1. Générer la valeur (rien ne s'affiche) :
    ```powershell
@@ -103,25 +105,34 @@ Ce secret autorise Next.js à appeler `process-document`. Il est lu côté serve
    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
    $secret = -join ($bytes | ForEach-Object { $_.ToString("x2") })
    ```
-2. La poser dans Supabase, par un fichier temporaire hors du dépôt, sans BOM :
+2. La poser dans Supabase, par un fichier temporaire hors du dépôt, sans BOM, **depuis un dossier de travail temporaire** (story 7.8, R7) : lancée à la racine, la CLI ajouterait les secrets de `[edge_runtime.secrets]` du `config.toml` du projet (`EMBEDDINGS_FAKE`, `GENERATION_FAKE`) au projet distant. `--remote` vise le projet lié par sa référence, jamais la pile locale :
    ```powershell
-   $file = Join-Path $env:TEMP "process-document-secret.env"
-   [IO.File]::WriteAllText($file, "PROCESS_DOCUMENT_SECRET=$secret`n", (New-Object Text.UTF8Encoding $false))
-   npx supabase secrets set --env-file $file
-   Remove-Item $file
-   npx supabase secrets list
+   $ref = (Get-Content supabase\.temp\project-ref -Raw).Trim()
+   $work = Join-Path $env:TEMP ("nexamind-secret-" + [Guid]::NewGuid().ToString("N"))
+   New-Item -ItemType Directory -Force (Join-Path $work "supabase") | Out-Null
+   $utf8 = New-Object Text.UTF8Encoding $false
+   [IO.File]::WriteAllText((Join-Path $work "supabase\config.toml"), "project_id = `"nexamind-secret`"`n", $utf8)
+   $file = Join-Path $work "secret.env"
+   [IO.File]::WriteAllText($file, "PROCESS_DOCUMENT_SECRET=$secret`n", $utf8)
+   npx supabase secrets set --env-file $file --remote=$ref --workdir $work
+   Remove-Item $work -Recurse -Force
+   npx supabase secrets list --remote=$ref
    ```
-   La liste doit afficher `PROCESS_DOCUMENT_SECRET` avec une empreinte, jamais la valeur.
+   La CLI doit annoncer **un seul** secret ; sinon, refuser. La liste doit afficher `PROCESS_DOCUMENT_SECRET` avec une empreinte, jamais la valeur, et aucun `EMBEDDINGS_FAKE` ni `GENERATION_FAKE`.
 3. La copier dans le presse-papiers :
    ```powershell
    Set-Clipboard -Value $secret
+   (Get-Clipboard -Raw).TrimEnd() -ceq $secret
    ```
+   La seconde ligne doit afficher `True` ; sinon, relancer les deux lignes (presse-papiers occupé par une autre application).
 4. Dans Vercel › projet › Settings › Environment Variables : `Add`, nom `PROCESS_DOCUMENT_SECRET`, valeur collée, environnement **Production** seulement (relevé du 2026-11-13 : jamais en Preview ; une prévisualisation ne déclenche donc aucun traitement), option **Sensitive** activée, puis `Save`.
 5. Effacer la valeur :
    ```powershell
    Set-Clipboard -Value " "
+   (Get-Clipboard -Raw).Trim() -eq ""
    Remove-Variable secret, bytes
    ```
+   La deuxième ligne doit afficher `True`.
    Si l'historique du presse-papiers de Windows est activé (`Win + V`), y supprimer aussi l'entrée.
 
 **Changer le secret** : reprendre ces étapes, puis redéployer sur Vercel : une variable Vercel ne s'applique qu'aux déploiements suivants. Entre le changement côté Supabase et la fin du redéploiement, chaque Note créée passe *en erreur* temporaire (`401`). Ensuite, créer une Note : elle doit rester *en cours* sans passer *en erreur* immédiatement.

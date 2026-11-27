@@ -83,7 +83,7 @@ flowchart LR
 
 ## 4. Anomalies trouvées et corrigées
 
-Le [bilan des anomalies](tests/bilan-anomalies.md) recense 113 constats : 71 fermés, 42 ouverts, dont 22 acceptés avec une décision écrite. **Aucune anomalie haute n'est ouverte.** Les exemples ci-dessous montrent ce que l'IA a produit, ce qui a été corrigé ou refusé, et pourquoi.
+Le [bilan des anomalies](tests/bilan-anomalies.md) recense 131 constats : 83 fermés, 48 ouverts, dont 26 acceptés avec une décision écrite (audit de sécurité compris). **Aucune anomalie haute n'est ouverte.** Les exemples ci-dessous montrent ce que l'IA a produit, ce qui a été corrigé ou refusé, et pourquoi.
 
 ### 4.1 Injection par le Document piège
 
@@ -112,6 +112,7 @@ Le Jeu de démonstration contient un Document piège : le Guide des relances cli
 | Revenir sur « Assistant » envoyait la question suivante dans l'ancienne Conversation (F14) | haute | Écran vide au retour par la navigation ; trouvé par le parcours au clavier |
 | Le correctif F14 vidait aussi la Conversation réaffichée par « Retour » (F15) | haute | Remise à zéro seulement à l'adresse `/assistant` ; trouvé par un second relecteur |
 | Un Ctrl+C pendant `test:security:live` laissait une Note de test visible du jury (F1) | haute | Nettoyage garanti, 0 Note restante |
+| Le verrou du Résumé et le quota pouvaient être contournés par appel direct de l'API (audit R1, R2) | haute | Fonctions réservées aux Edge Functions ; `42501` en appel direct (§ 6) |
 | Mise à jour de sécurité de Next.js (GHSA-mfr8-8qww-v76h) | modérée, sans exposition | Passage de 16.4.3 à 16.4.5 dans un commit séparé |
 
 ### 4.4 Autres exemples de correction ou de refus
@@ -126,7 +127,7 @@ Le Jeu de démonstration contient un Document piège : le Guide des relances cli
 
 ### 5.1 Contrôles
 
-- **Tests automatisés.** Vitest (unitaires et intégration sur Supabase local) et Playwright (parcours e2e, accessibilité avec axe, 1 280 px et 375 px). À la story 5.9 : 1 953 tests Vitest et 373 tests e2e réussis, 0 échec (_chiffres à mettre à jour après la 7.8_). Le [plan de tests](tests/plan-de-tests.md) relie chaque parcours et chaque risque à ses tests.
+- **Tests automatisés.** Vitest (unitaires et intégration sur Supabase local) et Playwright (parcours e2e, accessibilité avec axe, 1 280 px et 375 px). Après l'audit (7.8, 2026-11-27) : 2 261 tests Vitest et 409 tests e2e réussis, 0 échec. Le [plan de tests](tests/plan-de-tests.md) relie chaque parcours et chaque risque à ses tests.
 - **Tests réels en production**, lancés par le porteur du produit seul : `test:search:live`, `test:chat:live`, `test:followup:live`, `test:summary:live`, `test:uj2:live`, `test:security:live`, `measure:all`.
 - **Contrôle des secrets** à chaque build (`build:ci`), sur le dépôt et sur le code envoyé au navigateur.
 - **Contrôle de préparation** avant la réalisation (03/11), puis relecteur séparé sur chaque story sensible.
@@ -149,7 +150,12 @@ Mesures du 2026-11-24 sur le Jeu complet (15 Documents), en production, sans auc
 
 ## 6. Audit de sécurité (7.8)
 
-_À compléter le 26/11 avec les résultats de la story 7.8 (`docs/tests/audit-securite.md`)._
+Revue de tout le code avant la mise en service, en 5 surfaces (base, Edge Functions, Next.js, affichage et injection, secrets et build), chacune relue par un relecteur indépendant. Détail, preuves et décisions : [audit de sécurité](tests/audit-securite.md).
+
+- **Aucune fuite** de données d'un autre Compte, **aucun contournement** de l'authentification, **aucun secret** exposé.
+- **Un constat haut, corrigé.** Un Collaborateur pouvait appeler directement, par l'API, les fonctions SQL du verrou du Résumé et lancer plusieurs générations facturées en parallèle (R1). La même ouverture permettait de vider le plafond global du projet sans aucun appel au fournisseur (R2). Correctif : ces 4 fonctions ne sont plus exécutables que par les Edge Functions, avec l'identifiant vérifié auprès d'Auth ; un appel direct reçoit `42501`.
+- **18 constats retenus** : 9 corrigés avec un test, 2 acceptés sur décision écrite (volumes par Compte, vectorisation hors quota), 7 reportés ; 10 écartés avec leur raison.
+- Autres correctifs : caractères Unicode invisibles retirés de ce qui part au modèle, en-têtes anti-cadre et `nosniff`, limite des Server Actions ramenée à 1 Mo, rotation du secret de traitement fiabilisée (Production seulement, presse-papiers vérifié, aucune variable de simulation envoyée en production), focus du titre après le menu mobile.
 
 ## 7. Décision de mise en service (7.9)
 
@@ -161,9 +167,11 @@ _À compléter le 26/11 avec les résultats de la story 7.9 (`docs/mesures/decis
 - **Inscription ouverte.** N'importe qui peut créer un Compte. Le risque est borné par le quota quotidien et le plafond global ; un plafond épuisé par des Comptes jetables reste un risque accepté.
 - **Base commune.** Tout Collaborateur lit et interroge les Documents des autres ; seul l'auteur modifie ou supprime les siens. Les Conversations restent privées.
 - **Taille des Documents** limitée à 100 Ko ; formats .txt et .md seulement.
+- **Aucune limite de volume par Compte** (audit R3, accepté le 2026-11-25) : Notes, Conversations et fichiers déposés ne sont pas plafonnés, et les fichiers déposés mais jamais importés ne sont pas purgés. Acceptable pour 5 Comptes de démonstration ; l'espace est surveillé au tableau de bord Supabase.
+- **Vectorisation hors quota** (audit R4, accepté le 2026-11-25) : la Recherche et le traitement des Documents appellent OpenAI sans réservation. Coût unitaire très faible ; le crédit prépayé de 10 $ reste la borne.
 - **Non-déterminisme du modèle.** Une question frontière peut être classée différemment d'un essai à l'autre, même avec `temperature` 0.
 - **Questions ambiguës.** Sur a1, a2 et y3, l'Assistant refuse au lieu de distinguer les cas. Le résultat est sûr, mais moins utile (D81, accepté).
 - **Marges du seuil étroites.** Le seuil 0,40 laisse 0,050 de marge côté Documents attendus et 0,027 côté requêtes hors base. Un Jeu plus large demanderait un nouveau calibrage.
 - **Démarrage à froid.** La première Recherche peut prendre 3,5 s et le premier affichage de l'Assistant 5,2 s. Une Recherche est lancée avant la démonstration pour réchauffer les fonctions.
 - **Fonctionnalités P1 et P2 non livrées** : PDF (FR-6), FR-11, FR-21 et le téléchargement de FR-10.
-- **Anomalies ouvertes** : 6 moyennes et 36 basses, détaillées dans le [bilan des anomalies](tests/bilan-anomalies.md).
+- **Anomalies ouvertes** : 7 moyennes et 41 basses (dont 3 moyennes et 23 basses acceptées sur décision écrite), détaillées dans le [bilan des anomalies](tests/bilan-anomalies.md).

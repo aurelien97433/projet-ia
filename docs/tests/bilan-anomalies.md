@@ -1,26 +1,19 @@
 # Bilan des anomalies — NexaMind AI
 
-État au 2026-11-24 (story 7.7). Une ligne par anomalie, report ou écart relevé pendant le projet. Les tests qui couvrent chaque parcours sont décrits dans le [plan de tests](plan-de-tests.md).
+État au 2026-11-27 (story 7.7, mis à jour par l'audit de sécurité de la story 7.8). Une ligne par anomalie, report ou écart relevé pendant le projet. Les tests qui couvrent chaque parcours sont décrits dans le [plan de tests](plan-de-tests.md).
 
 ## En bref
 
 | Gravité | Ouvertes | Dont acceptées (décision écrite) | Fermées |
 |---|---|---|---|
-| Haute | **0** | 0 | 7 |
-| Moyenne | **6** | 0 | 34 |
-| Basse | **36** | 22 | 30 |
-| **Total** | **42** | 22 | 71 |
+| Haute | **0** | 0 | 8 |
+| Moyenne | **7** | 3 | 39 |
+| Basse | **41** | 23 | 36 |
+| **Total** | **48** | 26 | 83 |
 
-Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevées ont été corrigées, avec un test ou une mesure à l'appui.
+Aucune anomalie de gravité haute n'est ouverte. Les 8 anomalies hautes relevées ont été corrigées, avec un test ou une mesure à l'appui (dont R78-R1, trouvée par l'audit).
 
-**À traiter par la story 7.8 (audit de sécurité)** :
-
-1. **D08** (moyenne) — Server Action envoyée après l'expiration de la session : comportement réel à vérifier.
-2. **D40** (moyenne) — aucune limite au nombre de fichiers déposés par Collaborateur.
-3. **D19** (moyenne) — copie du secret de traitement par le presse-papiers non fiable lors d'une rotation.
-4. **D38** (basse) — fichiers déposés mais jamais importés, jamais nettoyés.
-5. **R73-F13** (basse) — focus du nouvel écran perdu après une navigation très rapide (`title-focus.ts`).
-6. À revoir aussi, sans être des anomalies : les risques AD-1 (fonctions Supabase appelables directement) et AD-14 (plafond global épuisable par des Comptes jetables) du [plan de tests](plan-de-tests.md#4-risques-et-leur-couverture).
+**Audit de sécurité (story 7.8, [audit-securite.md](audit-securite.md))** : les 5 points renvoyés ont chacun une suite. D08 fermé (vérifié dans le code), D19 corrigé (R78-R8), R73-F13 corrigé, D40 et D38 acceptés avec R78-R3. L'audit ajoute 18 constats `R78-R1` à `R78-R18` : 9 corrigés, 2 acceptés (R78-R3, R78-R4), 7 reportés. Les risques AD-1 et AD-14 ont été revus : appel direct des fonctions du garde-fou fermé (R78-R1, R78-R2).
 
 **Portées par d'autres stories** : 7.5, répétition générale (N1, D37, M3) ; 7.9, seuils et alertes (D46). Les autres reports ouverts sont acceptés ou renvoyés après la démonstration.
 
@@ -30,7 +23,7 @@ Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevée
 - **Origine.** *Story* : relevé pendant l'implémentation ; *revue* : relecture du code ; *mesure* : rapport de [docs/mesures](../mesures) ; *plan* : relevé en écrivant le plan de tests.
 - **Suite.** *Corrigée* : traitée par un changement prouvé ; *reportée* : à faire, avec le porteur indiqué ; *acceptée* : on vit avec, sur décision écrite.
 - **État.** *Fermée* : plus rien à faire. *Ouverte* : reportée ou acceptée.
-- **Identifiants.** `D01` à `D85` : les 85 entrées de [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md), dans l'ordre du fichier. `R72-`, `R72b-`, `R73-` : constats des revues des stories [7.2](../../_bmad-output/implementation-artifacts/7-2-calibrage-final-et-mesures-sm-1-sm-2-sm-4-sm-5.md), [7.2b](../../_bmad-output/implementation-artifacts/7-2b-contradiction-entre-documents-differents.md) et [7.3](../../_bmad-output/implementation-artifacts/7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px.md) (numéros de leur « Review Triage Log »). `M` : mesures. `N` : plan de tests.
+- **Identifiants.** `D01` à `D85` : les 85 entrées de [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md), dans l'ordre du fichier. `R72-`, `R72b-`, `R73-` : constats des revues des stories [7.2](../../_bmad-output/implementation-artifacts/7-2-calibrage-final-et-mesures-sm-1-sm-2-sm-4-sm-5.md), [7.2b](../../_bmad-output/implementation-artifacts/7-2b-contradiction-entre-documents-differents.md) et [7.3](../../_bmad-output/implementation-artifacts/7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px.md) (numéros de leur « Review Triage Log »). `R78-R1` à `R78-R18` : constats de l'[audit de sécurité](audit-securite.md) (story 7.8). `M` : mesures. `N` : plan de tests.
 
 **Règle de classement.** Une entrée de `deferred-work.md` marquée « Traité… », « Fait… », « Mesuré… » ou « Tranché… » est fermée. Les autres sont ouvertes, **sauf** les entrées qui ne portent pas cette mention mais dont le traitement est prouvé par un test, un fichier ou un rapport (24 entrées : D01, D07, D12, D14, D17, D20, D21, D22, D26, D28, D30, D39, D41, D44, D47, D48, D52, D62, D63, D65, D73, D75, D79, D82) : la preuve est donnée dans la ligne.
 
@@ -38,10 +31,11 @@ Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevée
 
 | Id | Anomalie | Gravité | Origine | Suite | Porteur | Preuve de l'état |
 |---|---|---|---|---|---|---|
-| D08 | Une Server Action envoyée après l'expiration de la session reçoit peut-être une redirection 307 au lieu d'un refus `UNAUTHENTICATED` | moyenne | story 1.4 | reportée | **7.8** | Non vérifié ; cas voisins couverts : [ajouter.spec.ts](../../tests/e2e/ajouter.spec.ts) (« session absente »), [document-status.spec.ts](../../tests/e2e/document-status.spec.ts) (« session expirée au moment du clic ») |
 | D15 | Le verrou de `complete_processing` face à un abandon concurrent n'est pas testé avec deux transactions | moyenne | story 2.4 | reportée | après la démo | Cas voisin : [delete-document.test.ts](../../tests/integration/delete-document.test.ts) (« pendant le traitement ») |
-| D19 | La copie du secret de traitement par le presse-papiers (`setup-seed-env.ps1`) a échoué une fois ; recopie manuelle nécessaire | moyenne | story 2.8 | reportée | **7.8** | Constat de l'utilisateur du 2026-11-06 ; cause non établie |
-| D40 | Aucune limite au nombre d'URL de dépôt ni de fichiers déposés par Collaborateur | moyenne | revue 2.6a | reportée | **7.8** | Aucun quota de dépôt dans [src/app/api/uploads](../../src/app/api/uploads) |
+| D40 | Aucune limite au nombre d'URL de dépôt ni de fichiers déposés par Collaborateur | moyenne | revue 2.6a | acceptée | — | Décision de l'utilisateur du 2026-11-25 (audit R78-R3) : [audit-securite.md](audit-securite.md) |
+| R78-R3 | Aucune limite de volume par Compte (Notes, Conversations, messages, fichiers déposés jamais purgés) | moyenne | audit 7.8 | acceptée | — | Décision de l'utilisateur du 2026-11-25 : [audit-securite.md](audit-securite.md) |
+| R78-R4 | Vectorisation (Recherche, traitement des Documents) hors quota et sans limite de débit | moyenne | audit 7.8 | acceptée | — | Décision de l'utilisateur du 2026-11-25 : [audit-securite.md](audit-securite.md) |
+| R78-R13 | Limites de l'Auth peut-être appliquées à l'adresse de sortie de Vercel | moyenne | audit 7.8 | reportée | après la démo | Non vérifié ; [audit-securite.md](audit-securite.md) |
 | D46 | Marge de l'écriture finale à 100 Ko (environ 3 s sous une limite de 8 s, jusqu'à 7 s observés à 150 Ko) à remesurer avant la démonstration | moyenne | story 2.7 | reportée | **7.9** | Dernière mesure : [charge-100000-octets-2.md](../mesures/charge-100000-octets-2.md) (2026-11-13) |
 | N1 | La question exacte d'UJ-1 et la Requête d'UJ-3 ne sont jamais mesurées avec la vraie IA sur le Jeu complet ; sur le mini Jeu, UJ-1 citait « Guide des relances clients » au lieu de « Procédure de facturation » attendue par le PRD | moyenne | plan | reportée | **7.5** | [plan-de-tests.md](plan-de-tests.md) §1 et §3 ; observation du 2026-11-16 (entrée D62) |
 | D02 | Non vérifié : le paquet `supabase` exécute-t-il son script d'installation sur Vercel ? | basse | story 1.1 | reportée | après la démo | Aucun relevé des journaux de build |
@@ -60,7 +54,7 @@ Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevée
 | D35 | Index HNSW reporté tant que la Recherche reste rapide | basse | story 4.2 | acceptée | — | Médiane 572 ms sur 15 Documents ([indicateurs.md](../mesures/indicateurs.md)) |
 | D36 | Intertitres en fin de Passage gardés : sans effet mesuré sur la pertinence | basse | story 4.2 | acceptée | — | SM-4 10/10 ([indicateurs.md](../mesures/indicateurs.md)) |
 | D37 | Premier appel de la Recherche lent (3,5 s, démarrage à froid) : réchauffer avant la démonstration | basse | mesure 4.2 | reportée | **7.5** | [recherche-live.md](../mesures/recherche-live.md) |
-| D38 | Fichiers déposés mais jamais importés, jamais nettoyés (2 objets constatés en production) | basse | story 2.6a | reportée | **7.8** | Risque restant d'AD-7 ; aucun nettoyage dans le dépôt |
+| D38 | Fichiers déposés mais jamais importés, jamais nettoyés (2 objets constatés en production) | basse | story 2.6a | acceptée | — | Décision de l'utilisateur du 2026-11-25 (audit R78-R3) : [audit-securite.md](audit-securite.md) |
 | D45 | Écriture des Passages par lots, seulement si des Documents de plus de 100 Ko deviennent nécessaires | basse | story 2.7 | acceptée | — | Décision du 2026-11-12 ([charge-1mo.md](../mesures/charge-1mo.md)) |
 | D57 | Délai commun expiré entre deux tentatives de génération : unité consommée sans génération facturée | basse | story 5.2a-2 | acceptée | — | Cas rare, impact d'une unité |
 | D58 | Document retraité entre la recherche et la relecture : Source enregistrée avec des positions de l'ancienne version | basse | story 5.2a-2 | reportée | après la démo | Fenêtre de quelques secondes ; non testé |
@@ -78,8 +72,13 @@ Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevée
 | R72b-3 | `measure:all` n'interdit pas la phrase d'écart au premier tour de f2 (seul `--only` le fait) | basse | revue 7.2b | acceptée | — | `measure:all` non rejoué |
 | R72b-4 | Deux Documents différents de même titre seraient vus comme un seul pour les contradictions | basse | revue 7.2b | acceptée | — | Titres uniques dans le Jeu complet |
 | R72b-5 | `tests/integration/summary.test.ts` a expiré une fois (396 s) dans la suite complète | basse | revue 7.2b | acceptée | — | Réussi seul 27/27 ; suite complète verte en 7.3 ; à surveiller |
-| R73-F13 | Focus du nouvel écran perdu si l'on navigue avant que le titre soit prêt (machine lente) | basse | revue 7.3 | reportée | **7.8** | [title-focus.ts](../../src/components/shell/title-focus.ts) ; test corrigé, application inchangée |
 | R73-F17 | Brouillon du champ de question non remis à zéro au retour sur l'Assistant | basse | revue 7.3 | acceptée | — | Même comportement que « + Nouvelle Conversation » |
+| R78-R12 | Paramètres de `match_passages` sans bornes (coût limité par le délai de 8 s) | basse | audit 7.8 | reportée | après la démo | [audit-securite.md](audit-securite.md) |
+| R78-R14 | Fonctions locales `ai-health` et `measure-embed` exclues du déploiement par une liste seulement | basse | audit 7.8 | reportée | après la démo | [audit-securite.md](audit-securite.md) |
+| R78-R15 | Nom affiché = partie locale de l'e-mail, lisible par tous | basse | audit 7.8 | reportée | après la démo | [audit-securite.md](audit-securite.md) |
+| R78-R16 | Une injection réussie dans un Résumé serait conservée et montrée à tous | basse | audit 7.8 | reportée | **7.9** | [audit-securite.md](audit-securite.md) |
+| R78-R17 | Motifs absents de `check:secrets` (`sbp_`, `postgres://…@`, `ghp_`) | basse | audit 7.8 | reportée | après la démo | [audit-securite.md](audit-securite.md) |
+| R78-R18 | Procédures de rotation absentes (clé `service_role`, mots de passe, révocation après fuite) | basse | audit 7.8 | reportée | **7.6** | [audit-securite.md](audit-securite.md) |
 
 ## 2. Anomalies fermées
 
@@ -92,6 +91,7 @@ Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevée
 | D43 | Un fichier de 1 Mo échouait en production (écriture des Passages trop longue) | haute | story 2.7 | corrigée | Limite abaissée à 100 Ko : [charge-1mo.md](../mesures/charge-1mo.md), [charge-100000-octets-2.md](../mesures/charge-100000-octets-2.md) |
 | D50 | Aucun garde-fou du crédit d'IA avec une inscription ouverte | haute | story 5.2a-1 | corrigée | Quota 60 et plafond 300 : [chat.test.ts](../../tests/integration/chat.test.ts) (« 70 réservations concurrentes ») |
 | D52 | Un Collaborateur pouvait effacer son compteur en appelant `release_ai_call` | haute | story 5.2a-2 | corrigée | Rendu lié à la réservation : [chat.test.ts](../../tests/integration/chat.test.ts) |
+| R78-R1 | Verrou du Résumé contournable par appel direct de `end_summary` : N générations facturées en parallèle | haute | audit 7.8 | corrigée | Fonctions réservées à `service_role`, unité gardée après génération ; [summary.test.ts](../../tests/integration/summary.test.ts) (42501) ; [audit-securite.md](audit-securite.md) |
 | R73-F3 | Critère 3 de SM-6 pouvait passer à vide | moyenne | revue 7.3 | corrigée | Au moins 1 Conversation et 1 message de A exigés ([securite-live.md](../mesures/securite-live.md) : 1 et 2) |
 | R73-F7 | Verrou des parcours non libéré si le nettoyage échoue | moyenne | revue 7.3 | corrigée | Commit `dd47465` ([journeys.ts](../../tests/e2e/support/journeys.ts)) |
 | R73-F8 | Verrou abandonné plus long que l'attente : parcours en échec après Ctrl+C | moyenne | revue 7.3 | corrigée | Verrous effacés par [global-setup.ts](../../tests/e2e/global-setup.ts) |
@@ -126,6 +126,11 @@ Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevée
 | D76 | Question h1 (budget 2027) classée hors cadre une fois sur 15 | moyenne | mesure 5.8 | corrigée | Commit `d938d06` ; SM-2 10/10 ([indicateurs.md](../mesures/indicateurs.md)) |
 | D82 | Fausse contradiction au premier tour de f2 (règle et exception d'un même Document) | moyenne | mesure 7.2 | corrigée | Story 7.2b, commit `f21fc82` ; [suivi-live-2.md](../mesures/suivi-live-2.md) (phrase d'écart absente) |
 | D83 | Test `search-page.spec.ts` instable : clic avant le montage du titre | moyenne | story 7.3 | corrigée | [search-page.spec.ts](../../tests/e2e/search-page.spec.ts) ; 24/24 sous ralentissement ; défaut d'application suivi par R73-F13 |
+| D08 | Une Server Action envoyée après l'expiration de la session reçoit peut-être une redirection 307 au lieu d'un refus `UNAUTHENTICATED` | moyenne | story 1.4 | corrigée | Vérifié par l'audit 7.8 : le Proxy ne redirige pas une Server Action (`next-action`) et `requireUser` refuse avant toute écriture ; [audit-securite.md](audit-securite.md) §4 |
+| D19 | La copie du secret de traitement par le presse-papiers (`setup-seed-env.ps1`) a échoué une fois ; recopie manuelle nécessaire | moyenne | story 2.8 | corrigée | Copie relue, 3 essais, échec signalé (audit R78-R8) ; [seed-env-boundaries.test.ts](../../tests/unit/seed-env-boundaries.test.ts) (« Copy-Verified ») |
+| R78-R2 | `reserve_ai_call` appelable directement : plafond global vidé sans aucun appel au fournisseur | moyenne | audit 7.8 | corrigée | [chat.test.ts](../../tests/integration/chat.test.ts) (« appel direct (42501) ») ; [audit-securite.md](audit-securite.md) |
+| R78-R6 | Script de rotation : secret de traitement demandé aussi en Preview | moyenne | audit 7.8 | corrigée | [seed-env-boundaries.test.ts](../../tests/unit/seed-env-boundaries.test.ts) (« Production seulement ») |
+| R78-R7 | Procédure manuelle de rotation lancée depuis la racine : variables de simulation envoyées en production | moyenne | audit 7.8 | corrigée | [environnements.md](../environnements.md) ; [seed-env-boundaries.test.ts](../../tests/unit/seed-env-boundaries.test.ts) (« dossier temporaire ») |
 | D01 | `check:secrets --static` ne lisait pas les pages prérendues | basse | story 1.1 | corrigée | [check-secrets.ts](../../scripts/check-secrets.ts) (`.html`, `.rsc`, `.body` de `.next/server/app`) |
 | D17 | `setup-seed-env.ps1` jamais exécuté de bout en bout | basse | story 2.8 | corrigée | Exécuté par l'utilisateur le 2026-11-06 (voir D19) ; commit `f8901f7` |
 | D22 | Branche « déclenchement refusé » après une relance non testée en e2e | basse | story 2.5 | corrigée | [document-status.spec.ts](../../tests/e2e/document-status.spec.ts) (« échec de l'action : message, bouton de nouveau proposé ») |
@@ -156,5 +161,11 @@ Aucune anomalie de gravité haute n'est ouverte. Les 7 anomalies hautes relevée
 | R73-F6 | Portée de l'analyse du code envoyé au navigateur non écrite | basse | revue 7.3 | corrigée | Portée écrite dans [securite-live.md](../mesures/securite-live.md) |
 | R73-F9 | La libération d'un verrou pouvait effacer celui d'un autre | basse | revue 7.3 | corrigée | Jeton de détenteur ([journey-lock.ts](../../tests/e2e/support/journey-lock.ts)) |
 | R73-F11 | Historique ouvert par adresse au lieu du clavier dans les parcours | basse | revue 7.3 | corrigée | [uj-1.spec.ts](../../tests/e2e/uj-1.spec.ts), [uj-3.spec.ts](../../tests/e2e/uj-3.spec.ts) |
+| R73-F13 | Focus du nouvel écran perdu si l'on navigue avant que le titre soit prêt (machine lente) | basse | revue 7.3 | corrigée | Adresse relevée au chargement ([title-focus.ts](../../src/components/shell/title-focus.ts)) ; [page-title.test.tsx](../../tests/unit/page-title.test.tsx) (« adresse changée avant le premier titre ») ; menu mobile : R78-R11 |
+| R78-R5 | Caractères Unicode invisibles et bidi transmis au modèle | basse | audit 7.8 | corrigée | [prompt.test.ts](../../tests/unit/prompt.test.ts) (« caractères invisibles ») |
+| R78-R8 | Copie du secret par le presse-papiers sans vérification (cause probable de D19) | basse | audit 7.8 | corrigée | [seed-env-boundaries.test.ts](../../tests/unit/seed-env-boundaries.test.ts) (« Copy-Verified ») |
+| R78-R9 | Aucun en-tête de sécurité (affichage dans un cadre, `nosniff`, `Referrer-Policy`) | basse | audit 7.8 | corrigée | [next-config.test.ts](../../tests/unit/next-config.test.ts) ; [en-tetes.spec.ts](../../tests/e2e/en-tetes.spec.ts) |
+| R78-R10 | Limite des Server Actions à 2 Mo, justifiée par l'ancienne taille d'une Note | basse | audit 7.8 | corrigée | [next-config.test.ts](../../tests/unit/next-config.test.ts) (1 Mo, valeur par défaut de Next.js, > 10 fois une Note ; 512 Ko proposés au triage) |
+| R78-R11 | Focus du titre perdu après un clic sur l'écran courant dans le menu mobile | basse | audit 7.8 | corrigée | [mobile-nav-focus.test.tsx](../../tests/unit/mobile-nav-focus.test.tsx) |
 
 R73-F12 est la même anomalie que D85 (une seule ligne, comptée une fois).

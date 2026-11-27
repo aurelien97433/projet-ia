@@ -80,4 +80,6 @@ Cet ordre est obligatoire : l'application ne doit jamais précéder les migratio
 
 ## Résultats de l'audit de sécurité et décision de mise en service
 
-_À compléter après les stories 7.8 et 7.9._
+**Audit de sécurité (story 7.8).** Tout le code a été relu en 5 surfaces par des relecteurs indépendants : aucune fuite de données entre Comptes, aucun contournement de l'authentification, aucun secret exposé. Le seul constat de gravité haute (verrou du Résumé contournable par appel direct de l'API) est corrigé et testé ; 18 constats retenus au total (9 corrigés, 2 acceptés, 7 reportés). Détail et preuves : [audit de sécurité](docs/tests/audit-securite.md).
+
+**Décision de mise en service (story 7.9).** _À compléter après la story 7.9._
