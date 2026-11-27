@@ -1930,3 +1930,11 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Décision.** Go avec réserves, prise par le porteur du produit. Raisons : tous les indicateurs mesurés atteignent leur cible, SM-6 est vérifié en production, aucune anomalie haute n'est ouverte après l'audit, et le crédit couvre largement le coût des tests. Réserves : non-déterminisme du modèle, volume et vectorisation bornés par le seul crédit prépayé, limite OpenAI non bloquante, refus au lieu de distinguer les cas pour trois questions ambiguës.
 
 **Statut.** Story 7.9 `done` le 2026-11-27.
+
+## Story 7.6 : dossier de démarche et README (2026-11-25 au 2026-11-27)
+
+**Ce qui a été livré.** Le dossier de démarche (`docs/demarche-vibe-coding.md`) et le README, commencés le 25/11, sont complétés avec les résultats de l'audit de sécurité (7.8), la décision de mise en service (7.9) et les chiffres de tests après l'audit (2 261 tests Vitest et 409 tests e2e, 0 échec). Deux documents s'y ajoutent. `docs/guide-de-reprise.md` permet à un autre développeur de reprendre le projet : accès à demander, variables sans valeurs, installation, ordre de déploiement, restauration du Jeu, rotation de chaque secret et réaction à une fuite, pièges connus (terminal hors du dossier, `db reset` local seulement, pooler, hyperviseur Windows, limite d'usage de l'assistant IA). Il traite le report R18 de l'audit. `docs/demo/checklist.md` liste les livrables du rendu du 30/11, les vérifications de 48 h avant et de la veille, la checklist du jour J et le plan B.
+
+**Restes.** Le format exact du rendu n'est pas encore confirmé. La vidéo de secours, la transmission des identifiants des Comptes de démo et le tableau des vérifications relèvent de la répétition générale (7.5).
+
+**Statut.** Story 7.6 `done` le 2026-11-27.

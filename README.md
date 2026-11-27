@@ -18,7 +18,7 @@ NexaMind AI réunit ce savoir dans une Base commune. Un Collaborateur ajoute un 
 - **Application** : Next.js 16 (App Router) et React 19, hébergée sur Vercel (région `fra1`)
 - **Données** : Supabase (Postgres avec pgvector, Auth, Storage privé, RLS, Edge Functions), région `eu-central-1`
 - **IA** : OpenAI `gpt-5.4-mini` (génération) et `text-embedding-3-small` (vectorisation, 1 536 dimensions), appelés uniquement depuis les Edge Functions
-- **Tests** : Vitest et Playwright (avec axe pour l'accessibilité)
+- **Tests** : Vitest et Playwright (avec axe pour l'accessibilité) ; au 2026-11-27, après l'audit de sécurité : 2 261 tests Vitest et 409 tests e2e réussis, 0 échec
 
 ## Chaîne RAG
 
@@ -69,7 +69,7 @@ Les tests réels sur la production (`test:search:live`, `test:chat:live`, `test:
 1. **Supabase d'abord** : `npm run deploy:supabase` applique les migrations au projet distant lié et redéploie les Edge Functions.
 2. **Vercel ensuite** : un push sur `main` déclenche le build (`npm run build:ci`) et le déploiement en production.
 
-Cet ordre est obligatoire : l'application ne doit jamais précéder les migrations. Les secrets se posent sans affichage, suivant les procédures de [docs/environnements.md](docs/environnements.md). Pour recharger le Jeu de démonstration, utilisez `npm run seed:demo`.
+Cet ordre est obligatoire : l'application ne doit jamais précéder les migrations. Les secrets se posent sans affichage, suivant les procédures de [docs/environnements.md](docs/environnements.md). Pour recharger le Jeu de démonstration, utilisez `npm run seed:demo`. Pour reprendre le projet (accès, variables, ordre de déploiement, rotation des secrets, pièges connus) : [guide de reprise](docs/guide-de-reprise.md). Livrables et checklist du jour de la démonstration : [docs/demo/checklist.md](docs/demo/checklist.md).
 
 ## Limites assumées du MVP
 

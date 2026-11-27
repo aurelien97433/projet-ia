@@ -83,7 +83,7 @@ flowchart LR
 
 ## 4. Anomalies trouvées et corrigées
 
-Le [bilan des anomalies](tests/bilan-anomalies.md) recense 132 constats : 83 fermés, 49 ouverts, dont 26 acceptés avec une décision écrite (audit de sécurité compris). **Aucune anomalie haute n'est ouverte.** Les exemples ci-dessous montrent ce que l'IA a produit, ce qui a été corrigé ou refusé, et pourquoi.
+Le [bilan des anomalies](tests/bilan-anomalies.md) recense 132 constats : 84 fermés, 48 ouverts, dont 26 acceptés avec une décision écrite (audit de sécurité compris). **Aucune anomalie haute n'est ouverte.** Les exemples ci-dessous montrent ce que l'IA a produit, ce qui a été corrigé ou refusé, et pourquoi.
 
 ### 4.1 Injection par le Document piège
 
@@ -175,10 +175,10 @@ Revue de tout le code avant la mise en service, en 5 surfaces (base, Edge Functi
 - **Base commune.** Tout Collaborateur lit et interroge les Documents des autres ; seul l'auteur modifie ou supprime les siens. Les Conversations restent privées.
 - **Taille des Documents** limitée à 100 Ko ; formats .txt et .md seulement.
 - **Aucune limite de volume par Compte** (audit R3, accepté le 2026-11-25) : Notes, Conversations et fichiers déposés ne sont pas plafonnés, et les fichiers déposés mais jamais importés ne sont pas purgés. Acceptable pour 5 Comptes de démonstration ; l'espace est surveillé au tableau de bord Supabase.
-- **Vectorisation hors quota** (audit R4, accepté le 2026-11-25) : la Recherche et le traitement des Documents appellent OpenAI sans réservation. Coût unitaire très faible ; le crédit prépayé de 10 $ reste la borne.
+- **Vectorisation hors quota** (audit R4, accepté le 2026-11-25) : la Recherche et le traitement des Documents appellent OpenAI sans réservation. Coût unitaire très faible ; le crédit prépayé (9,70 $ restants le 2026-11-27) reste la borne.
 - **Non-déterminisme du modèle.** Une question frontière peut être classée différemment d'un essai à l'autre, même avec `temperature` 0.
 - **Questions ambiguës.** Sur a1, a2 et y3, l'Assistant refuse au lieu de distinguer les cas. Le résultat est sûr, mais moins utile (D81, accepté).
 - **Marges du seuil étroites.** Le seuil 0,40 laisse 0,050 de marge côté Documents attendus et 0,027 côté requêtes hors base. Un Jeu plus large demanderait un nouveau calibrage.
 - **Démarrage à froid.** La première Recherche peut prendre 3,5 s et le premier affichage de l'Assistant 5,2 s. Une Recherche est lancée avant la démonstration pour réchauffer les fonctions.
 - **Fonctionnalités P1 et P2 non livrées** : PDF (FR-6), FR-11, FR-21 et le téléchargement de FR-10.
-- **Anomalies ouvertes** : 7 moyennes et 42 basses (dont 3 moyennes et 23 basses acceptées sur décision écrite), détaillées dans le [bilan des anomalies](tests/bilan-anomalies.md).
+- **Anomalies ouvertes** : 7 moyennes et 41 basses (dont 3 moyennes et 23 basses acceptées sur décision écrite), détaillées dans le [bilan des anomalies](tests/bilan-anomalies.md).

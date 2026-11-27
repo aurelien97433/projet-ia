@@ -64,7 +64,7 @@ Ordre : gravité, puis numéro. La colonne « Preuve » donne le test qui prouve
 | R15 | S1 | Le nom affiché vaut la partie locale de l'e-mail, lisible par tous les Collaborateurs. | basse | reporté (vie privée ; changement de l'inscription après la démo) | [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md) |
 | R16 | S4 | Une injection réussie dans un Résumé serait conservée et montrée à tous. | basse | reporté : risque résiduel d'AD-13, mesuré à la story 7.9 | [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md) |
 | R17 | S5 | Motifs absents de `check:secrets` (`sbp_`, `postgres://…@`, `ghp_`). | basse | reporté (les tests demandent d'abord des valeurs fictives) | [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md) |
-| R18 | S5 | Pas de procédure de rotation pour la clé `service_role`, les mots de passe des Comptes et de la base, ni de révocation après fuite. | basse | reporté au guide de reprise (story 7.6) | [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md) |
+| R18 | S5 | Pas de procédure de rotation pour la clé `service_role`, les mots de passe des Comptes et de la base, ni de révocation après fuite. | basse | reporté au guide de reprise (story 7.6) ; **traité** le 2026-11-27 : [guide-de-reprise.md](../guide-de-reprise.md) § 7 | [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md) |
 
 ## 4. Points du bilan et risques d'architecture
 

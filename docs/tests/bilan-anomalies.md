@@ -8,8 +8,8 @@
 |---|---|---|---|
 | Haute | **0** | 0 | 8 |
 | Moyenne | **7** | 3 | 39 |
-| Basse | **42** | 23 | 36 |
-| **Total** | **49** | 26 | 83 |
+| Basse | **41** | 23 | 37 |
+| **Total** | **48** | 26 | 84 |
 
 Aucune anomalie de gravité haute n'est ouverte. Les 8 anomalies hautes relevées ont été corrigées, avec un test ou une mesure à l'appui (dont R78-R1, trouvée par l'audit).
 
@@ -78,7 +78,6 @@ Aucune anomalie de gravité haute n'est ouverte. Les 8 anomalies hautes relevée
 | R78-R15 | Nom affiché = partie locale de l'e-mail, lisible par tous | basse | audit 7.8 | reportée | après la démo | [audit-securite.md](audit-securite.md) |
 | R78-R16 | Une injection réussie dans un Résumé serait conservée et montrée à tous | basse | audit 7.8 | reportée | **7.9** | [audit-securite.md](audit-securite.md) |
 | R78-R17 | Motifs absents de `check:secrets` (`sbp_`, `postgres://…@`, `ghp_`) | basse | audit 7.8 | reportée | après la démo | [audit-securite.md](audit-securite.md) |
-| R78-R18 | Procédures de rotation absentes (clé `service_role`, mots de passe, révocation après fuite) | basse | audit 7.8 | reportée | **7.6** | [audit-securite.md](audit-securite.md) |
 | D86 | `test:summary:live` conclut « ÉCHEC » quand les Résumés visés existent déjà (chemin de génération non exercé) et écrase son rapport | basse | story 7.8 | reportée | après la démo | [resume-live-2.md](../mesures/resume-live-2.md) ; génération vérifiée à la main sur le site ([audit-securite.md](audit-securite.md) §7) |
 
 ## 2. Anomalies fermées
@@ -168,5 +167,6 @@ Aucune anomalie de gravité haute n'est ouverte. Les 8 anomalies hautes relevée
 | R78-R9 | Aucun en-tête de sécurité (affichage dans un cadre, `nosniff`, `Referrer-Policy`) | basse | audit 7.8 | corrigée | [next-config.test.ts](../../tests/unit/next-config.test.ts) ; [en-tetes.spec.ts](../../tests/e2e/en-tetes.spec.ts) |
 | R78-R10 | Limite des Server Actions à 2 Mo, justifiée par l'ancienne taille d'une Note | basse | audit 7.8 | corrigée | [next-config.test.ts](../../tests/unit/next-config.test.ts) (1 Mo, valeur par défaut de Next.js, > 10 fois une Note ; 512 Ko proposés au triage) |
 | R78-R11 | Focus du titre perdu après un clic sur l'écran courant dans le menu mobile | basse | audit 7.8 | corrigée | [mobile-nav-focus.test.tsx](../../tests/unit/mobile-nav-focus.test.tsx) |
+| R78-R18 | Procédures de rotation absentes (clé `service_role`, mots de passe, révocation après fuite) | basse | audit 7.8 | corrigée | [guide-de-reprise.md](../guide-de-reprise.md) § 7 (story 7.6) |
 
 R73-F12 est la même anomalie que D85 (une seule ligne, comptée une fois).
