@@ -1938,3 +1938,9 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Restes.** Le format exact du rendu n'est pas encore confirmé. La vidéo de secours, la transmission des identifiants des Comptes de démo et le tableau des vérifications relèvent de la répétition générale (7.5).
 
 **Statut.** Story 7.6 `done` le 2026-11-27.
+
+## Story 7.5 : répétition générale et vidéo de secours (2026-11-27) — clôture de l'epic 7
+
+**Ce qui a été fait.** Répétition générale sur la production : UJ-2 rejoué deux fois trois de suite (`uj2-live-2.md`, `uj2-live-3.md`, 6 sur 6) ; vidéo de secours enregistrée par `npm run demo:video` (UJ-1 à UJ-3, Compte de démo A, 98 s, 7 unités, aucun écart), visionnée en entier par l'utilisateur. Vérifications de l'URL publique faites le 27/11 : téléphone en 4G et fenêtre privée, l'URL s'ouvre directement sur la connexion NexaMind, sans écran Vercel ; Comptes A et B connectés ; crédit OpenAI de 9,62 $ ; projet Supabase actif ; 86 unités sur 300 dans la journée ; aucun Document de test restant en base. Identifiants du Compte B transmis au formateur par canal privé, Compte A réservé à la démonstration. Résultats et checklist du jour J : `docs/demo/checklist.md`. Seule vérification restante : la veille de la soutenance, Supabase actif et crédit d'au moins 3 $.
+
+**Statut.** Story 7.5 `done` le 2026-11-27. Toutes les stories de l'epic 7 sont `done`, sauf la 7.4 hors périmètre : epic 7 `done`, comme les epics 1 à 4 (leurs stories FINITION 1.5, 2.9 et 3.6 sont hors périmètre).

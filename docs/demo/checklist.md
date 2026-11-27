@@ -69,9 +69,10 @@ La formation ne fixe pas de format précis. Livrables retenus par le porteur du 
 
 | Vérification | Date | Supabase actif | URL publique (fenêtre privée, autre réseau) | Comptes A et B | OpenAI (crédit, modèles, tarifs) | Plafond | UJ-2 rejoué |
 |---|---|---|---|---|---|---|---|
-| Répétition générale | 27/11 | oui | _à faire_ | _à faire_ | crédit 9,70 $, modèles confirmés ([décision](../mesures/decision-mise-en-service.md)) | _à relever_ | 3 sur 3 (53,8 s, 30,3 s, 31,9 s), [uj2-live-2.md](../mesures/uj2-live-2.md) ; Documents de test restants : 0 |
-| 48 h avant | 28/11 | | | | | | |
-| La veille | 29/11 | | | | | | |
+| Répétition générale (matin) | 27/11 | oui | vérifiée l'après-midi (ligne suivante) | vérifiés l'après-midi | crédit 9,70 $, modèles confirmés ([décision](../mesures/decision-mise-en-service.md)) | relevé l'après-midi | 3 sur 3 (53,8 s, 30,3 s, 31,9 s), [uj2-live-2.md](../mesures/uj2-live-2.md) ; Documents de test restants : 0 |
+| Vérifications de la 7.5 (après-midi) | 27/11 | oui | oui : téléphone en 4G, fenêtre privée, URL ouverte sans authentification Vercel ; Compte B connecté, réponse avec Sources | A : connecté sur PC en fenêtre privée (aucune question posée) ; B : connecté sur téléphone | crédit prépayé 9,62 $ (seuil Go ≥ 3 $) | 86 unités sur 300 dans la journée (UTC), lecture seule | 3 sur 3 (42,4 s, 34,7 s, 33,8 s), [uj2-live-3.md](../mesures/uj2-live-3.md) ; Documents de test restants en base : 0 (lecture seule, après les vérifications) |
+
+Les vérifications de 48 h avant et de la veille (§ 2) ont été faites le 27/11, au plus près de la répétition générale. **Veille de la soutenance : vérifier que Supabase est actif et que le crédit OpenAI est d'au moins 3 $.**
 
 ## 6. Vidéo de secours (critère 3 de la story 7.5 : validé)
 
