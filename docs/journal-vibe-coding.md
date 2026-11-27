@@ -1908,3 +1908,15 @@ Même modèle (`gpt-5.4-mini-2026-03-17`), même entrée (1 504 tokens, 5 Passag
 **Ce qui a été livré.** Deux documents de synthèse, lisibles par un jury, sans nouveau test. `docs/tests/plan-de-tests.md` relie chaque étape d'UJ-1 à UJ-3 et chaque risque identifié à ses tests, avec leur niveau. `docs/tests/bilan-anomalies.md` classe les 85 reports et les constats de l'Epic 7. Aucune anomalie haute n'est ouverte ; il reste 6 moyennes et 36 basses, dont 22 acceptées avec une décision écrite. La liste des points à traiter par l'audit de sécurité (7.8) en découle. Un point est confié à la répétition générale : vérifier en production que la question exacte d'UJ-1 cite bien la Procédure de facturation.
 
 **Statut.** Story 7.7 `done` le 2026-11-24.
+
+## Story 7.8 : audit global de sécurité (2026-11-25 au 2026-11-27)
+
+**Ce qui a été fait.** Tout le code a été relu d'un seul tenant, en 5 surfaces (base, Edge Functions, Next.js, affichage et injection, secrets et build), par 5 relecteurs indépendants qui n'avaient écrit aucune ligne du code relu. Aucun n'a trouvé de fuite entre Comptes, de contournement de l'authentification ni de secret exposé. Les constats ont été vérifiés dans le code, puis tranchés par l'utilisateur. Le rapport, lisible par un jury, est dans `docs/tests/audit-securite.md`.
+
+**Le constat haut.** Les fonctions SQL du verrou du Résumé et du quota étaient exécutables par tout Collaborateur. En appelant `end_summary` directement par l'API, on pouvait libérer le verrou et lancer plusieurs générations facturées en parallèle, dont les unités étaient ensuite rendues. `reserve_ai_call`, appelée directement, vidait le plafond global du projet sans aucun appel au fournisseur. Correctif : ces 4 fonctions ne sont plus exécutables que par `service_role`, appelées par `chat` et `summarize` avec l'identifiant vérifié auprès d'Auth ; une écriture de Résumé perdue garde son unité, car la génération a été facturée. Contrôlé en production, en lecture seule, sur le catalogue.
+
+**Autres suites.** 9 constats corrigés, chacun avec son test (caractères invisibles retirés de ce qui part au modèle, en-têtes de sécurité, limite des Server Actions à 1 Mo, rotation du secret fiabilisée, focus du titre), 2 acceptés par l'utilisateur (volumes par Compte, vectorisation hors quota), 7 reportés. Les 5 points renvoyés par le bilan ont chacun une suite.
+
+**Ce que la vérification a montré.** Un premier passage e2e à 6 workers a donné 7 échecs sous la charge ; la suite complète à 4 workers est passée sans échec. En production, `test:summary:live` a conclu « ÉCHEC » parce que les Résumés visés existaient déjà : l'application les a renvoyés sans appel ni unité, comme prévu, mais le script n'exerçait pas la génération. L'utilisateur l'a vérifiée à la main sur le site ; le script est à adapter (report D86).
+
+**Statut.** Story 7.8 `done` le 2026-11-27.

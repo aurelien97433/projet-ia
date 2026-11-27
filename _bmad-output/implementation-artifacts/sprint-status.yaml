@@ -105,7 +105,7 @@ development_status:
   7-5-répétition-générale-et-vidéo-de-secours: backlog  # P0 · dépend de : 7.3 (7.4 si livrée)
   7-6-dossier-de-démarche-et-readme: in-progress  # P0 · dépend de : 7.2 (résultats chiffrés) ; finalisé après 7.5
   7-7-plan-de-tests-et-bilan-des-anomalies: done  # P0 · séquence 10 (23/11) · dépend de : 7.1b
-  7-8-audit-global-de-sécurité: backlog  # P0 · séquence 11 (24/11) · dépend de : 7.7
+  7-8-audit-global-de-sécurité: done  # P0 · séquence 11 (24/11) · dépend de : 7.7
   7-9-seuils-alertes-repli-et-décision-de-mise-en-service: backlog  # P0 · séquence 13 (25/11) · dépend de : 7.2
   epic-7-retrospective: optional
 

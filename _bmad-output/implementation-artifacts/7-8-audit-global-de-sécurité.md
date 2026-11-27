@@ -2,7 +2,7 @@
 title: 'Story 7.8 : Audit global de sécurité'
 type: 'chore'
 created: '2026-11-25'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '7fa6440'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -66,7 +66,7 @@ context:
 - [x] Triage des constats : vérification de chacun dans le code, faux positifs écartés.
 - [x] Décisions de l'utilisateur ; correctifs des constats hauts et de ceux qu'il retient, chacun avec un test.
 - [x] Rapport `docs/tests/audit-securite.md` et mise à jour du bilan.
-- [ ] Vérification complète ; déploiement et `test:security:live` par l'utilisateur si un correctif touche la production.
+- [x] Vérification complète ; déploiement et `test:security:live` par l'utilisateur si un correctif touche la production.
 
 **Acceptance Criteria:**
 - Given le rapport, when je le lis, then chaque surface a été revue par un relecteur, et chaque constat a une gravité, une suite et une preuve.
@@ -117,3 +117,5 @@ Revue du 2026-11-25 : 5 relecteurs indépendants (S1 base, S2 Edge Functions, S3
 - Fin : vérification complète d'un seul tenant (`db reset` lancé par l'utilisateur), puis commit. Déploiement : `deploy:supabase` par l'utilisateur, contrôle distant des droits en lecture seule, push, puis `test:security:live`, `test:chat:live` et `test:summary:live` par l'utilisateur.
 
 **Mise en œuvre (2026-11-27).** R1 et R2 : migration `20261127090000_service_only_quota.sql` (anciennes signatures supprimées ; `p_user_id` ajouté ; `EXECUTE` à `service_role` seul), `chat` et `summarize` passent l'identifiant renvoyé par `/auth/v1/user` ; écriture de Résumé perdue → unité consommée ; notes datées dans AD-2, AD-14 et AD-18. R5 : `stripInvisible` (\p{Cf} et sélecteurs de variante) dans `escapeContent` et `escapeTitle`. R6 à R8 : `setup-seed-env.ps1` (`Copy-Verified`, Production seulement) et `docs/environnements.md` (`--workdir`, `--remote`). R9 et R10 : `next.config.ts`. R11 : `nav-links.tsx`, `mobile-nav.tsx`. **Ajout hors décision, signalé à l'utilisateur :** le cas d'origine de R73-F13 (navigation avant que le premier titre décide, machine lente) est corrigé aussi, dans `title-focus.ts` (adresse relevée au chargement du module), avec un test. Échec du test sans le correctif vérifié pour R11 et R73-F13. Rapport : `docs/tests/audit-securite.md` ; bilan, plan de tests, dossier et README mis à jour.
+
+**Clôture (2026-11-27).** Vérification locale d'un seul tenant après `db reset` : `npm test` 2 261/0, e2e 409/0 (4 workers), `build:ci` vert. `deploy:supabase` par l'utilisateur ; contrôle distant des droits conforme (4 fonctions, signature unique, `EXECUTE` à `service_role` seul) ; push `e8cd60c`. `test:security:live` réussi ([securite-live-2.md](../../docs/mesures/securite-live-2.md)) ; `test:chat:live` 15/15 (compteur 0 → 15) ; `test:summary:live` « ÉCHEC » du script seulement (4 Résumés déjà présents, renvoyés sans appel ni unité ; report D86) ; génération vérifiée à la main sur le site par l'utilisateur. Story `done`.

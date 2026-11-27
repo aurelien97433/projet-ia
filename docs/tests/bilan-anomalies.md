@@ -8,8 +8,8 @@
 |---|---|---|---|
 | Haute | **0** | 0 | 8 |
 | Moyenne | **7** | 3 | 39 |
-| Basse | **41** | 23 | 36 |
-| **Total** | **48** | 26 | 83 |
+| Basse | **42** | 23 | 36 |
+| **Total** | **49** | 26 | 83 |
 
 Aucune anomalie de gravité haute n'est ouverte. Les 8 anomalies hautes relevées ont été corrigées, avec un test ou une mesure à l'appui (dont R78-R1, trouvée par l'audit).
 
@@ -23,7 +23,7 @@ Aucune anomalie de gravité haute n'est ouverte. Les 8 anomalies hautes relevée
 - **Origine.** *Story* : relevé pendant l'implémentation ; *revue* : relecture du code ; *mesure* : rapport de [docs/mesures](../mesures) ; *plan* : relevé en écrivant le plan de tests.
 - **Suite.** *Corrigée* : traitée par un changement prouvé ; *reportée* : à faire, avec le porteur indiqué ; *acceptée* : on vit avec, sur décision écrite.
 - **État.** *Fermée* : plus rien à faire. *Ouverte* : reportée ou acceptée.
-- **Identifiants.** `D01` à `D85` : les 85 entrées de [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md), dans l'ordre du fichier. `R72-`, `R72b-`, `R73-` : constats des revues des stories [7.2](../../_bmad-output/implementation-artifacts/7-2-calibrage-final-et-mesures-sm-1-sm-2-sm-4-sm-5.md), [7.2b](../../_bmad-output/implementation-artifacts/7-2b-contradiction-entre-documents-differents.md) et [7.3](../../_bmad-output/implementation-artifacts/7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px.md) (numéros de leur « Review Triage Log »). `R78-R1` à `R78-R18` : constats de l'[audit de sécurité](audit-securite.md) (story 7.8). `M` : mesures. `N` : plan de tests.
+- **Identifiants.** `D01` à `D85` : les 85 entrées de [deferred-work.md](../../_bmad-output/implementation-artifacts/deferred-work.md), dans l'ordre du fichier ; `D86` : report ajouté à la clôture de la 7.8 (dernière entrée du fichier). `R72-`, `R72b-`, `R73-` : constats des revues des stories [7.2](../../_bmad-output/implementation-artifacts/7-2-calibrage-final-et-mesures-sm-1-sm-2-sm-4-sm-5.md), [7.2b](../../_bmad-output/implementation-artifacts/7-2b-contradiction-entre-documents-differents.md) et [7.3](../../_bmad-output/implementation-artifacts/7-3-parcours-uj-1-à-uj-3-au-clavier-et-à-375-px.md) (numéros de leur « Review Triage Log »). `R78-R1` à `R78-R18` : constats de l'[audit de sécurité](audit-securite.md) (story 7.8). `M` : mesures. `N` : plan de tests.
 
 **Règle de classement.** Une entrée de `deferred-work.md` marquée « Traité… », « Fait… », « Mesuré… » ou « Tranché… » est fermée. Les autres sont ouvertes, **sauf** les entrées qui ne portent pas cette mention mais dont le traitement est prouvé par un test, un fichier ou un rapport (24 entrées : D01, D07, D12, D14, D17, D20, D21, D22, D26, D28, D30, D39, D41, D44, D47, D48, D52, D62, D63, D65, D73, D75, D79, D82) : la preuve est donnée dans la ligne.
 
@@ -79,6 +79,7 @@ Aucune anomalie de gravité haute n'est ouverte. Les 8 anomalies hautes relevée
 | R78-R16 | Une injection réussie dans un Résumé serait conservée et montrée à tous | basse | audit 7.8 | reportée | **7.9** | [audit-securite.md](audit-securite.md) |
 | R78-R17 | Motifs absents de `check:secrets` (`sbp_`, `postgres://…@`, `ghp_`) | basse | audit 7.8 | reportée | après la démo | [audit-securite.md](audit-securite.md) |
 | R78-R18 | Procédures de rotation absentes (clé `service_role`, mots de passe, révocation après fuite) | basse | audit 7.8 | reportée | **7.6** | [audit-securite.md](audit-securite.md) |
+| D86 | `test:summary:live` conclut « ÉCHEC » quand les Résumés visés existent déjà (chemin de génération non exercé) et écrase son rapport | basse | story 7.8 | reportée | après la démo | [resume-live-2.md](../mesures/resume-live-2.md) ; génération vérifiée à la main sur le site ([audit-securite.md](audit-securite.md) §7) |
 
 ## 2. Anomalies fermées
 
