@@ -105,9 +105,18 @@ describe("supabase/config.toml", () => {
     expect(listFunctions(path.join(root, "supabase", "functions"))).toContain("chat");
   });
 
-  it("chat n'utilise jamais service_role", () => {
+  // Story 7.8 (R2, décision de l'utilisateur du 2026-11-25) : chat lit la clé service_role une fois, pour
+  // le garde-fou seulement (reserve_ai_call, release_ai_call, EXECUTE à service_role seul).
+  it("chat : service_role pour reserve_ai_call et release_ai_call seulement", () => {
     const source = readFileSync(path.join(root, "supabase", "functions", "chat", "index.ts"), "utf8");
-    expect(source).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY|serviceRoleKey|sb_secret/);
+    expect(source.match(/"SUPABASE_SERVICE_ROLE_KEY"/g)).toHaveLength(1);
+    expect(source).not.toMatch(/serviceRoleKey|sb_secret/);
+    const uses = source.split(/\r?\n/).filter((line) => /\bquotaKey\b|rpc\(quota,/.test(line) && !line.trim().startsWith("//"));
+    expect(uses.length).toBeGreaterThan(0);
+    for (const line of uses) {
+      expect(line).toMatch(/const quotaKey = readEnv|!quotaKey|apikey: quotaKey|rpc\(quota, "(reserve|release)_ai_call"/);
+    }
+    expect(source.match(/rpc\(quota,/g)).toHaveLength(2);
   });
 
   it("summarize (6.1) exige un jeton valide dès la passerelle, et fait partie du déploiement", async () => {
@@ -116,24 +125,26 @@ describe("supabase/config.toml", () => {
     expect(listFunctions(path.join(root, "supabase", "functions"))).toContain("summarize");
   });
 
-  // Exception datée à AD-2 (décision de l'utilisateur du 2026-11-20, Q2 corrigée) : la clé service_role
-  // est lue une seule fois et ne sert qu'à l'appel de store_summary, jamais à lire le Document ni au quota.
-  it("summarize : clé service_role lue une fois, utilisée pour store_summary seulement", () => {
+  // Exception datée à AD-2 (décision de l'utilisateur du 2026-11-20, Q2 corrigée, étendue par la story
+  // 7.8, R1 et R2) : la clé service_role est lue une seule fois ; elle sert à store_summary et au
+  // garde-fou (verrou et quota), jamais à lire le Document.
+  it("summarize : clé service_role lue une fois, pour store_summary, le verrou et le quota seulement", () => {
     const source = readFileSync(path.join(root, "supabase", "functions", "summarize", "index.ts"), "utf8");
     expect(source.match(/"SUPABASE_SERVICE_ROLE_KEY"/g)).toHaveLength(1);
     expect(source).not.toMatch(/sb_secret|serviceRoleKey/);
-    // serviceKey n'apparaît que dans sa lecture, son contrôle et l'appel de storeSummary.
+    // serviceKey n'apparaît que dans sa lecture, son contrôle, la cible du garde-fou et storeSummary.
     const uses = source.split(/\r?\n/).filter((line) => /\bserviceKey\b/.test(line) && !line.trim().startsWith("//"));
     expect(uses.length).toBeGreaterThan(0);
     for (const line of uses) {
       expect(line).toMatch(/const serviceKey = readEnv|!serviceKey|storeSummary\(url, serviceKey|serviceKey: string|apikey: serviceKey/);
     }
-    // Lecture du Document, réservation et libération : avec le jeton du Collaborateur (rpc(target, …)).
-    expect(source).toMatch(/rpc\(target, "reserve_ai_call"/);
-    expect(source).toMatch(/rpc\(target, "release_ai_call"/);
-    // Verrou de demande par Document (correctif de revue R1 = A) : jeton du Collaborateur aussi.
-    expect(source).toMatch(/rpc\(target, "begin_summary"/);
-    expect(source).toMatch(/rpc\(target, "end_summary"/);
+    // Garde-fou (story 7.8) : clé service_role (rpc(admin, …)), jamais le jeton du Collaborateur.
+    for (const name of ["reserve_ai_call", "release_ai_call", "begin_summary", "end_summary"]) {
+      expect(source).toMatch(new RegExp(`rpc\\(admin, "${name}"`));
+      expect(source).not.toMatch(new RegExp(`rpc\\(target, "${name}"`));
+    }
+    // Seuls ces quatre appels passent par admin ; le Document est lu avec le jeton.
+    expect(source.match(/rpc\(admin,/g)).toHaveLength(4);
     expect(source).not.toMatch(/rpc\(target, "store_summary"/);
     expect(source.match(/rpc\/store_summary/g)).toHaveLength(1);
   });

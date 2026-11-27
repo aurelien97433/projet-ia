@@ -39,6 +39,7 @@ import { texts } from "@/lib/texts";
 // consommée), journaux sans texte.
 const REMOTE = "https://abcdefghijklmnopqrst.supabase.co";
 const TOKEN = "jeton-du-collaborateur";
+const SERVICE = ["cle", "service", "role", "test"].join("-");
 const PUBLISHABLE = "sb_publishable_exemple";
 const QUESTION = "Comment je relance un client qui n'a pas payé ?";
 const REQUEST_ID = "6f1c2b9e-3a4d-4e5f-8a9b-0c1d2e3f4a5b";
@@ -87,6 +88,8 @@ beforeEach(() => {
   order.length = 0;
   env.SUPABASE_URL = REMOTE;
   env.SUPABASE_ANON_KEY = ["cle", "anon", "du", "projet"].join("-");
+  // Story 7.8 (R2) : clé service_role du garde-fou (reserve_ai_call, release_ai_call).
+  env.SUPABASE_SERVICE_ROLE_KEY = SERVICE;
   env[["OPENAI", "API", "KEY"].join("_")] = ["cle", "fournisseur", "test"].join("-");
   vi.stubGlobal("Deno", { env: { get: (name: string) => env[name] } });
   routes = {
@@ -379,7 +382,7 @@ describe("chat : garde-fou et rejeu", () => {
     const response = await ask();
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe("REQUEST_IN_PROGRESS");
-    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_user_id: "u1", p_reservation_id: RESERVATION });
     expect(calls("embed") + calls("generate") + calls("failure")).toBe(0);
   });
 
@@ -394,7 +397,7 @@ describe("chat : garde-fou et rejeu", () => {
     expect(response.status).toBe(504);
     expect((await response.json()).error).toMatchObject({ code: "AI_TIMEOUT", retryable: true });
     expect(order).toEqual(["auth", "replay", "reserve", "release"]);
-    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_user_id: "u1", p_reservation_id: RESERVATION });
     expect(logs()).toContain("chat_reservation_expired");
   });
 
@@ -750,14 +753,31 @@ describe("chat : entrée et session", () => {
     expect((await handle(request({ question: "a".repeat(2_000), clientRequestId: REQUEST_ID }))).status).toBe(200);
   });
 
-  it("clé secrète reçue : ignorée, clé publique du projet utilisée partout", async () => {
+  it("clé secrète reçue : ignorée, clé publique du projet utilisée partout sauf pour le garde-fou", async () => {
     await handle(request({ question: QUESTION, clientRequestId: REQUEST_ID }, { Authorization: `Bearer ${TOKEN}`, apikey: "sb_secret_exemple" }));
     const supabaseCalls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith(REMOTE));
     expect(supabaseCalls.length).toBeGreaterThan(5);
-    for (const [, init] of supabaseCalls) {
-      expect(init.headers.apikey).toBe(env.SUPABASE_ANON_KEY);
-      expect(init.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+    for (const [url, init] of supabaseCalls) {
+      // Story 7.8 (R2) : reserve_ai_call et release_ai_call avec la clé service_role seulement.
+      const quota = /\/rpc\/(reserve|release)_ai_call$/.test(String(url));
+      expect(init.headers.apikey, String(url)).toBe(quota ? SERVICE : env.SUPABASE_ANON_KEY);
+      expect(init.headers.Authorization, String(url)).toBe(`Bearer ${quota ? SERVICE : TOKEN}`);
     }
+  });
+
+  it("story 7.8 (R2) : réservation avec l'identifiant renvoyé par Auth, jamais une valeur reçue", async () => {
+    await handle(request({ question: QUESTION, clientRequestId: REQUEST_ID, userId: "autre" }));
+    expect(bodyOf("/rpc/reserve_ai_call")).toEqual({ p_user_id: "u1" });
+  });
+
+  it("story 7.8 (R2) : identifiant absent de la réponse d'Auth ou clé service_role absente : panne, sans réservation", async () => {
+    routes.auth = async () => Response.json({});
+    expect((await handle(request({ question: QUESTION, clientRequestId: REQUEST_ID }))).status).toBe(500);
+    expect(order).toEqual(["auth"]);
+    order.length = 0;
+    delete env.SUPABASE_SERVICE_ROLE_KEY;
+    expect((await handle(request({ question: QUESTION, clientRequestId: REQUEST_ID }))).status).toBe(500);
+    expect(order).toEqual([]);
   });
 
   it("autre méthode que POST : refusée", async () => {
@@ -1375,7 +1395,7 @@ describe("chat : questions de suivi (story 5.8)", () => {
       p_client_request_id: REQUEST_ID,
     });
     expect(calls("release")).toBe(1);
-    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_user_id: "u1", p_reservation_id: RESERVATION });
     for (const step of ["embed", "match", "generate", "classify"]) expect(calls(step)).toBe(0);
     // Une seule nouvelle tentative (règle de la génération), jamais plus.
     expect(calls("rewrite")).toBe(2);
@@ -1490,7 +1510,7 @@ describe("chat : questions de suivi (story 5.8)", () => {
     expect(calls("rewrite")).toBe(0);
     expect(calls("generate")).toBe(0);
     expect(calls("release")).toBe(1);
-    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_user_id: "u1", p_reservation_id: RESERVATION });
   });
 
   it("garde-fou des 17 s : en-têtes partis (première question), échec et libération lents après l'échéance → error envoyé à l'échéance, une seule fois ; écritures faites ensuite", async () => {
@@ -1601,7 +1621,7 @@ describe("chat : questions de suivi (story 5.8)", () => {
     expect(response.status).toBe(409);
     expect(calls("rewrite")).toBeGreaterThanOrEqual(1);
     expect(calls("release")).toBe(1);
-    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_reservation_id: RESERVATION });
+    expect(bodyOf("/rpc/release_ai_call")).toEqual({ p_user_id: "u1", p_reservation_id: RESERVATION });
   });
 
   it("historique illisible : échec, unité rendue, aucune reformulation", async () => {

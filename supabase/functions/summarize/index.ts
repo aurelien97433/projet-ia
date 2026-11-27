@@ -6,18 +6,20 @@
 // Ordre : validation → session → lecture du Document avec le jeton (RLS ; inexistant ou inaccessible :
 // 404 NOT_FOUND) → Statut autre que « prêt » : 409 DOCUMENT_NOT_READY → Résumé à jour
 // (summary_text_version = text_version) : renvoyé tel quel, sans réservation ni appel → reserve_ai_call
-// avec le jeton (quota refusé : 429 QUOTA_EXCEEDED ou 503 AI_DAILY_CAP_REACHED, avec resetAt) → un seul
+// (clé service_role, identifiant vérifié ; quota refusé : 429 QUOTA_EXCEEDED ou 503 AI_DAILY_CAP_REACHED, avec resetAt) → un seul
 // appel au modèle sur le texte entier (_shared/ai.ts › summarize) → store_summary (écriture
 // conditionnelle, AD-18) → réponse. Aucun appel au fournisseur sans réservation. Correctif de revue R1 = A :
-// verrou de demande par Document (begin_summary, jeton du Collaborateur) entre « Résumé à jour ? » et la
+// verrou de demande par Document (begin_summary, clé service_role depuis la 7.8) entre « Résumé à jour ? » et la
 // réservation ; pris → 409 REQUEST_IN_PROGRESS sans réservation ; libéré en fin de traitement (end_summary).
 //
-// Clé service_role (exception datée à AD-2, décision de l'utilisateur du 2026-11-20, Q2 corrigée) :
-// lue dans les secrets de la fonction et utilisée pour le SEUL appel de store_summary (EXECUTE à
-// service_role seul). Jamais pour lire le Document, réserver ou rendre le quota.
+// Clé service_role (exception datée à AD-2, décision de l'utilisateur du 2026-11-20, Q2 corrigée,
+// étendue le 2026-11-25 par la story 7.8, R1 et R2) : lue dans les secrets de la fonction et utilisée
+// pour store_summary et pour les quatre fonctions du garde-fou (begin_summary, end_summary,
+// reserve_ai_call, release_ai_call), EXECUTE à service_role seul, avec l'identifiant du Collaborateur
+// vérifié auprès d'Auth. Jamais pour lire le Document.
 //
 // Quota (AD-14, AD-18) : Résumé généré et enregistré → 1 unité ; écriture perdue (Résumé concurrent,
-// texte changé) → unité rendue et Résumé stocké renvoyé ; panne sans réponse du fournisseur (réseau, 5xx,
+// texte changé) → unité consommée (génération facturée, story 7.8, R1) et Résumé stocké renvoyé ; panne sans réponse du fournisseur (réseau, 5xx,
 // délai avant envoi, plafond AI_BUDGET_EXHAUSTED) → rendue ; réponse reçue inexploitable ou délai après
 // envoi → consommée ; échec de l'enregistrement après une génération → consommée. Délai (AD-16) : 120 s
 // au plus, toutes étapes comprises. Ni le texte du Document, ni le titre, ni les points ne sont journalisés.
@@ -86,13 +88,21 @@ async function failed(response: Response, name: string): Promise<SummaryError> {
   return new SummaryError("INTERNAL", 500, true, `${name}_http_${response.status}`);
 }
 
-async function verifySession(target: Target, signal: AbortSignal): Promise<void> {
+// Session revérifiée auprès d'Auth ; renvoie l'identifiant du Collaborateur (story 7.8, R1 et R2 : seul
+// identifiant transmis aux fonctions du garde-fou, jamais une valeur reçue du navigateur).
+async function verifySession(target: Target, signal: AbortSignal): Promise<string> {
   const response = await fetch(`${target.url}/auth/v1/user`, { headers: headers(target), signal });
-  await response.body?.cancel().catch(() => {});
   if (response.status === 401 || response.status === 403) {
+    await response.body?.cancel().catch(() => {});
     throw new SummaryError("UNAUTHENTICATED", 401, false, `session_${response.status}`);
   }
-  if (!response.ok) throw new SummaryError("INTERNAL", 500, true, `auth_http_${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    throw new SummaryError("INTERNAL", 500, true, `auth_http_${response.status}`);
+  }
+  const user = (await response.json().catch(() => null)) as { id?: unknown } | null;
+  if (typeof user?.id !== "string" || user.id === "") throw new SummaryError("INTERNAL", 500, true, "auth_invalid_body");
+  return user.id;
 }
 
 // Document lu avec le jeton du Collaborateur (RLS : tout Collaborateur lit tout Document). Absent : null.
@@ -243,6 +253,9 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   const generationLeft = () => Math.max(1, timeoutMs - (Date.now() - started) - cleanupMs);
 
   let stage = "session";
+  // Clé service_role et identifiant vérifié : connus avant le verrou (story 7.8, R1 et R2).
+  let admin: Target | null = null;
+  let userId = "";
   let reservationId: string | null = null;
   let generation: GenerationState = "not_sent";
   // Verrou de demande du Document pris par cette demande (begin_summary a répondu vrai).
@@ -250,31 +263,31 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
 
   // Rend l'unité réservée, avec son propre délai (le délai commun peut être expiré). Jamais de levée.
   const release = async (): Promise<boolean> => {
-    if (!reservationId) return false;
+    if (!reservationId || !admin) return false;
     const id = reservationId;
     reservationId = null;
     try {
-      return (await rpc(target, "release_ai_call", { p_reservation_id: id }, AbortSignal.timeout(cleanupMs))) === true;
+      return (await rpc(admin, "release_ai_call", { p_user_id: userId, p_reservation_id: id }, AbortSignal.timeout(cleanupMs))) === true;
     } catch (error) {
       logEvent("summarize_release_failed", { cause: error instanceof SummaryError ? error.reason : "network" });
       return false;
     }
   };
 
-  // Libère le verrou du Document (end_summary, jeton du Collaborateur), avec son propre délai. Jamais de
+  // Libère le verrou du Document (end_summary, clé service_role), avec son propre délai. Jamais de
   // levée : en cas d'échec, le verrou expire après 130 s.
   const unlock = async (): Promise<void> => {
-    if (!locked) return;
+    if (!locked || !admin) return;
     locked = false;
     try {
-      await rpc(target, "end_summary", { p_document_id: documentId }, AbortSignal.timeout(cleanupMs));
+      await rpc(admin, "end_summary", { p_user_id: userId, p_document_id: documentId }, AbortSignal.timeout(cleanupMs));
     } catch (error) {
       logEvent("summarize_unlock_failed", { cause: error instanceof SummaryError ? error.reason : "network" });
     }
   };
 
   try {
-    await within(verifySession(target, signal));
+    userId = await within(verifySession(target, signal));
 
     stage = "document";
     const document = await within(readDocument(target, documentId, signal));
@@ -298,12 +311,13 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       logEvent("summarize_not_configured", { cause: "store" });
       throw new SummaryError("INTERNAL", 500, true, "store_key_missing");
     }
+    admin = { url, apikey: serviceKey, token: serviceKey };
 
-    // Verrou de demande par Document (correctif de revue R1 = A), avec le jeton du Collaborateur, avant
+    // Verrou de demande par Document (correctif de revue R1 = A), clé service_role (story 7.8), avant
     // toute réservation : une seule génération à la fois par Document ; refusé → 409, sans réservation
     // ni appel au fournisseur. Réponse inconnue (échéance) : le verrou éventuel expire après 130 s.
     stage = "lock";
-    locked = (await within(rpc(target, "begin_summary", { p_document_id: documentId }, signal))) === true;
+    locked = (await within(rpc(admin, "begin_summary", { p_user_id: userId, p_document_id: documentId }, signal))) === true;
     if (!locked) {
       logInfo("summarize_in_progress", { document_id: documentId });
       return errorResponse("REQUEST_IN_PROGRESS", IN_PROGRESS_MESSAGE, false, 409);
@@ -314,7 +328,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     // nettoyage, pour que l'identifiant de réservation soit toujours connu ; échéance tombée pendant la
     // réservation → unité rendue (rien n'a été envoyé au fournisseur), AI_TIMEOUT.
     if (signal.aborted) throw new AiError("AI_TIMEOUT", true, "délai du Résumé dépassé avant la réservation");
-    const reservation = parseReservation(await rpc(target, "reserve_ai_call", {}, AbortSignal.timeout(remaining() + cleanupMs)));
+    const reservation = parseReservation(await rpc(admin, "reserve_ai_call", { p_user_id: userId }, AbortSignal.timeout(remaining() + cleanupMs)));
     if (!reservation) throw new SummaryError("INTERNAL", 500, true, "reserve_invalid_body");
     if (reservation.ok && signal.aborted) {
       reservationId = reservation.reservationId;
@@ -368,11 +382,12 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
       return summaryResponse(stored.summary, true);
     }
 
-    // Écriture perdue (Résumé concurrent, texte changé, Document plus prêt ou supprimé) : unité rendue.
-    const released = await release();
+    // Écriture perdue (Résumé concurrent, texte changé, Document plus prêt ou supprimé) : unité consommée,
+    // la génération est facturée (story 7.8, R1 : modifie la règle de la 6.1).
+    reservationId = null;
     logInfo("summarize_store_lost", {
       ...logged,
-      released,
+      released: false,
       found: stored.found,
       current_summary: stored.summary !== null,
       duration_ms: Date.now() - started,

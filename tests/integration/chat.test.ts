@@ -75,7 +75,8 @@ const comparable = (value: unknown): unknown =>
   JSON.parse(JSON.stringify(value), (key, item) => (key === "passageNumbers" && Array.isArray(item) ? item.length : item));
 
 const reserve = async (user: User) => {
-  const { data, error } = await user.client.rpc("reserve_ai_call");
+  // Story 7.8 (R2) : EXECUTE à service_role seul, avec l'identifiant du Compte.
+  const { data, error } = await admin.rpc("reserve_ai_call", { p_user_id: user.id });
   if (error) throw new Error(`reserve_ai_call : ${error.code}`);
   return data as { ok: boolean; reason?: string; reset_at: string; reservation_id?: string };
 };
@@ -165,18 +166,18 @@ describe("garde-fou : réservation atomique", () => {
     const global = globalCount();
     expect((await userCount(a))).toBe(2);
 
-    expect((await b.client.rpc("release_ai_call", { p_reservation_id: first.reservation_id })).data).toBe(false);
+    expect((await admin.rpc("release_ai_call", { p_user_id: b.id, p_reservation_id: first.reservation_id })).data).toBe(false);
     expect((await userCount(a))).toBe(2);
 
-    expect((await a.client.rpc("release_ai_call", { p_reservation_id: first.reservation_id })).data).toBe(true);
-    expect((await a.client.rpc("release_ai_call", { p_reservation_id: first.reservation_id })).data).toBe(false);
-    expect((await a.client.rpc("release_ai_call", { p_reservation_id: crypto.randomUUID() })).data).toBe(false);
+    expect((await admin.rpc("release_ai_call", { p_user_id: a.id, p_reservation_id: first.reservation_id })).data).toBe(true);
+    expect((await admin.rpc("release_ai_call", { p_user_id: a.id, p_reservation_id: first.reservation_id })).data).toBe(false);
+    expect((await admin.rpc("release_ai_call", { p_user_id: a.id, p_reservation_id: crypto.randomUUID() })).data).toBe(false);
     expect((await userCount(a))).toBe(1);
     expect(globalCount()).toBe(global - 1);
 
     // Compteur déjà à 0 (cas extrême) : la libération ne le fait jamais passer sous 0.
     localSqlRows(`update public.ai_usage set count = 0 where user_id = '${a.id}'`);
-    expect((await a.client.rpc("release_ai_call", { p_reservation_id: second.reservation_id })).data).toBe(true);
+    expect((await admin.rpc("release_ai_call", { p_user_id: a.id, p_reservation_id: second.reservation_id })).data).toBe(true);
     expect((await userCount(a))).toBe(0);
   });
 });
@@ -187,8 +188,20 @@ describe("garde-fou : accès", () => {
       const { data, error } = await anon.from(table).select("*");
       expect(error?.code ?? (data?.length === 0 ? "vide" : "lisible"), table).not.toBe("lisible");
     }
-    expect((await anon.rpc("reserve_ai_call")).error).not.toBeNull();
-    expect((await anon.rpc("release_ai_call", { p_reservation_id: crypto.randomUUID() })).error).not.toBeNull();
+    expect((await anon.rpc("reserve_ai_call", { p_user_id: crypto.randomUUID() })).error).not.toBeNull();
+    expect((await anon.rpc("release_ai_call", { p_user_id: crypto.randomUUID(), p_reservation_id: crypto.randomUUID() })).error).not.toBeNull();
+  });
+
+  // Story 7.8 (R2) : un Collaborateur qui appelle reserve_ai_call ou release_ai_call directement (vider le
+  // plafond global sans aucun appel au fournisseur, ou rendre ses unités) : 42501, compteurs inchangés.
+  it("Collaborateur : reserve_ai_call et release_ai_call refusées en appel direct (42501), anciennes signatures supprimées", async () => {
+    const a = await signUp("chat-appel-direct");
+    const { reservation_id } = await reserve(a);
+    expect((await a.client.rpc("reserve_ai_call", { p_user_id: a.id })).error?.code).toBe("42501");
+    expect((await a.client.rpc("release_ai_call", { p_user_id: a.id, p_reservation_id: reservation_id })).error?.code).toBe("42501");
+    expect((await a.client.rpc("reserve_ai_call")).error).not.toBeNull();
+    expect((await a.client.rpc("release_ai_call", { p_reservation_id: reservation_id })).error).not.toBeNull();
+    expect(await userCount(a)).toBe(1);
   });
 
   // Story 5.10 (correction de la spec du 2026-11-20, option A) : le Collaborateur lit la seule limite
@@ -1053,7 +1066,13 @@ describe("story 5.10 : quota au chargement, R6, échéance pendant la réservati
   let hook: Hook = (_url, run) => run();
 
   beforeEach(() => {
-    const env: Record<string, string> = { SUPABASE_URL: INTERNAL, GENERATION_FAKE: "1", EMBEDDINGS_FAKE: "1" };
+    const env: Record<string, string> = {
+      SUPABASE_URL: INTERNAL,
+      GENERATION_FAKE: "1",
+      EMBEDDINGS_FAKE: "1",
+      // Story 7.8 (R2) : garde-fou appelé avec la clé service_role.
+      SUPABASE_SERVICE_ROLE_KEY: localSupabase().serviceRoleKey,
+    };
     vi.stubGlobal("Deno", { env: { get: (name: string) => env[name] } });
     vi.stubGlobal("fetch", (input: string | URL, init?: RequestInit) => {
       const url = String(input).replace(INTERNAL, localSupabase().url);

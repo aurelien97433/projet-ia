@@ -14,8 +14,10 @@ import { markNavigationFromMobileMenu } from "./title-focus";
 export function MobileNav({ account }: { account: React.ReactNode }) {
   const [open, setOpen] = useState(false);
 
-  const handleNavigate = () => {
-    markNavigationFromMobileMenu();
+  // Story 7.8 (R11, R73-F13) : l'écran courant ne change pas, aucun titre ne consommera l'état ; le
+  // poser ferait perdre le focus du titre à la navigation suivante.
+  const handleNavigate = (sameScreen: boolean) => {
+    if (!sameScreen) markNavigationFromMobileMenu();
     setOpen(false);
   };
 

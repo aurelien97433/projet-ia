@@ -118,6 +118,28 @@ function Test-SeedFileTarget {
   return (-not $Existing["SEED_SUPABASE_URL"]) -or ($Existing["SEED_SUPABASE_URL"] -ceq $Url)
 }
 
+# Story 7.8 (R8, D19) : copie dans le presse-papiers vérifiée par relecture, avec nouvel essai. Renvoie
+# $false si la valeur relue diffère après tous les essais. $Set et $Get remplaçables (tests).
+function Copy-Verified {
+  param(
+    [string]$Value,
+    [int]$Attempts = 3,
+    [scriptblock]$Set = { param($v) Set-Clipboard -Value $v },
+    [scriptblock]$Get = { Get-Clipboard -Raw }
+  )
+  for ($i = 1; $i -le $Attempts; $i++) {
+    try {
+      & $Set $Value
+      $read = & $Get
+      if ($null -ne $read -and ([string]$read).TrimEnd("`r", "`n") -ceq $Value) { return $true }
+    } catch {
+      # Presse-papiers occupé par une autre application : nouvel essai.
+    }
+    if ($i -lt $Attempts) { Start-Sleep -Milliseconds 200 }
+  }
+  return $false
+}
+
 # Pose le secret dans Supabase, puis met .env.seed en place : en cas d'échec, .env.seed reste tel
 # qu'il était et aucun fichier temporaire ne subsiste. La CLI ajoute aux secrets posés ceux de
 # [edge_runtime.secrets] du config.toml voisin : elle travaille donc dans un dossier temporaire
@@ -205,19 +227,32 @@ function Invoke-Setup {
   Write-Host "Secret posé dans Supabase, .env.seed écrit."
 
   # finally : même après Ctrl+C, le secret ne reste pas dans le presse-papiers.
+  $copied = $false
+  $cleared = $false
   try {
-    Set-Clipboard -Value $secret
-    Write-Host "Le secret est dans le presse-papiers. Collez-le dans Vercel :"
-    Write-Host "  Settings > Environment Variables > PROCESS_DOCUMENT_SECRET,"
-    Write-Host "  Production et Preview, option Sensitive, puis enregistrez."
-    do {
-      $answer = Read-Host "Tapez OK quand c'est enregistré dans Vercel"
-    } while ($answer -cne "OK")
+    $copied = Copy-Verified -Value $secret
+    if ($copied) {
+      Write-Host "Le secret est dans le presse-papiers. Collez-le dans Vercel :"
+      Write-Host "  Settings > Environment Variables > PROCESS_DOCUMENT_SECRET,"
+      # Story 7.8 (R6) : Production seulement, jamais Preview (docs/environnements.md, relevé du 2026-11-13).
+      Write-Host "  Production seulement (jamais Preview), option Sensitive, puis enregistrez."
+      do {
+        $answer = Read-Host "Tapez OK quand c'est enregistré dans Vercel"
+      } while ($answer -cne "OK")
+    }
   } finally {
-    Set-Clipboard -Value " "
+    $cleared = Copy-Verified -Value " "
     Remove-Variable secret, key, secure, content -ErrorAction SilentlyContinue
   }
-  Write-Host "Presse-papiers effacé. Si l'historique Win + V est actif, supprimez aussi l'entrée."
+  if (-not $copied) {
+    Write-Error "Copie du secret dans le presse-papiers impossible après 3 essais. Il est posé dans Supabase, pas dans Vercel : relancez le script (un nouveau secret remplacera celui-ci)."
+    exit 1
+  }
+  if ($cleared) {
+    Write-Host "Presse-papiers effacé. Si l'historique Win + V est actif, supprimez aussi l'entrée."
+  } else {
+    Write-Warning "Le presse-papiers n'a pas pu être effacé : copiez un autre texte, et videz l'historique Win + V s'il est actif."
+  }
   Write-Host "Etape suivante : redéployez sur Vercel, puis suivez docs/environnements.md."
 }
 

@@ -1,6 +1,8 @@
 // Fonction chat (story 5.2a-2, FR-16, FR-17, AD-14, AD-16, AD-17). Appelée par Next.js seulement, avec
 // le jeton du Collaborateur (verify_jwt = true dans supabase/config.toml, session revérifiée auprès
-// d'Auth). La base est interrogée avec ce jeton, jamais avec service_role.
+// d'Auth). La base est interrogée avec ce jeton. Seule exception (story 7.8, R2, décision de
+// l'utilisateur du 2026-11-25) : reserve_ai_call et release_ai_call, EXECUTE à service_role seul, sont
+// appelées avec la clé service_role et l'identifiant du Collaborateur vérifié auprès d'Auth.
 //
 // Deux modes (story 5.5) : flux SSE si le relais envoie « Accept: text/event-stream » (texte provisoire
 // en delta, masqué de son marqueur et de ses repères, puis done, refusal ou error) ; sinon réponse JSON
@@ -149,13 +151,21 @@ function headers({ apikey, token }: Target): Record<string, string> {
   return { apikey, Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 }
 
-async function verifySession(target: Target, signal: AbortSignal): Promise<void> {
+// Session revérifiée auprès d'Auth ; renvoie l'identifiant du Collaborateur (story 7.8, R2 : seul
+// identifiant transmis au garde-fou, jamais une valeur reçue du navigateur).
+async function verifySession(target: Target, signal: AbortSignal): Promise<string> {
   const response = await fetch(`${target.url}/auth/v1/user`, { headers: headers(target), signal });
-  await response.body?.cancel().catch(() => {});
   if (response.status === 401 || response.status === 403) {
+    await response.body?.cancel().catch(() => {});
     throw new ChatError("UNAUTHENTICATED", 401, false, `session_${response.status}`);
   }
-  if (!response.ok) throw new ChatError("INTERNAL", 500, true, `auth_http_${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    throw new ChatError("INTERNAL", 500, true, `auth_http_${response.status}`);
+  }
+  const user = (await response.json().catch(() => null)) as { id?: unknown } | null;
+  if (typeof user?.id !== "string" || user.id === "") throw new ChatError("INTERNAL", 500, true, "auth_invalid_body");
+  return user.id;
 }
 
 async function failed(response: Response, name: string): Promise<ChatError> {
@@ -483,11 +493,15 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
 
   const url = readEnv("SUPABASE_URL");
   const apikey = publicKey(request);
-  if (!url || !apikey) {
+  // Clé service_role : garde-fou seulement (reserve_ai_call, release_ai_call ; story 7.8, R2).
+  const quotaKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !apikey || !quotaKey) {
     logEvent("chat_not_configured", {});
     return errorResponse("INTERNAL", FAILURE_MESSAGE, true, 500);
   }
   const target = { url, apikey, token };
+  const quota: Target = { url, apikey: quotaKey, token: quotaKey };
+  let userId = "";
 
   const streaming = wantsStream(request);
   const mode = streaming ? "stream" : "json";
@@ -552,7 +566,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     reservationId = null;
     try {
       const cleanup = AbortSignal.timeout(options.cleanupTimeoutMs ?? CHAT_CLEANUP_TIMEOUT_MS);
-      return (await rpc(target, "release_ai_call", { p_reservation_id: id }, cleanup)) === true;
+      return (await rpc(quota, "release_ai_call", { p_user_id: userId, p_reservation_id: id }, cleanup)) === true;
     } catch (error) {
       logEvent("chat_release_failed", { cause: error instanceof ChatError ? error.reason : "network" });
       return false;
@@ -653,7 +667,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
   // demande acceptée, unité réservée, Conversation et question créées ; pour une question de suivi,
   // historique, question autonome ou échec de la reformulation (story 5.8).
   const accept = async (): Promise<Response | Accepted | Replayed> => {
-    await within(verifySession(target, signal));
+    userId = await within(verifySession(target, signal));
 
     stage = "validation";
     const input = parseChatRequest(await request.json().catch(() => undefined));
@@ -701,7 +715,7 @@ export async function handle(request: Request, options: HandleOptions = {}): Pro
     // l'unité aussitôt (fail, AD-14 : rien n'a été envoyé au fournisseur) et répond AI_TIMEOUT. Le
     // garde-fou des 17 s, lui, répond toujours à son échéance (le travail continue en tâche de fond).
     if (signal.aborted) throw new AiError("AI_TIMEOUT", true, "délai de chat dépassé avant la réservation");
-    const reservation = parseReservation(await rpc(target, "reserve_ai_call", {}, AbortSignal.timeout(remaining() + cleanupMs)));
+    const reservation = parseReservation(await rpc(quota, "reserve_ai_call", { p_user_id: userId }, AbortSignal.timeout(remaining() + cleanupMs)));
     if (!reservation) throw new ChatError("INTERNAL", 500, true, "reserve_invalid_body");
     if (reservation.ok && signal.aborted) {
       reservationId = reservation.reservationId;

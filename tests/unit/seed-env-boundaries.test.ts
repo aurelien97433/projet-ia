@@ -41,6 +41,25 @@ describe("git", () => {
   });
 });
 
+// Story 7.8 (R7) : lancée à la racine, `supabase secrets set` poserait aussi les secrets de simulation
+// du config.toml (EMBEDDINGS_FAKE, GENERATION_FAKE) sur le projet distant.
+describe("docs/environnements.md", () => {
+  it("chaque commande `supabase secrets set` passe par un dossier temporaire (--workdir) et vise le projet par --remote", () => {
+    const doc = readFileSync(path.join(root, "docs", "environnements.md"), "utf8");
+    const commands = doc.split(/\r?\n/).filter((line) => /^\s*npx supabase secrets set\b/.test(line));
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) {
+      expect(command).toMatch(/--workdir \$work\b/);
+      expect(command).toMatch(/--remote=\$ref\b/);
+    }
+  });
+
+  it("le secret de traitement va en Production seulement", () => {
+    const doc = readFileSync(path.join(root, "docs", "environnements.md"), "utf8");
+    expect(doc).not.toMatch(/Production et Preview/);
+  });
+});
+
 describe("Next.js", () => {
   it("ne charge pas .env.seed", () => {
     dir = mkdtempSync(path.join(tmpdir(), "seed-next-"));
@@ -182,9 +201,33 @@ describe.runIf(process.platform === "win32")("setup-seed-env.ps1", () => {
   it("n'affiche aucune variable sensible et efface le presse-papiers après confirmation", () => {
     const script = readFileSync(PS1, "utf8");
     expect(script).not.toMatch(/Write-(Host|Output|Error)[^\n]*\$(secret|key|content|password)/i);
-    expect(script.indexOf('Set-Clipboard -Value " "')).toBeGreaterThan(script.indexOf("Read-Host \"Tapez OK"));
-    expect(script).toMatch(/finally \{\s+Set-Clipboard -Value " "/);
+    expect(script.indexOf('Copy-Verified -Value " "')).toBeGreaterThan(script.indexOf("Read-Host \"Tapez OK"));
+    expect(script).toMatch(/finally \{\s+\$cleared = Copy-Verified -Value " "/);
+    // Story 7.8 (R8) : toute copie passe par Copy-Verified (relecture, nouvel essai).
+    expect(script.match(/Set-Clipboard/g)).toHaveLength(1);
     expect(script.indexOf("Move-Item -Force $pendingSeed")).toBeGreaterThan(script.indexOf("$result.ExitCode -ne 0"));
+  });
+
+  // Story 7.8 (R6) : le secret de traitement va en Production seulement (docs/environnements.md).
+  it("consigne Vercel : Production seulement, jamais Preview", () => {
+    const script = readFileSync(PS1, "utf8");
+    expect(script).not.toMatch(/Production et Preview/);
+    expect(script).toContain("Production seulement (jamais Preview)");
+  });
+
+  // Story 7.8 (R8, D19) : copie relue ; nouvel essai ; échec signalé après 3 essais.
+  it.each([
+    ["relue du premier coup", "@('ok')", "True", 1],
+    ["presse-papiers occupé, puis libre", "@('throw', 'ok')", "True", 2],
+    ["valeur relue différente à chaque essai", "@('autre', 'autre', 'autre')", "False", 3],
+    ["relecture vide", "@('null', 'null', 'null')", "False", 3],
+  ])("Copy-Verified : %s", (_label, plan, expected, attempts) => {
+    const script =
+      `${load}$global:plan = ${plan}; $global:n = 0; $global:store = $null; ` +
+      "$r = Copy-Verified -Value 'valeur' -Set { param($v) $global:n++; $step = $global:plan[$global:n - 1]; " +
+      "if ($step -eq 'throw') { throw 'occupé' }; $global:store = if ($step -eq 'ok') { $v } elseif ($step -eq 'null') { $null } else { 'x' } } " +
+      "-Get { $global:store }; \"$r|$global:n\"";
+    expect(powershell(script).stdout.trim()).toBe(`${expected}|${attempts}`);
   });
 
   it.each([

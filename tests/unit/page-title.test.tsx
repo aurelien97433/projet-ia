@@ -43,6 +43,16 @@ describe("PageTitle et Passage actif", () => {
     expect(document.activeElement).toBe(document.body);
   });
 
+  // Story 7.8 (R73-F13) : navigation avant que le premier titre ait pris sa décision (machine lente).
+  it("adresse changée avant le premier titre : ce titre n'est pas un premier chargement, il reçoit le focus", async () => {
+    window.history.pushState(null, "", "/premier-ecran");
+    const { PageTitle } = await load();
+    window.history.pushState(null, "", "/ecran-suivant");
+    render(<PageTitle>Écran suivant</PageTitle>);
+    expect(document.activeElement).toBe(title());
+    window.history.pushState(null, "", "/");
+  });
+
   it("titre qui laisse le focus : l'état partagé est tout de même consommé", async () => {
     const { PageTitle, shouldFocusTitle } = await load();
     render(<PageTitle yieldFocus>Document</PageTitle>);

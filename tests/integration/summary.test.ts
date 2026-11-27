@@ -311,7 +311,7 @@ describe("summarize contre la base locale (génération simulée)", () => {
     const a = await signUp("resume-verrou-expire");
     const b = await signUp("resume-verrou-expire-b");
     const id = await readyNote(a);
-    expect((await b.client.rpc("begin_summary", { p_document_id: id })).data).toBe(true);
+    expect((await admin.rpc("begin_summary", { p_user_id: b.id, p_document_id: id })).data).toBe(true);
     expect((await summarizeAs(a, id)).status).toBe(409);
     localSqlRows(`update public.summary_requests set started_at = now() - interval '131 seconds' where document_id = '${id}'`);
     const result = await summarizeAs(a, id);
@@ -320,26 +320,33 @@ describe("summarize contre la base locale (génération simulée)", () => {
     expect(await userCount(a)).toBe(1);
   });
 
-  it("verrou : end_summary d'un autre Compte ne libère rien ; anon refusé (42501) ; aucun accès direct à summary_requests", async () => {
+  // Story 7.8 (R1) : begin_summary et end_summary réservées à service_role ; un Collaborateur qui les
+  // appelle directement (libérer le verrou pour lancer N Résumés, ou le reprendre en boucle) : 42501.
+  it("verrou : end_summary d'un autre Compte ne libère rien ; Collaborateur et anon refusés (42501) ; aucun accès direct à summary_requests", async () => {
     const a = await signUp("resume-verrou-a");
     const b = await signUp("resume-verrou-b");
     const id = await readyNote(a);
-    expect((await a.client.rpc("begin_summary", { p_document_id: id })).data).toBe(true);
-    expect((await b.client.rpc("begin_summary", { p_document_id: id })).data).toBe(false);
-    expect((await b.client.rpc("end_summary", { p_document_id: id })).error).toBeNull();
+    expect((await admin.rpc("begin_summary", { p_user_id: a.id, p_document_id: id })).data).toBe(true);
+    expect((await admin.rpc("begin_summary", { p_user_id: b.id, p_document_id: id })).data).toBe(false);
+    expect((await admin.rpc("end_summary", { p_user_id: b.id, p_document_id: id })).error).toBeNull();
     expect(sqlNumber(`select count(*) as value from public.summary_requests where document_id = '${id}'`)).toBe(1);
-    expect((await anon.rpc("begin_summary", { p_document_id: id })).error?.code).toBe(DENIED);
-    expect((await anon.rpc("end_summary", { p_document_id: id })).error?.code).toBe(DENIED);
+    for (const client of [a.client, anon]) {
+      expect((await client.rpc("begin_summary", { p_user_id: a.id, p_document_id: id })).error?.code).toBe(DENIED);
+      expect((await client.rpc("end_summary", { p_user_id: a.id, p_document_id: id })).error?.code).toBe(DENIED);
+    }
+    // Anciennes signatures (sans p_user_id) : supprimées.
+    expect((await a.client.rpc("end_summary", { p_document_id: id })).error).not.toBeNull();
+    expect(sqlNumber(`select count(*) as value from public.summary_requests where document_id = '${id}'`)).toBe(1);
     expect((await a.client.from("summary_requests").select("*")).error?.code).toBe(DENIED);
     expect(
       (await a.client.from("summary_requests").insert({ document_id: id, user_id: a.id, started_at: new Date().toISOString() })).error?.code,
     ).toBe(DENIED);
     expect((await a.client.from("summary_requests").delete().eq("document_id", id)).error?.code).toBe(DENIED);
-    expect((await a.client.rpc("end_summary", { p_document_id: id })).error).toBeNull();
+    expect((await admin.rpc("end_summary", { p_user_id: a.id, p_document_id: id })).error).toBeNull();
     expect(sqlNumber(`select count(*) as value from public.summary_requests where document_id = '${id}'`)).toBe(0);
   });
 
-  it("begin_summary et end_summary : security definer, search_path vide, une signature, EXECUTE à authenticated seul ; RLS sans politique", () => {
+  it("garde-fou (story 7.8, R1 et R2) : begin_summary, end_summary, reserve_ai_call et release_ai_call en security definer, search_path vide, une signature, EXECUTE à service_role seul ; RLS sans politique", () => {
     const rows = localSqlRows(
       [
         "select p.proname, p.prosecdef, p.proconfig::text as config, pg_get_function_identity_arguments(p.oid) as args,",
@@ -348,19 +355,26 @@ describe("summarize contre la base locale (génération simulée)", () => {
         "has_function_privilege('service_role', p.oid, 'execute') as service_role,",
         "exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0 and a.privilege_type = 'EXECUTE') as public_execute",
         "from pg_proc p join pg_namespace n on n.oid = p.pronamespace",
-        "where n.nspname = 'public' and p.proname in ('begin_summary', 'end_summary') order by p.proname",
+        "where n.nspname = 'public' and p.proname in ('begin_summary', 'end_summary', 'release_ai_call', 'reserve_ai_call') order by p.proname",
       ].join(" "),
     );
     const flag = (value: unknown) => String(value) === "true";
-    expect(rows.map((row) => row.proname)).toEqual(["begin_summary", "end_summary"]);
+    expect(rows.map((row) => row.proname)).toEqual(["begin_summary", "end_summary", "release_ai_call", "reserve_ai_call"]);
+    const args: Record<string, string> = {
+      begin_summary: "p_user_id uuid, p_document_id uuid",
+      end_summary: "p_user_id uuid, p_document_id uuid",
+      release_ai_call: "p_user_id uuid, p_reservation_id uuid",
+      reserve_ai_call: "p_user_id uuid",
+    };
     for (const row of rows) {
-      expect(flag(row.prosecdef)).toBe(true);
-      expect(String(row.config).replaceAll("\\", "")).toContain('search_path=""');
-      expect(String(row.args)).toBe("p_document_id uuid");
-      expect(flag(row.authenticated)).toBe(true);
-      expect(flag(row.anon)).toBe(false);
-      expect(flag(row.service_role)).toBe(false);
-      expect(flag(row.public_execute)).toBe(false);
+      const name = String(row.proname);
+      expect(flag(row.prosecdef), name).toBe(true);
+      expect(String(row.config).replaceAll("\\", ""), name).toContain('search_path=""');
+      expect(String(row.args), name).toBe(args[name]);
+      expect(flag(row.authenticated), name).toBe(false);
+      expect(flag(row.anon), name).toBe(false);
+      expect(flag(row.service_role), name).toBe(true);
+      expect(flag(row.public_execute), name).toBe(false);
     }
     const table = localSqlRows(
       [
@@ -379,7 +393,8 @@ describe("summarize contre la base locale (génération simulée)", () => {
     expect(flag(table[0].anon_any)).toBe(false);
   });
 
-  it("texte changé pendant la génération : écriture refusée, unité rendue, aucun Résumé", async () => {
+  // Story 7.8 (R1) : la génération est facturée, l'unité reste consommée (modifie la règle de la 6.1).
+  it("texte changé pendant la génération : écriture refusée, unité consommée, aucun Résumé", async () => {
     const a = await signUp("resume-texte-change");
     const id = await readyNote(a);
     hook = async (url, run) => {
@@ -389,7 +404,7 @@ describe("summarize contre la base locale (génération simulée)", () => {
     const result = await summarizeAs(a, id);
     expect(result.status).toBe(500);
     expect(result.body.error).toMatchObject({ code: "INTERNAL", retryable: true });
-    expect(await userCount(a)).toBe(0);
+    expect(await userCount(a)).toBe(1);
     expect((await summaryRow(id)).summary_points).toBeNull();
   });
 
@@ -412,7 +427,7 @@ describe("summarize contre la base locale (génération simulée)", () => {
   it("quota atteint (60 sur 60) : 429 QUOTA_EXCEEDED avec resetAt, aucun Résumé", async () => {
     const a = await signUp("resume-quota");
     const id = await readyNote(a);
-    await Promise.all(Array.from({ length: 60 }, () => a.client.rpc("reserve_ai_call")));
+    await Promise.all(Array.from({ length: 60 }, () => admin.rpc("reserve_ai_call", { p_user_id: a.id })));
     expect(await userCount(a)).toBe(60);
     const result = await summarizeAs(a, id);
     expect(result.status).toBe(429);

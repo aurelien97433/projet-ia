@@ -24,6 +24,8 @@ const REMOTE = "https://abcdefghijklmnopqrst.supabase.co";
 const TOKEN = "jeton-du-collaborateur";
 const PUBLISHABLE = "sb_publishable_exemple";
 const SERVICE = ["cle", "service", "role", "test"].join("-");
+// Identifiant renvoyé par Auth (routes.auth) : seul identifiant transmis au garde-fou (story 7.8).
+const USER = "u1";
 const DOC = "d1d1d1d1-0000-4000-8000-000000000001";
 const RESERVATION = "11111111-2222-4333-8444-555555555555";
 const SECRET_TEXT = "Texte confidentiel du Document à résumer";
@@ -140,14 +142,17 @@ describe("summarize : parcours nominal", () => {
     expect(body.response_format.type).toBe("json_schema");
   });
 
-  it("jeton du Collaborateur pour la session, le Document et la réservation ; clé service_role pour store_summary seulement", async () => {
+  it("jeton du Collaborateur pour la session et le Document ; clé service_role pour le verrou, le quota et store_summary (story 7.8, R1 et R2)", async () => {
     await ask();
-    for (const name of ["auth", "document", "lock", "reserve", "unlock"]) {
+    for (const name of ["auth", "document"]) {
       expect(headersOf(name).get("authorization"), name).toBe(`Bearer ${TOKEN}`);
       expect(headersOf(name).get("apikey"), name).toBe(PUBLISHABLE);
     }
-    expect(headersOf("store").get("authorization")).toBe(`Bearer ${SERVICE}`);
-    expect(headersOf("store").get("apikey")).toBe(SERVICE);
+    for (const name of ["lock", "reserve", "store", "unlock"]) {
+      expect(headersOf(name).get("authorization"), name).toBe(`Bearer ${SERVICE}`);
+      expect(headersOf(name).get("apikey"), name).toBe(SERVICE);
+    }
+    expect(JSON.parse(String(fetchMock.mock.calls[order.indexOf("reserve")][1].body))).toEqual({ p_user_id: USER });
     const store = JSON.parse(String(fetchMock.mock.calls[order.indexOf("store")][1].body));
     expect(store).toEqual({ p_document_id: DOC, p_text_version: 2, p_points: [SECRET_POINT, "Le second point."] });
   });
@@ -245,6 +250,13 @@ describe("summarize : sans réservation", () => {
     expect(order).toEqual(["auth", "document", "lock", "reserve", "unlock"]);
   });
 
+  it("story 7.8 : identifiant absent de la réponse d'Auth : panne avant toute lecture, sans verrou ni réservation", async () => {
+    routes.auth = async () => Response.json({});
+    const response = await ask();
+    expect(response.status).toBe(500);
+    expect(order).toEqual(["auth"]);
+  });
+
   it("clé service_role absente : panne AVANT la réservation (rien réservé, aucun appel)", async () => {
     delete env.SUPABASE_SERVICE_ROLE_KEY;
     const response = await ask();
@@ -254,13 +266,13 @@ describe("summarize : sans réservation", () => {
 });
 
 describe("summarize : verrou de demande par Document (correctif de revue R1 = A)", () => {
-  it("verrou pris après « Résumé à jour ? », avant la réservation, avec le jeton du Collaborateur ; Document en argument", async () => {
+  it("verrou pris après « Résumé à jour ? », avant la réservation, avec la clé service_role et l'identifiant vérifié ; Document en argument", async () => {
     await ask();
     expect(order.indexOf("lock")).toBeLessThan(order.indexOf("reserve"));
-    expect(headersOf("lock").get("authorization")).toBe(`Bearer ${TOKEN}`);
-    expect(headersOf("unlock").get("authorization")).toBe(`Bearer ${TOKEN}`);
-    expect(JSON.parse(String(fetchMock.mock.calls[order.indexOf("lock")][1].body))).toEqual({ p_document_id: DOC });
-    expect(JSON.parse(String(fetchMock.mock.calls[order.indexOf("unlock")][1].body))).toEqual({ p_document_id: DOC });
+    expect(headersOf("lock").get("authorization")).toBe(`Bearer ${SERVICE}`);
+    expect(headersOf("unlock").get("authorization")).toBe(`Bearer ${SERVICE}`);
+    expect(JSON.parse(String(fetchMock.mock.calls[order.indexOf("lock")][1].body))).toEqual({ p_user_id: USER, p_document_id: DOC });
+    expect(JSON.parse(String(fetchMock.mock.calls[order.indexOf("unlock")][1].body))).toEqual({ p_user_id: USER, p_document_id: DOC });
   });
 
   it("verrou refusé : 409 REQUEST_IN_PROGRESS, sans réservation, sans appel au fournisseur, sans libération du verrou d'autrui", async () => {
@@ -296,7 +308,7 @@ describe("summarize : verrou de demande par Document (correctif de revue R1 = A)
 });
 
 describe("summarize : règle de libération (AD-14, AD-18)", () => {
-  it("écriture perdue (Résumé concurrent) : unité rendue, Résumé stocké renvoyé (generated faux)", async () => {
+  it("écriture perdue (Résumé concurrent) : unité consommée (story 7.8, R1), Résumé stocké renvoyé (generated faux)", async () => {
     routes.store = async () => storedBody(["Résumé du gagnant."], false);
     const response = await ask();
     expect(response.status).toBe(200);
@@ -304,27 +316,25 @@ describe("summarize : règle de libération (AD-14, AD-18)", () => {
       summary: { points: ["Résumé du gagnant."], generatedAt: GENERATED_AT, textVersion: 2 },
       generated: false,
     });
-    expect(order).toEqual(["auth", "document", "lock", "reserve", "generate", "store", "release", "unlock"]);
-    expect(JSON.parse(String(fetchMock.mock.calls[order.indexOf("release")][1].body))).toEqual({ p_reservation_id: RESERVATION });
-    expect(headersOf("release").get("authorization")).toBe(`Bearer ${TOKEN}`);
+    expect(order).toEqual(["auth", "document", "lock", "reserve", "generate", "store", "unlock"]);
   });
 
-  it("texte changé pendant la génération (aucun Résumé à jour) : unité rendue, panne réessayable", async () => {
+  it("texte changé pendant la génération (aucun Résumé à jour) : unité consommée, panne réessayable", async () => {
     routes.store = async () => Response.json({ stored: false, found: true, status: "ready", summary: null });
     const response = await ask();
     expect(response.status).toBe(500);
     expect((await response.json()).error).toMatchObject({ code: "INTERNAL", message: FAILURE_MESSAGE, retryable: true });
-    expect(order.slice(-2)).toEqual(["release", "unlock"]);
+    expect(order.slice(-2)).toEqual(["store", "unlock"]);
   });
 
-  it("Document devenu non prêt ou supprimé pendant la génération : unité rendue, 409 ou 404", async () => {
+  it("Document devenu non prêt ou supprimé pendant la génération : unité consommée, 409 ou 404", async () => {
     routes.store = async () => Response.json({ stored: false, found: true, status: "processing", summary: null });
     expect((await ask()).status).toBe(409);
-    expect(order.slice(-2)).toEqual(["release", "unlock"]);
+    expect(order.slice(-2)).toEqual(["store", "unlock"]);
     order.length = 0;
     routes.store = async () => Response.json({ stored: false, found: false, status: null, summary: null });
     expect((await ask()).status).toBe(404);
-    expect(order.slice(-2)).toEqual(["release", "unlock"]);
+    expect(order.slice(-2)).toEqual(["store", "unlock"]);
   });
 
   it("panne sans réponse du fournisseur (deux 5xx) : unité rendue, AI_UNAVAILABLE, rien enregistré", async () => {
@@ -333,6 +343,9 @@ describe("summarize : règle de libération (AD-14, AD-18)", () => {
     expect(response.status).toBe(503);
     expect((await response.json()).error).toEqual({ code: "AI_UNAVAILABLE", message: FAILURE_MESSAGE, retryable: true });
     expect(order).toEqual(["auth", "document", "lock", "reserve", "generate", "generate", "release", "unlock"]);
+    // Story 7.8 (R1 et R2) : unité rendue avec la clé service_role et l'identifiant vérifié.
+    expect(JSON.parse(String(fetchMock.mock.calls[order.indexOf("release")][1].body))).toEqual({ p_user_id: USER, p_reservation_id: RESERVATION });
+    expect(headersOf("release").get("authorization")).toBe(`Bearer ${SERVICE}`);
   });
 
   it("erreur réseau du fournisseur : unité rendue, une seule tentative", async () => {

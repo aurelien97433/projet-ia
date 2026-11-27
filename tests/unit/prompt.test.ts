@@ -216,6 +216,20 @@ describe("escapeTitle et escapeContent", () => {
     expect(escapeContent("a & b < c > d &lt;")).toBe("a &amp; b &lt; c &gt; d &amp;lt;");
     expect(escapeTitle('A & "B"')).toBe("A &amp; &quot;B&quot;");
   });
+
+  // Story 7.8 (R5) : une consigne invisible au Lecteur ne part plus au modèle.
+  it("caractères invisibles et bidirectionnels retirés (contenu, question, titre), texte visible et accents conservés", () => {
+    const hidden = "Procé​dure‌‍⁠﻿­ de ‮facturation‬⁦⁧⁨⁩‎‏";
+    expect(escapeContent(hidden)).toBe("Procédure de facturation");
+    expect(escapeTitle(hidden)).toBe("Procédure de facturation");
+    // Étiquettes Unicode (U+E0000-U+E007F) : texte caché lisible par le modèle, invisible à l'écran.
+    const tags = Array.from("ignore", (c) => String.fromCodePoint(0xe0000 + c.codePointAt(0)!)).join("");
+    expect(escapeContent(`Bonjour${tags}.`)).toBe("Bonjour.");
+    // Sélecteurs de variante (y compris U+E0100-U+E01EF, utilisés pour cacher des octets).
+    expect(escapeContent(`A️${String.fromCodePoint(0xe0100)}${String.fromCodePoint(0xe01ef)}B`)).toBe("AB");
+    // Sauts de ligne du contenu conservés ; neutralisation inchangée.
+    expect(escapeContent("Ligne 1\nLigne​ 2 <b>")).toBe("Ligne 1\nLigne 2 &lt;b&gt;");
+  });
 });
 
 // Story 5.8 (AD-12, NFR-10) : historique transmis comme donnée balisée et neutralisée.
