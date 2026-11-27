@@ -79,3 +79,45 @@ Pour un développeur qui reprend le projet sans son auteur. Ce guide ne contient
 - **Tests e2e sous charge** : au-delà de 4 workers, des délais dépassés apparaissent sans défaut de l'application ; `npx playwright test --workers=4`.
 - **Limite d'usage de l'assistant IA.** Le projet a été réalisé avec Claude Code, dont l'usage est plafonné par semaine : le travail s'arrête net à la limite. Avant une longue tâche, écrire le point d'arrêt dans la spec de la story ; l'état du projet se lit dans `_bmad-output/implementation-artifacts/sprint-status.yaml` et le [journal](journal-vibe-coding.md).
 - **`test:summary:live`** conclut « ÉCHEC » si les Résumés visés existent déjà (D86) : vérifier le Résumé sur un Document sans Résumé, à la main.
+
+## 9. Correspondance avec la séquence 12
+
+Section ajoutée le 2026-11-27. La séquence 12 de la formation attend : distinguer local, prévisualisation et production ; déployer sans exposer les secrets ni perdre les données ; une IA qui prépare la mise en ligne et explique les actions à autoriser ; un déploiement validé et des parcours essayés sur l'URL publiée ; un guide de reprise et une démonstration.
+
+### 9.1 Trois environnements, et quand chacun a servi
+
+| Environnement | Ce qu'il contient | Quand il a servi |
+|---|---|---|
+| **Local** | Supabase local (Docker), Next.js en développement ou en build de test (port 3100) ; vectorisation et génération **simulées**, aucun appel facturé | Tout le développement et tous les tests automatisés : `npm test`, `npm run test:e2e` (§ 4) |
+| **Prévisualisation** (Vercel Preview) | Un déploiement par branche, protégé par l'authentification Vercel ; **sans** `PROCESS_DOCUMENT_SECRET`, donc sans traitement de Document | Story 5.0 : essai du flux de réponse (Edge Function → Route Handler → navigateur) sur une branche d'essai, sans rien publier sur `main`. Résultat : aucun regroupement des morceaux, premier morceau en médiane à 760 ms ([flux-vercel.md](mesures/flux-vercel.md)). La fonction et la branche d'essai ont ensuite été supprimées |
+| **Production** (Vercel `fra1`, Supabase `eu-central-1`) | Le seul projet Supabase distant, le Jeu de démonstration, la vraie IA ; l'URL publique de démonstration | Story 6.2 et suivantes : tous les tests réels (`*:live`, `measure:all`). **Pourquoi la production et pas la prévisualisation** : le secret de traitement n'est posé qu'en Production ; sur une prévisualisation, aucune Note ne passerait à « prêt ». Les tests en production marquent leurs Documents (« — test … ») et les suppriment, même en cas d'échec |
+
+### 9.2 Protections des secrets et des données
+
+| Protection | Comment | Preuve |
+|---|---|---|
+| Aucun secret dans le dépôt ni dans le code envoyé au navigateur | `check:secrets` sur le dépôt, puis sur `.next/static` et `.next/server/app`, bloquant dans `build:ci` (commande de build de Vercel) | [check-secrets.test.ts](../tests/unit/check-secrets.test.ts) ; build vert ([audit-securite.md](tests/audit-securite.md) § 7) |
+| Clé OpenAI seulement dans les secrets Supabase ; clé `service_role` jamais dans Next.js ni Vercel | Lue par les Edge Functions seulement (AD-1) | [process-secret-boundaries.test.ts](../tests/unit/process-secret-boundaries.test.ts) |
+| Secrets posés sans affichage, sans variable de simulation envoyée en production | Saisie masquée, dossier de travail temporaire (`--workdir`, `--remote`), presse-papiers vérifié puis effacé (§ 7) | [seed-env-boundaries.test.ts](../tests/unit/seed-env-boundaries.test.ts) |
+| Aucune perte de données au déploiement | Migrations qui ne suppriment aucune donnée (celle de la 7.8 remplace des fonctions, sans toucher aux tables), jamais de `db reset` sur la production (§ 8) ; `seed:demo` n'écrit qu'après un plan en lecture seule et ne supprime jamais rien (§ 6) | [environnements.md](environnements.md) ; [seed-demo.test.ts](../tests/integration/seed-demo.test.ts) |
+| Aucune URL ni aucun identifiant de production dans les rapports | Règle des URL du 2026-11-25 ; rapports des tests live sans e-mail, jeton ni URL | [environnements.md](environnements.md), « Règle des URL » |
+
+### 9.3 Un déploiement préparé par l'IA, expliqué, puis autorisé : la story 7.8
+
+| Étape | Qui | Ce qui a été fait |
+|---|---|---|
+| 1. Préparation | IA | Migration [20261127090000_service_only_quota.sql](../supabase/migrations/20261127090000_service_only_quota.sql) (4 fonctions réservées à `service_role`), code de `chat` et `summarize`, tests ; vérification complète en local après `db reset` (lancé par l'utilisateur) : 2 261 tests Vitest, 409 tests e2e, `build:ci` vert |
+| 2. Explication avant autorisation | IA | La migration et les nouvelles fonctions ne marchent qu'ensemble : `deploy:supabase` les envoie dans le même passage, **avant** le push, faute de quoi `chat` et `summarize` appelleraient des signatures supprimées |
+| 3. Déploiement | Utilisateur | `npm run deploy:supabase` : migration appliquée, `chat` et `summarize` redéployées, les deux autres fonctions inchangées ; Assistant vérifié sur le site |
+| 4. Contrôle distant | IA, en lecture seule, sur accord | Catalogue de production : une seule signature par fonction, `EXECUTE` à `service_role` seul ([audit-securite.md](tests/audit-securite.md) § 7) |
+| 5. Push | IA, sur accord | `origin/main` = `e8cd60c` ; Vercel reconstruit avec `build:ci` |
+| 6. Tests en production | Utilisateur | `test:security:live` réussi, `test:chat:live` 15 sur 15, génération du Résumé vérifiée à la main (`test:summary:live` inadapté quand les Résumés existent déjà, D86) |
+
+Règle suivie à chaque étape : l'IA ne lance ni déploiement, ni commande destructrice, ni test en production ; elle prépare, explique l'ordre et les risques, puis attend l'accord.
+
+### 9.4 Vérifications sur l'URL publiée
+
+- **UJ-2 en production**, trois fois de suite : `test:uj2:live`, 3 sur 3 le 2026-11-27 ([uj2-live-2.md](mesures/uj2-live-2.md)).
+- **Sécurité en production** : `test:security:live` ([securite-live-2.md](mesures/securite-live-2.md)) : SM-6, 9 routes en 401 sans session, aucun secret dans le code chargé par le navigateur.
+- **Vidéo de secours** : UJ-1 à UJ-3 sur la production avec le Compte de démo A, 98 s, visionnée en entier ([checklist](demo/checklist.md) § 6).
+- **Démonstration** : livrables, vérifications de 48 h avant et de la veille, checklist du jour J et plan B dans la [checklist de démonstration](demo/checklist.md).
